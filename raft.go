@@ -1454,6 +1454,16 @@ func stepLeader(r *raft, m pb.Message) error {
 		pr.RecentActive = true
 		pr.MsgAppFlowPaused = false
 
+		if m.Reject {
+			r.logger.Debugf("%x received MsgHeartbeatResp(rejected, hint: (index %d)) from %x for index %d",
+				r.id, m.RejectHint, m.From, m.Commit)
+
+			pr.Match = m.RejectHint
+			pr.Next = m.RejectHint + 1
+
+			r.logger.Debugf("%x decreased progress of %x to [%s]", r.id, m.From, pr)
+		}
+
 		// NB: if the follower is paused (full Inflights), this will still send an
 		// empty append, allowing it to recover from situations in which all the
 		// messages that filled up Inflights in the first place were dropped. Note
@@ -1680,6 +1690,18 @@ func (r *raft) handleAppendEntries(m pb.Message) {
 }
 
 func (r *raft) handleHeartbeat(m pb.Message) {
+	defer func() {
+		if v := recover(); v != nil {
+			r.send(pb.Message{
+				To:         m.From,
+				Type:       pb.MsgHeartbeatResp,
+				Commit:     m.Commit,
+				Reject:     true,
+				RejectHint: min(m.Commit, r.raftLog.lastIndex()),
+			})
+		}
+	}()
+
 	r.raftLog.commitTo(m.Commit)
 	r.send(pb.Message{To: m.From, Type: pb.MsgHeartbeatResp, Context: m.Context})
 }
