@@ -48,7 +48,7 @@ func main() {
 
 	kvs, fsm := newKVStore(proposeC)
 
-	rc, commitC, errorC := startRaftNode(
+	rc, commitC, _ := startRaftNode(
 		*id, strings.Split(*cluster, ","), *join,
 		fsm, snapshotStorage,
 		proposeC, confChangeC,
@@ -61,5 +61,5 @@ func main() {
 	}()
 
 	// the key-value http handler will propose updates to raft
-	serveHTTPKVAPI(kvs, *kvport, confChangeC, errorC)
+	serveHTTPKVAPI(kvs, *kvport, confChangeC, rc.Done())
 }
