@@ -55,7 +55,7 @@ func main() {
 	)
 
 	go func() {
-		if err := rc.ProcessCommits(commitC, errorC); err != nil {
+		if err := rc.ProcessCommits(commitC); err != nil {
 			log.Fatalf("raftexample: %v", err)
 		}
 	}()

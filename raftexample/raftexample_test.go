@@ -222,14 +222,14 @@ func TestPutAndGetKeyValue(t *testing.T) {
 
 	kvs, fsm := newKVStore(proposeC)
 
-	node, commitC, errorC := startRaftNode(
+	node, commitC, _ := startRaftNode(
 		id, clusters, false,
 		fsm, snapshotStorage,
 		proposeC, confChangeC,
 	)
 
 	go func() {
-		if err := node.ProcessCommits(commitC, errorC); err != nil {
+		if err := node.ProcessCommits(commitC); err != nil {
 			log.Fatalf("raftexample: %v", err)
 		}
 	}()
