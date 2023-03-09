@@ -55,7 +55,6 @@ func newKVStore(snapshotStorage SnapshotStorage, proposeC chan<- string) (*kvsto
 	fsm := kvfsm{
 		kvs: s,
 	}
-	fsm.LoadAndApplySnapshot()
 	return s, fsm
 }
 
