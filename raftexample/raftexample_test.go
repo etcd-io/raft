@@ -33,7 +33,6 @@ import (
 
 type peer struct {
 	node        *raftNode
-	commitC     <-chan *commit
 	proposeC    chan string
 	confChangeC chan raftpb.ConfChange
 	fsm         FSM
@@ -86,7 +85,7 @@ func newCluster(fsms ...FSM) *cluster {
 			log.Fatalf("raftexample: %v", err)
 		}
 
-		peer.node, peer.commitC, _ = startRaftNode(
+		peer.node = startRaftNode(
 			id, clus.peerNames, false,
 			peer.fsm, snapshotStorage,
 			peer.proposeC, peer.confChangeC,
@@ -111,7 +110,7 @@ func (clus *cluster) Close() (err error) {
 		peer := peer
 		go func() {
 			//nolint:revive
-			for range peer.commitC {
+			for range peer.node.commitC {
 				// drain pending commits
 			}
 		}()
@@ -197,7 +196,7 @@ func TestProposeOnCommit(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := fsm.peer.node.ProcessCommits(fsm.peer.commitC); err != nil {
+			if err := fsm.peer.node.ProcessCommits(); err != nil {
 				t.Error("ProcessCommits returned error", err)
 			}
 		}()
@@ -243,7 +242,7 @@ func TestCloseProposerInflight(t *testing.T) {
 	}()
 
 	// wait for one message
-	if c, ok := <-clus.peers[0].commitC; !ok || c.data[0] != "foo" {
+	if c, ok := <-clus.peers[0].node.commitC; !ok || c.data[0] != "foo" {
 		t.Fatalf("Commit failed")
 	}
 
@@ -269,14 +268,14 @@ func TestPutAndGetKeyValue(t *testing.T) {
 
 	kvs, fsm := newKVStore(proposeC)
 
-	node, commitC, _ := startRaftNode(
+	node := startRaftNode(
 		id, clusters, false,
 		fsm, snapshotStorage,
 		proposeC, confChangeC,
 	)
 
 	go func() {
-		if err := node.ProcessCommits(commitC); err != nil {
+		if err := node.ProcessCommits(); err != nil {
 			log.Fatalf("raftexample: %v", err)
 		}
 	}()
@@ -367,7 +366,7 @@ func TestAddNewNode(t *testing.T) {
 		proposeC <- "foo"
 	}()
 
-	if c, ok := <-clus.peers[0].commitC; !ok || c.data[0] != "foo" {
+	if c, ok := <-clus.peers[0].node.commitC; !ok || c.data[0] != "foo" {
 		t.Fatalf("Commit failed")
 	}
 }
@@ -401,7 +400,7 @@ func TestSnapshot(t *testing.T) {
 		clus.peers[0].proposeC <- "foo"
 	}()
 
-	c := <-clus.peers[0].commitC
+	c := <-clus.peers[0].node.commitC
 
 	select {
 	case <-sw.C:
