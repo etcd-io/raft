@@ -5,7 +5,7 @@ log-level none
 ----
 ok
 
-add-nodes 3 voters=(1,2,3) index=10 async-storage-writes=true
+add-nodes 3 voters=(1,2,3) index=10 async-storage-writes=true async-storage-writes-nonlocal-quorum=true
 ----
 ok
 
@@ -65,17 +65,25 @@ process-ready 1
 ----
 Ready MustSync=false:
 HardState Term:1 Vote:1 Commit:12
+CommittedEntries:
+1/12 EntryNormal "prop_1"
 Messages:
 1->2 MsgApp Term:1 Log:1/12 Commit:12
 1->3 MsgApp Term:1 Log:1/12 Commit:12
 1->AppendThread MsgStorageAppend Term:1 Log:0/0 Commit:12 Vote:1 Responses:[AppendThread->1 MsgStorageAppendResp Term:1 Log:1/12]
+1->ApplyThread MsgStorageApply Term:0 Log:0/0 Entries:[1/12 EntryNormal "prop_1"] Responses:[ApplyThread->1 MsgStorageApplyResp Term:0 Log:0/0 Entries:[1/12 EntryNormal "prop_1"]]
 
 process-apply-thread 1
 ----
-no apply work to perform
+Processing:
+1->ApplyThread MsgStorageApply Term:0 Log:0/0 Entries:[1/12 EntryNormal "prop_1"]
+Responses:
+ApplyThread->1 MsgStorageApplyResp Term:0 Log:0/0 Entries:[1/12 EntryNormal "prop_1"]
 
 stabilize 1
 ----
+> 1 receiving messages
+  ApplyThread->1 MsgStorageApplyResp Term:0 Log:0/0 Entries:[1/12 EntryNormal "prop_1"]
 > 1 processing append thread
   Processing:
   1->AppendThread MsgStorageAppend Term:0 Log:0/0 Entries:[1/12 EntryNormal "prop_1"]
@@ -91,19 +99,6 @@ stabilize 1
   AppendThread->1 MsgStorageAppendResp Term:1 Log:1/12
   AppendThread->1 MsgStorageAppendResp Term:1 Log:1/12
   INFO entry at index 12 missing from unstable log; ignoring
-> 1 handling Ready
-  Ready MustSync=false:
-  CommittedEntries:
-  1/12 EntryNormal "prop_1"
-  Messages:
-  1->ApplyThread MsgStorageApply Term:0 Log:0/0 Entries:[1/12 EntryNormal "prop_1"] Responses:[ApplyThread->1 MsgStorageApplyResp Term:0 Log:0/0 Entries:[1/12 EntryNormal "prop_1"]]
-> 1 processing apply thread
-  Processing:
-  1->ApplyThread MsgStorageApply Term:0 Log:0/0 Entries:[1/12 EntryNormal "prop_1"]
-  Responses:
-  ApplyThread->1 MsgStorageApplyResp Term:0 Log:0/0 Entries:[1/12 EntryNormal "prop_1"]
-> 1 receiving messages
-  ApplyThread->1 MsgStorageApplyResp Term:0 Log:0/0 Entries:[1/12 EntryNormal "prop_1"]
 
 stabilize 2 3
 ----

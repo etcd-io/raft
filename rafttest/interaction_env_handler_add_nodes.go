@@ -50,6 +50,8 @@ func (env *InteractionEnv) handleAddNodes(t *testing.T, d datadriven.TestData) e
 				arg.Scan(t, i, &snap.Data)
 			case "async-storage-writes":
 				arg.Scan(t, i, &cfg.AsyncStorageWrites)
+			case "async-storage-writes-nonlocal-quorum":
+				arg.Scan(t, i, &cfg.AsyncStorageWritesNonLocalQuorum)
 			}
 		}
 	}
