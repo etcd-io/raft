@@ -77,7 +77,7 @@ type Ready struct {
 	// If async storage writes are enabled, this field does not need to be acted
 	// on immediately. It will be reflected in a MsgStorageAppend message in the
 	// Messages slice.
-	Entries []pb.Entry
+	Entries LogRange
 
 	// Snapshot specifies the snapshot to be saved to stable storage.
 	//
@@ -93,7 +93,7 @@ type Ready struct {
 	// If async storage writes are enabled, this field does not need to be acted
 	// on immediately. It will be reflected in a MsgStorageApply message in the
 	// Messages slice.
-	CommittedEntries []pb.Entry
+	CommittedEntries LogRange
 
 	// Messages specifies outbound messages.
 	//
