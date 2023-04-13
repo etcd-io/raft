@@ -31,19 +31,19 @@ type LogRange []pb.Entry
 
 // VerifyLogRange checks that the given slice represents a valid range of
 // contiguous log entries that can be appended after (index, term).
-func VerifyLogRange(index, term uint64, ents []pb.Entry) (LogRange, error) {
-	for i := range ents {
+func VerifyLogRange(index, term uint64, entries []pb.Entry) (LogRange, error) {
+	for i := range entries {
 		index++
-		if got := ents[i].Index; got != index {
+		if got := entries[i].Index; got != index {
 			return nil, fmt.Errorf("entry[%d].Index is %d, want %d", i, got, index)
 		}
-		curTerm := ents[i].Term
+		curTerm := entries[i].Term
 		if curTerm < term {
 			return nil, fmt.Errorf("entry[%d].Term is %d, want at least %d", i, curTerm, term)
 		}
 		term = curTerm
 	}
-	return ents, nil
+	return entries, nil
 }
 
 // Append appends a valid log range to this one. It is like a regular slice
@@ -62,12 +62,41 @@ func (r LogRange) Append(other LogRange) LogRange {
 	return append(r, other...)
 }
 
-func mustLogRange(t *testing.T, ents []pb.Entry) LogRange {
-	t.Helper()
-	if len(ents) == 0 {
-		return ents
+type logAppend struct {
+	index   uint64   // log index after which entries are appended
+	term    uint64   // term of the entry preceding entries
+	entries LogRange // entries start from index + 1
+}
+
+func (la logAppend) skip(count int) logAppend {
+	if count == 0 {
+		return la
 	}
-	res, err := VerifyLogRange(ents[0].Index-1, ents[0].Term, ents)
+	return logAppend{
+		index:   la.index + uint64(count),
+		term:    la.entries[count-1].Term,
+		entries: la.entries[count:],
+	}
+}
+
+func (la logAppend) lastIndex() uint64 {
+	return la.index + uint64(len(la.entries))
+}
+
+func verifyLogAppend(index, term uint64, entries []pb.Entry) (logAppend, error) {
+	rng, err := VerifyLogRange(index, term, entries)
+	if err != nil {
+		return logAppend{}, err
+	}
+	return logAppend{index: index, term: term, entries: rng}, nil
+}
+
+func mustLogRange(t *testing.T, entries []pb.Entry) LogRange {
+	t.Helper()
+	if len(entries) == 0 {
+		return entries
+	}
+	res, err := VerifyLogRange(entries[0].Index-1, entries[0].Term, entries)
 	if err != nil {
 		t.Fatalf("VerifyLogRange: %v", err)
 	}

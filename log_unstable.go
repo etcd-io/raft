@@ -198,7 +198,7 @@ func (u *unstable) truncateAndAppend(ents LogRange) {
 	switch {
 	case fromIndex == u.offset+uint64(len(u.entries)):
 		// fromIndex is the next index in the u.entries, so append directly.
-		u.entries = append(u.entries, ents...)
+		u.entries = u.entries.Append(ents)
 	case fromIndex <= u.offset:
 		u.logger.Infof("replace the unstable entries from index %d", fromIndex)
 		// The log is being truncated to before our current offset

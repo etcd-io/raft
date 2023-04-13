@@ -104,62 +104,61 @@ func (l *raftLog) String() string {
 		l.committed, l.applied, l.applying, l.unstable.offset, l.unstable.offsetInProgress, len(l.unstable.entries))
 }
 
-// maybeAppend returns (0, false) if the entries cannot be appended. Otherwise,
-// it returns (last index of new entries, true).
-func (l *raftLog) maybeAppend(index, logTerm, committed uint64, ents LogRange) (lastnewi uint64, ok bool) {
-	if !l.matchTerm(index, logTerm) {
-		return 0, false
+// maybeAppend appends the given entries to the log, advances the committed
+// index, and returns true. If the requested operation conflicts with the log,
+// does nothing and returns false.
+func (l *raftLog) maybeAppend(la logAppend, committed uint64) bool {
+	la, ok := l.findConflict(la)
+	if !ok {
+		return false
 	}
-
-	lastnewi = index + uint64(len(ents))
-	ci := l.findConflict(ents)
-	switch {
-	case ci == 0:
-	case ci <= l.committed:
-		l.logger.Panicf("entry %d conflict with committed entry [committed(%d)]", ci, l.committed)
-	default:
-		offset := index + 1
-		if ci-offset > uint64(len(ents)) {
-			l.logger.Panicf("index, %d, is out of range [%d]", ci-offset, len(ents))
-		}
-		l.append(ents[ci-offset:])
+	if len(la.entries) != 0 { // there is at least one entry to append
+		l.append(la)
 	}
-	l.commitTo(min(committed, lastnewi))
-	return lastnewi, true
+	l.commitTo(min(committed, la.lastIndex()))
+	return true
 }
 
-func (l *raftLog) append(ents LogRange) uint64 {
-	if len(ents) == 0 {
-		return l.lastIndex()
+// append conditionally appends the given range of entries to the log. It does
+// so only if term(la.index) == la.term. All entries after la.index, if any, are
+// erased and replaced with la.entries, unless len(la.entries) == 0.
+//
+// TODO(pavelkalinnikov): rename to truncateAndAppend, to match unstable.
+func (l *raftLog) append(la logAppend) bool {
+	if !l.matchTerm(la.index, la.term) {
+		return false
 	}
-	if after := ents[0].Index - 1; after < l.committed {
+	if after := la.index; after < l.committed { // don't erase committed entries
 		l.logger.Panicf("after(%d) is out of range [committed(%d)]", after, l.committed)
 	}
-	l.unstable.truncateAndAppend(ents)
-	return l.lastIndex()
+	if len(la.entries) > 0 { // TODO(pavelkalinnikov): allow len == 0
+		l.unstable.truncateAndAppend(la.entries)
+	}
+	return true
 }
 
-// findConflict finds the index of the conflict.
-// It returns the first pair of conflicting entries between the existing
-// entries and the given entries, if there are any.
-// If there is no conflicting entries, and the existing entries contains
-// all the given entries, zero will be returned.
-// If there is no conflicting entries, but the given entries contains new
-// entries, the index of the first new entry will be returned.
-// An entry is considered to be conflicting if it has the same index but
-// a different term.
-// The index of the given entries MUST be continuously increasing.
-func (l *raftLog) findConflict(ents LogRange) uint64 {
-	for _, ne := range ents {
+// findConflict verifies that the given logAppend request can be performed on
+// the log, and finds the first entry in it that is not yet present in the log.
+// Returns a modified request that only contains missing entries.
+//
+// Returns false if the request can not proceed because it conflicts with the
+// log, i.e. if term(la.index) != la.term or la.index is missing.
+func (l *raftLog) findConflict(la logAppend) (logAppend, bool) {
+	if !l.matchTerm(la.index, la.term) {
+		return logAppend{}, false
+	}
+	mismatch := len(la.entries)
+	for i, ne := range la.entries {
 		if !l.matchTerm(ne.Index, ne.Term) {
 			if ne.Index <= l.lastIndex() {
 				l.logger.Infof("found conflict at index %d [existing term: %d, conflicting term: %d]",
 					ne.Index, l.zeroTermOnOutOfBounds(l.term(ne.Index)), ne.Term)
 			}
-			return ne.Index
+			mismatch = i
+			break
 		}
 	}
-	return 0
+	return la.skip(mismatch), true
 }
 
 // findConflictByTerm returns a best guess on where this log ends matching

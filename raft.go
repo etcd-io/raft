@@ -768,10 +768,13 @@ func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 		es[i].Term = r.Term
 		es[i].Index = li + 1 + uint64(i)
 	}
-	ents := LogRange(es) // this is a valid log range by construction
+	la, err := verifyLogAppend(li, lt, es)
+	if err != nil {
+		r.logger.Panicf("verifyLogAppend: %v", err)
+	}
 
 	// Track the size of this uncommitted proposal.
-	if !r.increaseUncommittedSize(ents) {
+	if !r.increaseUncommittedSize(la.entries) {
 		r.logger.Warningf(
 			"%x appending new entries to log would exceed uncommitted entry size limit; dropping proposal",
 			r.id,
@@ -779,8 +782,7 @@ func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 		// Drop the proposal.
 		return false
 	}
-	// use latest "last" index after truncate/append
-	li = r.raftLog.append(ents)
+	r.raftLog.append(la)
 	// The leader needs to self-ack the entries just appended once they have
 	// been durably persisted (since it doesn't send an MsgApp to itself). This
 	// response message will be added to msgsAfterAppend and delivered back to
@@ -791,7 +793,7 @@ func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 	//  if r.maybeCommit() {
 	//  	r.bcastAppend()
 	//  }
-	r.send(pb.Message{To: r.id, Type: pb.MsgAppResp, Index: li})
+	r.send(pb.Message{To: r.id, Type: pb.MsgAppResp, Index: r.raftLog.lastIndex()})
 	return true
 }
 
@@ -1652,7 +1654,7 @@ func stepFollower(r *raft, m pb.Message) error {
 }
 
 func (r *raft) handleAppendEntries(m pb.Message) {
-	entries, err := VerifyLogRange(m.Index, m.LogTerm, m.Entries)
+	app, err := verifyLogAppend(m.Index, m.LogTerm, m.Entries)
 	if err != nil {
 		r.logger.Panicf("%x: invalid MsgApp [index %d, term %d]: %v", r.id, m.Index, m.LogTerm, err)
 	}
@@ -1660,8 +1662,8 @@ func (r *raft) handleAppendEntries(m pb.Message) {
 		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: r.raftLog.committed})
 		return
 	}
-	if mlastIndex, ok := r.raftLog.maybeAppend(m.Index, m.LogTerm, m.Commit, entries); ok {
-		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: mlastIndex})
+	if r.raftLog.maybeAppend(app, m.Commit) {
+		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: app.lastIndex()})
 		return
 	}
 	r.logger.Debugf("%x [logterm: %d, index: %d] rejected MsgApp [logterm: %d, index: %d] from %x",
