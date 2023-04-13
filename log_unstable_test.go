@@ -244,7 +244,7 @@ func TestUnstableNextEntries(t *testing.T) {
 				logger:           raftLogger,
 			}
 			res := u.nextEntries()
-			require.Equal(t, tt.wentries, res)
+			require.Equal(t, mustLogRange(t, tt.wentries), res)
 		})
 	}
 }
@@ -511,7 +511,7 @@ func TestUnstableTruncateAndAppend(t *testing.T) {
 
 		woffset           uint64
 		woffsetInProgress uint64
-		wentries          []pb.Entry
+		wentries          LogRange
 	}{
 		// append to the end
 		{

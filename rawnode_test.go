@@ -665,10 +665,10 @@ func TestRawNodeReadIndex(t *testing.T) {
 // requires the application to bootstrap the state, i.e. it does not accept peers
 // and will not create faux configuration change entries.
 func TestRawNodeStart(t *testing.T) {
-	entries := []pb.Entry{
+	entries := mustLogRange(t, []pb.Entry{
 		{Term: 1, Index: 2, Data: nil},           // empty entry
 		{Term: 1, Index: 3, Data: []byte("foo")}, // empty entry
-	}
+	})
 	want := Ready{
 		SoftState:        &SoftState{Lead: 1, RaftState: StateLeader},
 		HardState:        pb.HardState{Term: 1, Commit: 3, Vote: 1},

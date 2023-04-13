@@ -574,7 +574,7 @@ func (r *raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 	lastIndex, nextIndex := pr.Next-1, pr.Next
 	lastTerm, errt := r.raftLog.term(lastIndex)
 
-	var ents []pb.Entry
+	var ents LogRange
 	var erre error
 	// In a throttled StateReplicate only send empty MsgApp, to ensure progress.
 	// Otherwise, if we had a full Inflights and all inflight messages were in
@@ -622,6 +622,9 @@ func (r *raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 		r.logger.Panicf("%x: %v", r.id, err)
 	}
 	// NB: pr has been updated, but we make sure to only use its old values below.
+	if _, err := VerifyLogRange(lastIndex, lastTerm, ents); err != nil {
+		r.logger.Panicf("VerifyLogRange: %v", err)
+	}
 	r.send(pb.Message{
 		To:      to,
 		Type:    pb.MsgApp,
@@ -765,8 +768,10 @@ func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 		es[i].Term = r.Term
 		es[i].Index = li + 1 + uint64(i)
 	}
+	ents := LogRange(es) // this is a valid log range by construction
+
 	// Track the size of this uncommitted proposal.
-	if !r.increaseUncommittedSize(es) {
+	if !r.increaseUncommittedSize(ents) {
 		r.logger.Warningf(
 			"%x appending new entries to log would exceed uncommitted entry size limit; dropping proposal",
 			r.id,
@@ -775,7 +780,7 @@ func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 		return false
 	}
 	// use latest "last" index after truncate/append
-	li = r.raftLog.append(es...)
+	li = r.raftLog.append(ents)
 	// The leader needs to self-ack the entries just appended once they have
 	// been durably persisted (since it doesn't send an MsgApp to itself). This
 	// response message will be added to msgsAfterAppend and delivered back to
@@ -1647,11 +1652,15 @@ func stepFollower(r *raft, m pb.Message) error {
 }
 
 func (r *raft) handleAppendEntries(m pb.Message) {
+	entries, err := VerifyLogRange(m.Index, m.LogTerm, m.Entries)
+	if err != nil {
+		r.logger.Panicf("%x: invalid MsgApp [index %d, term %d]: %v", r.id, m.Index, m.LogTerm, err)
+	}
 	if m.Index < r.raftLog.committed {
 		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: r.raftLog.committed})
 		return
 	}
-	if mlastIndex, ok := r.raftLog.maybeAppend(m.Index, m.LogTerm, m.Commit, m.Entries...); ok {
+	if mlastIndex, ok := r.raftLog.maybeAppend(m.Index, m.LogTerm, m.Commit, entries); ok {
 		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: mlastIndex})
 		return
 	}
@@ -1955,7 +1964,7 @@ func (r *raft) responseToReadIndexReq(req pb.Message, readIndex uint64) pb.Messa
 //
 // Empty payloads are never refused. This is used both for appending an empty
 // entry at a new leader's term, as well as leaving a joint configuration.
-func (r *raft) increaseUncommittedSize(ents []pb.Entry) bool {
+func (r *raft) increaseUncommittedSize(ents LogRange) bool {
 	s := payloadsSize(ents)
 	if r.uncommittedSize > 0 && s > 0 && r.uncommittedSize+s > r.maxUncommittedSize {
 		// If the uncommitted tail of the Raft log is empty, allow any size
@@ -1984,7 +1993,7 @@ func (r *raft) reduceUncommittedSize(s entryPayloadSize) {
 	}
 }
 
-func numOfPendingConf(ents []pb.Entry) int {
+func numOfPendingConf(ents LogRange) int {
 	n := 0
 	for i := range ents {
 		if ents[i].Type == pb.EntryConfChange || ents[i].Type == pb.EntryConfChangeV2 {

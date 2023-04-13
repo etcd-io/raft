@@ -34,7 +34,7 @@ type unstable struct {
 	// the incoming unstable snapshot, if any.
 	snapshot *pb.Snapshot
 	// all entries that have not yet been written to storage.
-	entries []pb.Entry
+	entries LogRange
 	// entries[i] has raft log position i+offset.
 	offset uint64
 
@@ -93,7 +93,7 @@ func (u *unstable) maybeTerm(i uint64) (uint64, bool) {
 
 // nextEntries returns the unstable entries that are not already in the process
 // of being written to storage.
-func (u *unstable) nextEntries() []pb.Entry {
+func (u *unstable) nextEntries() LogRange {
 	inProgress := int(u.offsetInProgress - u.offset)
 	if len(u.entries) == inProgress {
 		return nil
@@ -172,7 +172,7 @@ func (u *unstable) shrinkEntriesArray() {
 	if len(u.entries) == 0 {
 		u.entries = nil
 	} else if len(u.entries)*lenMultiple < cap(u.entries) {
-		newEntries := make([]pb.Entry, len(u.entries))
+		newEntries := make(LogRange, len(u.entries))
 		copy(newEntries, u.entries)
 		u.entries = newEntries
 	}
@@ -193,7 +193,7 @@ func (u *unstable) restore(s pb.Snapshot) {
 	u.snapshotInProgress = false
 }
 
-func (u *unstable) truncateAndAppend(ents []pb.Entry) {
+func (u *unstable) truncateAndAppend(ents LogRange) {
 	fromIndex := ents[0].Index
 	switch {
 	case fromIndex == u.offset+uint64(len(u.entries)):
@@ -210,7 +210,7 @@ func (u *unstable) truncateAndAppend(ents []pb.Entry) {
 		// Truncate to fromIndex (exclusive), and append the new entries.
 		u.logger.Infof("truncate the unstable entries before index %d", fromIndex)
 		keep := u.slice(u.offset, fromIndex) // NB: appending to this slice is safe,
-		u.entries = append(keep, ents...)    // and will reallocate/copy it
+		u.entries = keep.Append(ents)        // and will reallocate/copy it
 		// Only in-progress entries before fromIndex are still considered to be
 		// in-progress.
 		u.offsetInProgress = min(u.offsetInProgress, fromIndex)
@@ -225,7 +225,7 @@ func (u *unstable) truncateAndAppend(ents []pb.Entry) {
 // TODO(pavelkalinnikov): this, and similar []pb.Entry slices, may bubble up all
 // the way to the application code through Ready struct. Protect other slices
 // similarly, and document how the client can use them.
-func (u *unstable) slice(lo uint64, hi uint64) []pb.Entry {
+func (u *unstable) slice(lo uint64, hi uint64) LogRange {
 	u.mustCheckOutOfBounds(lo, hi)
 	// NB: use the full slice expression to limit what the caller can do with the
 	// returned slice. For example, an append will reallocate and copy this slice

@@ -273,7 +273,7 @@ func entsSize(ents []pb.Entry) entryEncodingSize {
 	return size
 }
 
-func limitSize(ents []pb.Entry, maxSize entryEncodingSize) []pb.Entry {
+func limitSize(ents LogRange, maxSize entryEncodingSize) LogRange {
 	if len(ents) == 0 {
 		return ents
 	}
@@ -300,7 +300,7 @@ func payloadSize(e pb.Entry) entryPayloadSize {
 }
 
 // payloadsSize is the size of the payloads of the provided entries.
-func payloadsSize(ents []pb.Entry) entryPayloadSize {
+func payloadsSize(ents LogRange) entryPayloadSize {
 	var s entryPayloadSize
 	for _, e := range ents {
 		s += payloadSize(e)

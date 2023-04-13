@@ -415,7 +415,7 @@ func TestLeaderStartReplication(t *testing.T) {
 	}
 	msgs := r.readMessages()
 	sort.Sort(messageSlice(msgs))
-	wents := []pb.Entry{{Index: li + 1, Term: 1, Data: []byte("some data")}}
+	wents := mustLogRange(t, []pb.Entry{{Index: li + 1, Term: 1, Data: []byte("some data")}})
 	wmsgs := []pb.Message{
 		{From: 1, To: 2, Term: 1, Type: pb.MsgApp, Index: li, LogTerm: 1, Entries: wents, Commit: li},
 		{From: 1, To: 3, Term: 1, Type: pb.MsgApp, Index: li, LogTerm: 1, Entries: wents, Commit: li},
@@ -451,7 +451,7 @@ func TestLeaderCommitEntry(t *testing.T) {
 	if g := r.raftLog.committed; g != li+1 {
 		t.Errorf("committed = %d, want %d", g, li+1)
 	}
-	wents := []pb.Entry{{Index: li + 1, Term: 1, Data: []byte("some data")}}
+	wents := mustLogRange(t, []pb.Entry{{Index: li + 1, Term: 1, Data: []byte("some data")}})
 	if g := r.raftLog.nextCommittedEnts(true); !reflect.DeepEqual(g, wents) {
 		t.Errorf("nextCommittedEnts = %+v, want %+v", g, wents)
 	}
@@ -536,7 +536,7 @@ func TestLeaderCommitPrecedingEntries(t *testing.T) {
 		}
 
 		li := uint64(len(tt))
-		wents := append(tt, pb.Entry{Term: 3, Index: li + 1}, pb.Entry{Term: 3, Index: li + 2, Data: []byte("some data")})
+		wents := mustLogRange(t, append(tt, pb.Entry{Term: 3, Index: li + 1}, pb.Entry{Term: 3, Index: li + 2, Data: []byte("some data")}))
 		if g := r.raftLog.nextCommittedEnts(true); !reflect.DeepEqual(g, wents) {
 			t.Errorf("#%d: ents = %+v, want %+v", i, g, wents)
 		}
@@ -588,7 +588,7 @@ func TestFollowerCommitEntry(t *testing.T) {
 		if g := r.raftLog.committed; g != tt.commit {
 			t.Errorf("#%d: committed = %d, want %d", i, g, tt.commit)
 		}
-		wents := tt.ents[:int(tt.commit)]
+		wents := mustLogRange(t, tt.ents[:int(tt.commit)])
 		if g := r.raftLog.nextCommittedEnts(true); !reflect.DeepEqual(g, wents) {
 			t.Errorf("#%d: nextCommittedEnts = %v, want %v", i, g, wents)
 		}
@@ -685,10 +685,10 @@ func TestFollowerAppendEntries(t *testing.T) {
 
 		r.Step(pb.Message{From: 2, To: 1, Type: pb.MsgApp, Term: 2, LogTerm: tt.term, Index: tt.index, Entries: tt.ents})
 
-		if g := r.raftLog.allEntries(); !reflect.DeepEqual(g, tt.wents) {
+		if g := r.raftLog.allEntries(); !reflect.DeepEqual(g, mustLogRange(t, tt.wents)) {
 			t.Errorf("#%d: ents = %+v, want %+v", i, g, tt.wents)
 		}
-		if g := r.raftLog.nextUnstableEnts(); !reflect.DeepEqual(g, tt.wunstable) {
+		if g := r.raftLog.nextUnstableEnts(); !reflect.DeepEqual(g, mustLogRange(t, tt.wunstable)) {
 			t.Errorf("#%d: unstableEnts = %+v, want %+v", i, g, tt.wunstable)
 		}
 	}

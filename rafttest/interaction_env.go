@@ -83,7 +83,7 @@ type Storage interface {
 	SetHardState(state pb.HardState) error
 	ApplySnapshot(pb.Snapshot) error
 	Compact(newFirstIndex uint64) error
-	Append([]pb.Entry) error
+	Append(raft.LogRange) error
 }
 
 // raftConfigStub sets up a raft.Config stub with reasonable testing defaults.

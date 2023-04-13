@@ -2767,7 +2767,7 @@ func TestLeaderIncreaseNext(t *testing.T) {
 
 	for i, tt := range tests {
 		sm := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1, 2)))
-		sm.raftLog.append(previousEnts...)
+		sm.raftLog.append(previousEnts)
 		sm.becomeCandidate()
 		sm.becomeLeader()
 		sm.prs.Progress[2].State = tt.state
@@ -3068,7 +3068,7 @@ func TestRestoreLearnerPromotion(t *testing.T) {
 	require.True(t, !sm.isLearner)
 }
 
-// TestLearnerReceiveSnapshot tests that a learner can receive a snpahost from leader
+// TestLearnerReceiveSnapshot tests that a learner can receive a snapshot from leader.
 func TestLearnerReceiveSnapshot(t *testing.T) {
 	// restore the state machine from a snapshot so it has a compacted log and a snapshot
 	s := pb.Snapshot{
@@ -3107,7 +3107,7 @@ func TestRestoreIgnoreSnapshot(t *testing.T) {
 	commit := uint64(1)
 	storage := newTestMemoryStorage(withPeers(1, 2))
 	sm := newTestRaft(1, 10, 1, storage)
-	sm.raftLog.append(previousEnts...)
+	sm.raftLog.append(previousEnts)
 	sm.raftLog.commitTo(commit)
 
 	s := pb.Snapshot{
@@ -3277,7 +3277,7 @@ func TestStepIgnoreConfig(t *testing.T) {
 	index := r.raftLog.lastIndex()
 	pendingConfIndex := r.pendingConfIndex
 	r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Type: pb.EntryConfChange}}})
-	wents := []pb.Entry{{Type: pb.EntryNormal, Term: 1, Index: 3, Data: nil}}
+	wents := mustLogRange(t, []pb.Entry{{Type: pb.EntryNormal, Term: 1, Index: 3, Data: nil}})
 	ents, err := r.raftLog.entries(index+1, noLimit)
 	if err != nil {
 		t.Fatalf("unexpected error %v", err)

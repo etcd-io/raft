@@ -106,7 +106,7 @@ func (l *raftLog) String() string {
 
 // maybeAppend returns (0, false) if the entries cannot be appended. Otherwise,
 // it returns (last index of new entries, true).
-func (l *raftLog) maybeAppend(index, logTerm, committed uint64, ents ...pb.Entry) (lastnewi uint64, ok bool) {
+func (l *raftLog) maybeAppend(index, logTerm, committed uint64, ents LogRange) (lastnewi uint64, ok bool) {
 	if !l.matchTerm(index, logTerm) {
 		return 0, false
 	}
@@ -122,13 +122,13 @@ func (l *raftLog) maybeAppend(index, logTerm, committed uint64, ents ...pb.Entry
 		if ci-offset > uint64(len(ents)) {
 			l.logger.Panicf("index, %d, is out of range [%d]", ci-offset, len(ents))
 		}
-		l.append(ents[ci-offset:]...)
+		l.append(ents[ci-offset:])
 	}
 	l.commitTo(min(committed, lastnewi))
 	return lastnewi, true
 }
 
-func (l *raftLog) append(ents ...pb.Entry) uint64 {
+func (l *raftLog) append(ents LogRange) uint64 {
 	if len(ents) == 0 {
 		return l.lastIndex()
 	}
@@ -149,7 +149,7 @@ func (l *raftLog) append(ents ...pb.Entry) uint64 {
 // An entry is considered to be conflicting if it has the same index but
 // a different term.
 // The index of the given entries MUST be continuously increasing.
-func (l *raftLog) findConflict(ents []pb.Entry) uint64 {
+func (l *raftLog) findConflict(ents LogRange) uint64 {
 	for _, ne := range ents {
 		if !l.matchTerm(ne.Index, ne.Term) {
 			if ne.Index <= l.lastIndex() {
@@ -191,7 +191,7 @@ func (l *raftLog) findConflictByTerm(index uint64, term uint64) (uint64, uint64)
 
 // nextUnstableEnts returns all entries that are available to be written to the
 // local stable log and are not already in-progress.
-func (l *raftLog) nextUnstableEnts() []pb.Entry {
+func (l *raftLog) nextUnstableEnts() LogRange {
 	return l.unstable.nextEntries()
 }
 
@@ -213,7 +213,7 @@ func (l *raftLog) hasNextOrInProgressUnstableEnts() bool {
 // appended them to the local raft log yet. If allowUnstable is true, committed
 // entries from the unstable log may be returned; otherwise, only entries known
 // to reside locally on stable storage will be returned.
-func (l *raftLog) nextCommittedEnts(allowUnstable bool) (ents []pb.Entry) {
+func (l *raftLog) nextCommittedEnts(allowUnstable bool) LogRange {
 	if l.applyingEntsPaused {
 		// Entry application outstanding size limit reached.
 		return nil
@@ -412,7 +412,7 @@ func (l *raftLog) term(i uint64) (uint64, error) {
 	panic(err) // TODO(bdarnell)
 }
 
-func (l *raftLog) entries(i uint64, maxSize entryEncodingSize) ([]pb.Entry, error) {
+func (l *raftLog) entries(i uint64, maxSize entryEncodingSize) (LogRange, error) {
 	if i > l.lastIndex() {
 		return nil, nil
 	}
@@ -420,7 +420,7 @@ func (l *raftLog) entries(i uint64, maxSize entryEncodingSize) ([]pb.Entry, erro
 }
 
 // allEntries returns all entries in the log.
-func (l *raftLog) allEntries() []pb.Entry {
+func (l *raftLog) allEntries() LogRange {
 	ents, err := l.entries(l.firstIndex(), noLimit)
 	if err == nil {
 		return ents
@@ -468,7 +468,7 @@ func (l *raftLog) restore(s pb.Snapshot) {
 }
 
 // slice returns a slice of log entries from lo through hi-1, inclusive.
-func (l *raftLog) slice(lo, hi uint64, maxSize entryEncodingSize) ([]pb.Entry, error) {
+func (l *raftLog) slice(lo, hi uint64, maxSize entryEncodingSize) (LogRange, error) {
 	err := l.mustCheckOutOfBounds(lo, hi)
 	if err != nil {
 		return nil, err
@@ -476,7 +476,7 @@ func (l *raftLog) slice(lo, hi uint64, maxSize entryEncodingSize) ([]pb.Entry, e
 	if lo == hi {
 		return nil, nil
 	}
-	var ents []pb.Entry
+	var ents LogRange
 	if lo < l.unstable.offset {
 		storedEnts, err := l.storage.Entries(lo, min(hi, l.unstable.offset), uint64(maxSize))
 		if err == ErrCompacted {
@@ -492,15 +492,17 @@ func (l *raftLog) slice(lo, hi uint64, maxSize entryEncodingSize) ([]pb.Entry, e
 			return storedEnts, nil
 		}
 
+		// TODO(pavelkalinnikov): Storage.Entries() returns []pb.Entry which is not
+		// verified. Verify it before converting to LogRange, or (better) require
+		// the API to return a verified range.
 		ents = storedEnts
 	}
 	if hi > l.unstable.offset {
 		unstable := l.unstable.slice(max(lo, l.unstable.offset), hi)
 		if len(ents) > 0 {
-			combined := make([]pb.Entry, len(ents)+len(unstable))
-			n := copy(combined, ents)
-			copy(combined[n:], unstable)
-			ents = combined
+			combined := make(LogRange, 0, len(ents)+len(unstable))
+			combined = append(combined, ents...)
+			ents = combined.Append(unstable)
 		} else {
 			ents = unstable
 		}

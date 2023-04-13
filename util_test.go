@@ -41,10 +41,10 @@ func TestDescribeEntry(t *testing.T) {
 }
 
 func TestLimitSize(t *testing.T) {
-	ents := []pb.Entry{{Index: 4, Term: 4}, {Index: 5, Term: 5}, {Index: 6, Term: 6}}
+	ents := mustLogRange(t, []pb.Entry{{Index: 4, Term: 4}, {Index: 5, Term: 5}, {Index: 6, Term: 6}})
 	tests := []struct {
 		maxsize  uint64
-		wentries []pb.Entry
+		wentries LogRange
 	}{
 		{math.MaxUint64, []pb.Entry{{Index: 4, Term: 4}, {Index: 5, Term: 5}, {Index: 6, Term: 6}}},
 		// Even if maxsize is zero, the first entry should be returned.
