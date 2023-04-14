@@ -1366,11 +1366,11 @@ func TestHandleHeartbeat(t *testing.T) {
 // TestHandleHeartbeatResp ensures that we re-send log entries when we get a heartbeat response.
 func TestHandleHeartbeatResp(t *testing.T) {
 	storage := newTestMemoryStorage(withPeers(1, 2))
+	storage.SetHardState(pb.HardState{Term: 3, Vote: 1, Commit: 3})
 	storage.Append([]pb.Entry{{Index: 1, Term: 1}, {Index: 2, Term: 2}, {Index: 3, Term: 3}})
 	sm := newTestRaft(1, 5, 1, storage)
 	sm.becomeCandidate()
 	sm.becomeLeader()
-	sm.raftLog.commitTo(sm.raftLog.lastIndex())
 
 	// A heartbeat response from a node that is behind; re-send MsgApp
 	sm.Step(pb.Message{From: 2, Type: pb.MsgHeartbeatResp})
@@ -2916,9 +2916,8 @@ func TestRestore(t *testing.T) {
 
 	storage := newTestMemoryStorage(withPeers(1, 2))
 	sm := newTestRaft(1, 10, 1, storage)
-	if ok := sm.restore(s); !ok {
-		t.Fatal("restore fail, want succeed")
-	}
+	sm.becomeFollower(s.Metadata.Term, 0)
+	require.True(t, sm.restore(s))
 
 	if sm.raftLog.lastIndex() != s.Metadata.Index {
 		t.Errorf("log.lastIndex = %d, want %d", sm.raftLog.lastIndex(), s.Metadata.Index)
@@ -2955,9 +2954,8 @@ func TestRestoreWithLearner(t *testing.T) {
 
 	storage := newTestMemoryStorage(withPeers(1, 2), withLearners(3))
 	sm := newTestLearnerRaft(3, 8, 2, storage)
-	if ok := sm.restore(s); !ok {
-		t.Error("restore fail, want succeed")
-	}
+	sm.becomeFollower(s.Metadata.Term, 0)
+	require.True(t, sm.restore(s))
 
 	if sm.raftLog.lastIndex() != s.Metadata.Index {
 		t.Errorf("log.lastIndex = %d, want %d", sm.raftLog.lastIndex(), s.Metadata.Index)
@@ -3001,9 +2999,8 @@ func TestRestoreWithVotersOutgoing(t *testing.T) {
 
 	storage := newTestMemoryStorage(withPeers(1, 2))
 	sm := newTestRaft(1, 10, 1, storage)
-	if ok := sm.restore(s); !ok {
-		t.Fatal("restore fail, want succeed")
-	}
+	sm.becomeFollower(s.Metadata.Term, 0)
+	require.True(t, sm.restore(s))
 
 	if sm.raftLog.lastIndex() != s.Metadata.Index {
 		t.Errorf("log.lastIndex = %d, want %d", sm.raftLog.lastIndex(), s.Metadata.Index)
@@ -3047,13 +3044,9 @@ func TestRestoreVoterToLearner(t *testing.T) {
 
 	storage := newTestMemoryStorage(withPeers(1, 2, 3))
 	sm := newTestRaft(3, 10, 1, storage)
-
-	if sm.isLearner {
-		t.Errorf("%x is learner, want not", sm.id)
-	}
-	if ok := sm.restore(s); !ok {
-		t.Error("restore failed unexpectedly")
-	}
+	sm.becomeFollower(s.Metadata.Term, 0)
+	require.True(t, !sm.isLearner)
+	require.True(t, sm.restore(s))
 }
 
 // TestRestoreLearnerPromotion checks that a learner can become to a follower after
@@ -3069,18 +3062,10 @@ func TestRestoreLearnerPromotion(t *testing.T) {
 
 	storage := newTestMemoryStorage(withPeers(1, 2), withLearners(3))
 	sm := newTestLearnerRaft(3, 10, 1, storage)
-
-	if !sm.isLearner {
-		t.Errorf("%x is not learner, want yes", sm.id)
-	}
-
-	if ok := sm.restore(s); !ok {
-		t.Error("restore fail, want succeed")
-	}
-
-	if sm.isLearner {
-		t.Errorf("%x is learner, want not", sm.id)
-	}
+	require.True(t, sm.isLearner)
+	sm.becomeFollower(s.Metadata.Term, 0)
+	require.True(t, sm.restore(s))
+	require.True(t, !sm.isLearner)
 }
 
 // TestLearnerReceiveSnapshot tests that a learner can receive a snpahost from leader
@@ -3096,13 +3081,13 @@ func TestLearnerReceiveSnapshot(t *testing.T) {
 
 	store := newTestMemoryStorage(withPeers(1), withLearners(2))
 	n1 := newTestLearnerRaft(1, 10, 1, store)
-	n2 := newTestLearnerRaft(2, 10, 1, newTestMemoryStorage(withPeers(1), withLearners(2)))
-
-	n1.restore(s)
+	n1.becomeFollower(s.Metadata.Term, 0)
+	require.True(t, n1.restore(s))
 	snap := n1.raftLog.nextUnstableSnapshot()
 	store.ApplySnapshot(*snap)
 	n1.appliedSnap(snap)
 
+	n2 := newTestLearnerRaft(2, 10, 1, newTestMemoryStorage(withPeers(1), withLearners(2)))
 	nt := newNetwork(n1, n2)
 
 	setRandomizedElectionTimeout(n1, n1.electionTimeout)
@@ -3132,6 +3117,7 @@ func TestRestoreIgnoreSnapshot(t *testing.T) {
 			ConfState: pb.ConfState{Voters: []uint64{1, 2}},
 		},
 	}
+	sm.becomeFollower(s.Metadata.Term, 0)
 
 	// ignore snapshot
 	if ok := sm.restore(s); ok {
@@ -3162,8 +3148,8 @@ func TestProvideSnap(t *testing.T) {
 	}
 	storage := newTestMemoryStorage(withPeers(1))
 	sm := newTestRaft(1, 10, 1, storage)
-	sm.restore(s)
-
+	sm.becomeFollower(s.Metadata.Term, 0)
+	require.True(t, sm.restore(s))
 	sm.becomeCandidate()
 	sm.becomeLeader()
 
@@ -3192,8 +3178,8 @@ func TestIgnoreProvidingSnap(t *testing.T) {
 	}
 	storage := newTestMemoryStorage(withPeers(1))
 	sm := newTestRaft(1, 10, 1, storage)
-	sm.restore(s)
-
+	sm.becomeFollower(s.Metadata.Term, 0)
+	require.True(t, sm.restore(s))
 	sm.becomeCandidate()
 	sm.becomeLeader()
 
@@ -3218,14 +3204,11 @@ func TestRestoreFromSnapMsg(t *testing.T) {
 			ConfState: pb.ConfState{Voters: []uint64{1, 2}},
 		},
 	}
-	m := pb.Message{Type: pb.MsgSnap, From: 1, Term: 2, Snapshot: s}
+	m := pb.Message{Type: pb.MsgSnap, From: 1, Term: 11, Snapshot: s}
 
 	sm := newTestRaft(2, 10, 1, newTestMemoryStorage(withPeers(1, 2)))
 	sm.Step(m)
-
-	if sm.lead != uint64(1) {
-		t.Errorf("sm.lead = %d, want 1", sm.lead)
-	}
+	require.Equal(t, uint64(1), sm.lead)
 
 	// TODO(bdarnell): what should this test?
 }
