@@ -253,11 +253,18 @@ func newStorageAppendMsg(r *raft, rd Ready) pb.Message {
 	// handling to use a fast-path in r.raftLog.term() before the newly appended
 	// entries are removed from the unstable log.
 
-	//msgsAfterAppend is a pooled slice, so we need to make a deep copy
-	m.Responses = make([]pb.Message, len(r.msgsAfterAppend))
-	copy(m.Responses, r.msgsAfterAppend)
+	// msgsAfterAppend is a pooled slice, so we need to make a deep copy
+	msgsCount, needResp := len(r.msgsAfterAppend), false
 	if needStorageAppendRespMsg(r, rd) {
-		m.Responses = append(m.Responses, newStorageAppendRespMsg(r, rd))
+		msgsCount++
+		needResp = true
+	}
+	if msgsCount != 0 {
+		// NB: allocating precisely as much as needed.
+		m.Responses = append(make([]pb.Message, 0, msgsCount), r.msgsAfterAppend...)
+		if needResp {
+			m.Responses = append(m.Responses, newStorageAppendRespMsg(r, rd))
+		}
 	}
 	return m
 }
@@ -431,7 +438,8 @@ func (rn *RawNode) acceptReady(rd Ready) {
 		}
 	}
 	rn.raft.msgs = nil
-	//release the msgsAfterAppend slice and put it into the msgsAfterAppendPool
+	// Release the msgsAfterAppend slice and put it back into the msgsAfterAppendPool.
+	// This clears the slice but reserves the underlying array, which we can pool and reuse.
 	if cap(rn.raft.msgsAfterAppend) > 0 {
 		rn.raft.msgsAfterAppendPool.Put(rn.raft.msgsAfterAppend[:0])
 	}

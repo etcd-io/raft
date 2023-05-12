@@ -347,7 +347,9 @@ type raft struct {
 	// MsgPreVoteResp. See the comment in raft.send for details.
 	msgsAfterAppend []pb.Message
 	// msgsAfterAppendPool is a pool for msgsAfterAppend to avoid frequently
-	// reallocating the underlying array
+	// reallocating the underlying array. When assigning a new slice to msgsAfterAppend,
+	// we should try to get it from the pool first; before releasing the msgsAfterAppend
+	// slice, we should put the underlying array into the pool.
 	msgsAfterAppendPool *sync.Pool
 	// the leader id
 	lead uint64
@@ -428,8 +430,7 @@ func newRaft(c *Config) *raft {
 		disableProposalForwarding: c.DisableProposalForwarding,
 		msgsAfterAppendPool: &sync.Pool{
 			New: func() interface{} {
-				sl := make([]pb.Message, 0, 8)
-				return sl
+				return make([]pb.Message, 0, 8)
 			},
 		},
 	}
