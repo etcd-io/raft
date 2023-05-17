@@ -50,25 +50,13 @@ func (env *InteractionEnv) handleAddNodes(t *testing.T, d datadriven.TestData) e
 				arg.Scan(t, i, &snap.Data)
 			case "async-storage-writes":
 				arg.Scan(t, i, &cfg.AsyncStorageWrites)
+			case "allow-invariant-violations":
+				cfg.AllowInvariantViolations = true
 			}
 		}
 	}
 	return env.AddNodes(n, cfg, snap)
 }
-
-type snapOverrideStorage struct {
-	Storage
-	snapshotOverride func() (pb.Snapshot, error)
-}
-
-func (s snapOverrideStorage) Snapshot() (pb.Snapshot, error) {
-	if s.snapshotOverride != nil {
-		return s.snapshotOverride()
-	}
-	return s.Storage.Snapshot()
-}
-
-var _ raft.Storage = snapOverrideStorage{}
 
 // AddNodes adds n new nodes initialized from the given snapshot (which may be
 // empty), and using the cfg as template. They will be assigned consecutive IDs.
@@ -76,19 +64,16 @@ func (env *InteractionEnv) AddNodes(n int, cfg raft.Config, snap pb.Snapshot) er
 	bootstrap := !reflect.DeepEqual(snap, pb.Snapshot{})
 	for i := 0; i < n; i++ {
 		id := uint64(1 + len(env.Nodes))
-		s := snapOverrideStorage{
-			Storage: raft.NewMemoryStorage(),
-			// When you ask for a snapshot, you get the most recent snapshot.
-			//
-			// TODO(tbg): this is sort of clunky, but MemoryStorage itself will
-			// give you some fixed snapshot and also the snapshot changes
-			// whenever you compact the logs and vice versa, so it's all a bit
-			// awkward to use.
-			snapshotOverride: func() (pb.Snapshot, error) {
-				snaps := env.Nodes[int(id-1)].History
-				return snaps[len(snaps)-1], nil
-			},
-		}
+		// When you ask for a snapshot, you get the most recent snapshot.
+		//
+		// TODO(tbg): this is sort of clunky, but MemoryStorage itself will
+		// give you some fixed snapshot and also the snapshot changes
+		// whenever you compact the logs and vice versa, so it's all a bit
+		// awkward to use.
+		s := newSnapOverrideStorage(func() (pb.Snapshot, error) {
+			snaps := env.Nodes[int(id-1)].History
+			return snaps[len(snaps)-1], nil
+		})
 		if bootstrap {
 			// NB: we could make this work with 1, but MemoryStorage just
 			// doesn't play well with that and it's not a loss of generality.

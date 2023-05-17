@@ -126,6 +126,20 @@ func (env *InteractionEnv) Handle(t *testing.T, d datadriven.TestData) string {
 		//
 		// transfer-leadership from=1 to=4
 		err = env.handleTransferLeadership(t, d)
+	case "truncate":
+		// Truncates the log on the node at index idx, reset it to the former status where
+		// the last truncate_at was called.
+		// Example:
+		//
+		// truncate <id>
+		err = env.handleTruncate(t, d)
+	case "truncate_at":
+		// Set a checkpoint for the following truncation. Later call of truncate will truncate the
+		// log from where this truncate_at is called.
+		// Example:
+		//
+		// truncate_at <id>
+		err = env.handleTruncateAt(t, d)
 	case "propose":
 		// Propose an entry.
 		//

@@ -257,6 +257,12 @@ type Config struct {
 	// logical clock from assigning the timestamp and then forwarding the data
 	// to the leader.
 	DisableProposalForwarding bool
+
+	// AllowInvariantViolations is true if we want to proceed even if
+	// some invariants are violated. If enabled, the logger will not panic,
+	// but just log the event and keep going. An example would be a commit index
+	// regression in a follower.
+	AllowInvariantViolations bool
 }
 
 func (c *Config) validate() error {
@@ -397,6 +403,8 @@ type raft struct {
 	// current term. Those will be handled as fast as first log is committed in
 	// current term.
 	pendingReadIndexMessages []pb.Message
+
+	allowInvariantViolations bool
 }
 
 func newRaft(c *Config) *raft {
@@ -424,6 +432,7 @@ func newRaft(c *Config) *raft {
 		preVote:                   c.PreVote,
 		readOnly:                  newReadOnly(c.ReadOnlyOption),
 		disableProposalForwarding: c.DisableProposalForwarding,
+		allowInvariantViolations:  c.AllowInvariantViolations,
 	}
 
 	cfg, prs, err := confchange.Restore(confchange.Changer{
@@ -1456,6 +1465,16 @@ func stepLeader(r *raft, m pb.Message) error {
 		pr.RecentActive = true
 		pr.MsgAppFlowPaused = false
 
+		if m.Reject && r.allowInvariantViolations {
+			r.logger.Debugf("%x received MsgHeartbeatResp(rejected, hint: (index %d)) from %x for index %d",
+				r.id, m.RejectHint, m.From, m.Commit)
+
+			pr.Match = m.RejectHint
+			pr.Next = m.RejectHint + 1
+
+			r.logger.Debugf("%x decreased progress of %x to [%s]", r.id, m.From, pr)
+		}
+
 		// NB: if the follower is paused (full Inflights), this will still send an
 		// empty append, allowing it to recover from situations in which all the
 		// messages that filled up Inflights in the first place were dropped. Note
@@ -1684,6 +1703,24 @@ func (r *raft) handleAppendEntries(m pb.Message) {
 }
 
 func (r *raft) handleHeartbeat(m pb.Message) {
+	if r.allowInvariantViolations {
+		// If the following commit panics, it means the commit id in the message is rejected by the
+		// log since it does not have those entries. Hitting this panic usually means that a follower
+		// has not upheld its durability guarantees. If allowInvariantViolations is enabled, we take
+		// a naive approach to recover from the panic: send a pb.MsgHeartbeatResp with a reject hint,
+		// forcing the leader to retransmit the entries.
+		defer func() {
+			if v := recover(); v != nil {
+				r.send(pb.Message{
+					To:         m.From,
+					Type:       pb.MsgHeartbeatResp,
+					Commit:     m.Commit,
+					Reject:     true,
+					RejectHint: min(m.Commit, r.raftLog.lastIndex()),
+				})
+			}
+		}()
+	}
 	r.raftLog.commitTo(m.Commit)
 	r.send(pb.Message{To: m.From, Type: pb.MsgHeartbeatResp, Context: m.Context})
 }
