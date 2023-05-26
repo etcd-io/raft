@@ -71,6 +71,9 @@ func shouldReport(err string) bool {
 	if strings.Contains(err, "ENCOUNTERED A PANIC OR FATAL") {
 		return false
 	}
+	if strings.Contains(err, "need non-empty snapshot") {
+		return false
+	}
 	if strings.Contains(err, "index, ") && strings.Contains(err, ", is out of range [") {
 		return false
 	}
