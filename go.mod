@@ -8,7 +8,6 @@ require (
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/protobuf v1.5.2
 	github.com/stretchr/testify v1.8.4
-	github.com/stretchr/testify v1.8.2
 	go.uber.org/zap v1.24.0
 )
 
