@@ -26,11 +26,11 @@ import (
 	"strings"
 	"time"
 
-	"go.etcd.io/etcd/server/v3/storage/wal/walpb"
 	"go.etcd.io/raft/v3"
 	pioutil "go.etcd.io/raft/v3/raftexample/pbutil"
 	"go.etcd.io/raft/v3/raftexample/snap/snappb"
 	"go.etcd.io/raft/v3/raftexample/verify"
+	"go.etcd.io/raft/v3/raftexample/walpb"
 	"go.etcd.io/raft/v3/raftpb"
 
 	"go.uber.org/zap"

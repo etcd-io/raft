@@ -69,8 +69,8 @@ func (s *kvStore) readCommits(commitC <-chan *commit, errorC <-chan error) {
 				log.Fatalf("raftexample: could not decode message (%v)", err)
 			}
 			s.mu.Lock()
-			defer s.mu.Unlock()
 			s.store[dataKv.Key] = dataKv.Val
+			s.mu.Unlock()
 		}
 		close(c.applyDoneC)
 	}
