@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/gob"
 	"encoding/json"
+	"go.etcd.io/raft/v3/raftexample/snap"
+	"go.etcd.io/raft/v3/raftpb"
 	"log"
 	"strings"
 	"sync"
@@ -23,20 +25,31 @@ type kv struct {
 }
 
 type kvStore struct {
-	proposeC chan<- string
-	mu       sync.RWMutex
-	store    map[string]string
-	// TODO: snapshotter
+	proposeC    chan<- string
+	mu          sync.RWMutex
+	store       map[string]string
+	snapshotter *snap.Snapshotter
 }
 
-func newKVStore(proposeC chan<- string, commitC <-chan *commit, errorC <-chan error) KVStore {
+func newKVStore(snapshotter *snap.Snapshotter, proposeC chan<- string, commitC <-chan *commit, errorC <-chan error) KVStore {
 	s := &kvStore{
-		proposeC: proposeC,
-		mu:       sync.RWMutex{},
-		store:    make(map[string]string),
+		proposeC:    proposeC,
+		mu:          sync.RWMutex{},
+		store:       make(map[string]string),
+		snapshotter: snapshotter,
 	}
-	// TODO: load snapshot
 
+	snapshot, err := s.loadSnapshot()
+	if err != nil {
+		log.Panic(err)
+	}
+	if snapshot != nil {
+		log.Printf("loading snapshot at term %d and index %d", snapshot.Metadata.Term, snapshot.Metadata.Index)
+		if err := s.recoverFromSnapshot(snapshot.Data); err != nil {
+			log.Panic(err)
+		}
+	}
+	// read commits from raft into kvStore map until error
 	go s.readCommits(commitC, errorC)
 	return s
 }
@@ -84,6 +97,18 @@ func (s *kvStore) getSnapshot() ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return json.Marshal(s.store)
+}
+
+func (s *kvStore) loadSnapshot() (*raftpb.Snapshot, error) {
+	snapshot, err := s.snapshotter.Load()
+	if err == snap.ErrNoSnapshot {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return snapshot, nil
 }
 
 func (s *kvStore) recoverFromSnapshot(snapshot []byte) error {
