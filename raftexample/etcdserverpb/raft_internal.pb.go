@@ -12,7 +12,7 @@ import (
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/golang/protobuf/proto"
 	membershippb "go.etcd.io/raft/v3/raftexample/membershippb"
-	_ "go.etcd.io/etcd/api/v3/versionpb"
+	_ "go.etcd.io/raft/v3/raftexample/versionpb"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.

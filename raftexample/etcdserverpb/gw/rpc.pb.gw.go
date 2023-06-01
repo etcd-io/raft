@@ -10,7 +10,7 @@ package gw
 
 import (
 	"context"
-	"go.etcd.io/etcd/api/v3/etcdserverpb"
+	"go.etcd.io/raft/v3/raftexample/etcdserverpb"
 	"io"
 	"net/http"
 
