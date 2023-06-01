@@ -17,7 +17,7 @@ package snap
 import (
 	"io"
 
-	"go.etcd.io/etcd/pkg/v3/ioutil"
+	"go.etcd.io/raft/v3/raftexample/ioutil"
 	"go.etcd.io/raft/v3/raftpb"
 )
 

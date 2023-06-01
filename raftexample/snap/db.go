@@ -22,7 +22,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"go.etcd.io/etcd/client/pkg/v3/fileutil"
+	"go.etcd.io/raft/v3/raftexample/fileutil"
 
 	humanize "github.com/dustin/go-humanize"
 	"go.uber.org/zap"

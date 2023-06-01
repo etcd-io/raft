@@ -25,12 +25,13 @@ import (
 	"strings"
 	"time"
 
-	"go.etcd.io/etcd/client/pkg/v3/verify"
-	pioutil "go.etcd.io/etcd/pkg/v3/ioutil"
-	"go.etcd.io/etcd/pkg/v3/pbutil"
-	"go.etcd.io/etcd/server/v3/etcdserver/api/snap/snappb"
-	"go.etcd.io/etcd/server/v3/storage/wal/walpb"
+	pioutil "go.etcd.io/raft/v3/raftexample/ioutil"
+	"go.etcd.io/raft/v3/raftexample/verify"
+
 	"go.etcd.io/raft/v3"
+	"go.etcd.io/raft/v3/raftexample/pbutil"
+	"go.etcd.io/raft/v3/raftexample/snap/snappb"
+	"go.etcd.io/raft/v3/raftexample/wal/walpb"
 	"go.etcd.io/raft/v3/raftpb"
 
 	"go.uber.org/zap"
