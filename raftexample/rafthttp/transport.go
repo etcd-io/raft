@@ -20,11 +20,11 @@ import (
 	"sync"
 	"time"
 
-	"go.etcd.io/etcd/client/pkg/v3/types"
-	stats "go.etcd.io/etcd/server/v3/etcdserver/api/v2stats"
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftexample/snap"
 	"go.etcd.io/raft/v3/raftexample/transport"
+	"go.etcd.io/raft/v3/raftexample/types"
+	stats "go.etcd.io/raft/v3/raftexample/v2stats"
 	"go.etcd.io/raft/v3/raftpb"
 
 	"github.com/xiang90/probing"
