@@ -79,6 +79,12 @@ const (
 	campaignTransfer CampaignType = "CampaignTransfer"
 )
 
+// forceCampaign is used in Message.Context for MsgHup, MsgPreVote(Resp) and
+// MsgVote(Resp) to allow voting for a candidate even if the voter has heard
+// from the leader in the past election timeout interval (i.e. when
+// CheckQuorum is enabled). PreVote is otherwise respected.
+var forceCampaign = []byte("ForceCampaign")
+
 const noLimit = math.MaxUint64
 
 // ErrProposalDropped is returned when the proposal is ignored by some cases,
@@ -905,7 +911,7 @@ func (r *raft) becomeLeader() {
 	r.logger.Infof("%x became leader at term %d", r.id, r.Term)
 }
 
-func (r *raft) hup(t CampaignType) {
+func (r *raft) hup(t CampaignType, force bool) {
 	if r.state == StateLeader {
 		r.logger.Debugf("%x ignoring MsgHup because already leader", r.id)
 		return
@@ -924,13 +930,21 @@ func (r *raft) hup(t CampaignType) {
 		return
 	}
 
-	r.logger.Infof("%x is starting a new election at term %d", r.id, r.Term)
-	r.campaign(t)
+	var logForce string
+	if force {
+		logForce = " (force)"
+	}
+	r.logger.Infof("%x is starting a new election at term %d%s", r.id, r.Term, logForce)
+	r.campaign(t, force)
 }
 
 // campaign transitions the raft instance to candidate state. This must only be
 // called after verifying that this is a legitimate transition.
-func (r *raft) campaign(t CampaignType) {
+//
+// If force is true, ignores the CheckQuorum condition that (pre)votes are only
+// granted if voters haven't heard from a leader in the past election timeout
+// interval.
+func (r *raft) campaign(t CampaignType, force bool) {
 	if !r.promotable() {
 		// This path should not be hit (callers are supposed to check), but
 		// better safe than sorry.
@@ -957,6 +971,10 @@ func (r *raft) campaign(t CampaignType) {
 		}
 		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	}
+	var logForce string
+	if force {
+		logForce = " (force)"
+	}
 	for _, id := range ids {
 		if id == r.id {
 			// The candidate votes for itself and should account for this self
@@ -967,12 +985,16 @@ func (r *raft) campaign(t CampaignType) {
 			r.send(pb.Message{To: id, Term: term, Type: voteRespMsgType(voteMsg)})
 			continue
 		}
-		r.logger.Infof("%x [logterm: %d, index: %d] sent %s request to %x at term %d",
-			r.id, r.raftLog.lastTerm(), r.raftLog.lastIndex(), voteMsg, id, r.Term)
+		r.logger.Infof("%x [logterm: %d, index: %d] sent %s%s request to %x at term %d",
+			r.id, r.raftLog.lastTerm(), r.raftLog.lastIndex(), voteMsg, logForce, id, r.Term)
 
 		var ctx []byte
 		if t == campaignTransfer {
+			// TODO(erikgrinaker): We could use forceCampaign in this case too, but
+			// that would break backwards compatibility with older peers.
 			ctx = []byte(t)
+		} else if force {
+			ctx = forceCampaign
 		}
 		r.send(pb.Message{To: id, Term: term, Type: voteMsg, Index: r.raftLog.lastIndex(), LogTerm: r.raftLog.lastTerm(), Context: ctx})
 	}
@@ -995,7 +1017,8 @@ func (r *raft) Step(m pb.Message) error {
 		// local message
 	case m.Term > r.Term:
 		if m.Type == pb.MsgVote || m.Type == pb.MsgPreVote {
-			force := bytes.Equal(m.Context, []byte(campaignTransfer))
+			force := bytes.Equal(m.Context, []byte(campaignTransfer)) ||
+				bytes.Equal(m.Context, forceCampaign)
 			inLease := r.checkQuorum && r.lead != None && r.electionElapsed < r.electionTimeout
 			if !force && inLease {
 				// If a server receives a RequestVote request within the minimum election timeout
@@ -1080,10 +1103,14 @@ func (r *raft) Step(m pb.Message) error {
 
 	switch m.Type {
 	case pb.MsgHup:
+		force := bytes.Equal(m.Context, forceCampaign)
+		if force && r.readOnly.option == ReadOnlyLeaseBased {
+			r.logger.Panic("can't force an election with ReadOnlyLeaseBased")
+		}
 		if r.preVote {
-			r.hup(campaignPreElection)
+			r.hup(campaignPreElection, force)
 		} else {
-			r.hup(campaignElection)
+			r.hup(campaignElection, force)
 		}
 
 	case pb.MsgStorageAppendResp:
@@ -1139,7 +1166,11 @@ func (r *raft) Step(m pb.Message) error {
 			// the message (it ignores all out of date messages).
 			// The term in the original message and current local term are the
 			// same in the case of regular votes, but different for pre-votes.
-			r.send(pb.Message{To: m.From, Term: m.Term, Type: voteRespMsgType(m.Type)})
+			var ctx []byte
+			if bytes.Equal(m.Context, forceCampaign) {
+				ctx = forceCampaign
+			}
+			r.send(pb.Message{To: m.From, Term: m.Term, Type: voteRespMsgType(m.Type), Context: ctx})
 			if m.Type == pb.MsgVote {
 				// Only record real votes.
 				r.electionElapsed = 0
@@ -1572,7 +1603,7 @@ func stepCandidate(r *raft, m pb.Message) error {
 		switch res {
 		case quorum.VoteWon:
 			if r.state == StatePreCandidate {
-				r.campaign(campaignElection)
+				r.campaign(campaignElection, bytes.Equal(m.Context, forceCampaign))
 			} else {
 				r.becomeLeader()
 				r.bcastAppend()
@@ -1624,7 +1655,7 @@ func stepFollower(r *raft, m pb.Message) error {
 		// Leadership transfers never use pre-vote even if r.preVote is true; we
 		// know we are not recovering from a partition so there is no need for the
 		// extra round trip.
-		r.hup(campaignTransfer)
+		r.hup(campaignTransfer, false /* force */)
 	case pb.MsgReadIndex:
 		if r.lead == None {
 			r.logger.Infof("%x no leader at term %d; dropping index reading msg", r.id, r.Term)

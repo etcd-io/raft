@@ -440,6 +440,16 @@ func (n *node) Tick() {
 
 func (n *node) Campaign(ctx context.Context) error { return n.step(ctx, pb.Message{Type: pb.MsgHup}) }
 
+func (n *node) CampaignNow(ctx context.Context) error {
+	if n.rn.raft.readOnly.option == ReadOnlyLeaseBased {
+		return errors.New("can't use CampaignNow with ReadOnlyLeaseBased")
+	}
+	return n.step(ctx, pb.Message{
+		Type:    pb.MsgHup,
+		Context: forceCampaign,
+	})
+}
+
 func (n *node) Propose(ctx context.Context, data []byte) error {
 	return n.stepWait(ctx, pb.Message{Type: pb.MsgProp, Entries: []pb.Entry{{Data: data}}})
 }

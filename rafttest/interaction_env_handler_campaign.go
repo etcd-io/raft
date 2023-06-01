@@ -25,7 +25,16 @@ func (env *InteractionEnv) handleCampaign(t *testing.T, d datadriven.TestData) e
 	return env.Campaign(t, idx)
 }
 
+func (env *InteractionEnv) handleCampaignNow(t *testing.T, d datadriven.TestData) error {
+	idx := firstAsNodeIdx(t, d)
+	return env.CampaignNow(t, idx)
+}
+
 // Campaign the node at the given index.
 func (env *InteractionEnv) Campaign(t *testing.T, idx int) error {
 	return env.Nodes[idx].Campaign()
+}
+
+func (env *InteractionEnv) CampaignNow(t *testing.T, idx int) error {
+	return env.Nodes[idx].CampaignNow()
 }

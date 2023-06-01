@@ -83,6 +83,26 @@ func (rn *RawNode) Campaign() error {
 	})
 }
 
+// CampaignNow is like Campaign, but allows voting for a candidate even if the
+// voter has heard from the leader in the past election timeout interval (when
+// Config.CheckQuorum is enabled). PreVote is otherwise used and respected, i.e.
+// a candidate behind on its log won't receive prevotes.
+//
+// This should only be used when the caller has strong reason to believe the
+// leader is dead, and does not want to wait for the election timeout.
+//
+// This can't be used with ReadOnlyLeaseBased, since it will elect a new leader
+// during the lease which the old leader may be unaware of.
+func (rn *RawNode) CampaignNow() error {
+	if rn.raft.readOnly.option == ReadOnlyLeaseBased {
+		return errors.New("can't use CampaignNow with ReadOnlyLeaseBased")
+	}
+	return rn.raft.Step(pb.Message{
+		Type:    pb.MsgHup,
+		Context: forceCampaign,
+	})
+}
+
 // Propose proposes data be appended to the raft log.
 func (rn *RawNode) Propose(data []byte) error {
 	return rn.raft.Step(pb.Message{

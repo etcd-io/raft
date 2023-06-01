@@ -50,6 +50,11 @@ func (env *InteractionEnv) Handle(t *testing.T, d datadriven.TestData) string {
 		//
 		// campaign <id-of-candidate>
 		err = env.handleCampaign(t, d)
+	case "campaign-now":
+		// Example:
+		//
+		// campaign-now <id-of-candidate>
+		err = env.handleCampaignNow(t, d)
 	case "compact":
 		// Example:
 		//
