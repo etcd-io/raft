@@ -12,27 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package raft_test
+package rafttest
 
 import (
 	"testing"
 
 	"github.com/cockroachdb/datadriven"
-
-	"go.etcd.io/raft/v3"
-	"go.etcd.io/raft/v3/rafttest"
 )
 
-func TestInteraction(t *testing.T) {
-	// NB: if this test fails, run `go test ./raft -rewrite` and inspect the
-	// diff. Only commit the changes if you understand what caused them and if
-	// they are desired.
-	datadriven.Walk(t, "testdata", func(t *testing.T, path string) {
-		env := rafttest.NewInteractionEnv(&rafttest.InteractionOpts{
-			SetRandomizedElectionTimeout: raft.SetRandomizedElectionTimeout,
-		})
-		datadriven.RunTest(t, path, func(t *testing.T, d *datadriven.TestData) string {
-			return env.Handle(t, *d)
-		})
-	})
+func (env *InteractionEnv) handleTickElection(t *testing.T, d datadriven.TestData) error {
+	idx := firstAsNodeIdx(t, d)
+	return env.Tick(idx, env.Nodes[idx].Config.ElectionTick)
+}
+
+func (env *InteractionEnv) handleTickHeartbeat(t *testing.T, d datadriven.TestData) error {
+	idx := firstAsNodeIdx(t, d)
+	return env.Tick(idx, env.Nodes[idx].Config.HeartbeatTick)
+}
+
+// Tick the node at the given index the given number of times.
+func (env *InteractionEnv) Tick(idx int, num int) error {
+	for i := 0; i < num; i++ {
+		env.Nodes[idx].Tick()
+	}
+	return nil
 }
