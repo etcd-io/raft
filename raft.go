@@ -184,6 +184,13 @@ type Config struct {
 	// write.
 	AsyncStorageWrites bool
 
+	// AsyncStorageWritesNonLocalQuorum, on the leader, emits entries for
+	// application when they are known to be committed, rather than known to be
+	// committed on a quorum that includes the leader.
+	//
+	// This is unsupported with AsyncStorageWrites==false.
+	AsyncStorageWritesNonLocalQuorum bool
+
 	// MaxSizePerMsg limits the max byte size of each append message. Smaller
 	// value lowers the raft recovery cost(initial probing and message lost
 	// during normal operation). On the other side, it might affect the
@@ -301,6 +308,10 @@ func (c *Config) validate() error {
 
 	if c.ReadOnlyOption == ReadOnlyLeaseBased && !c.CheckQuorum {
 		return errors.New("CheckQuorum must be enabled when ReadOnlyOption is ReadOnlyLeaseBased")
+	}
+
+	if !c.AsyncStorageWrites && c.AsyncStorageWritesNonLocalQuorum {
+		return errors.New("AsyncStorageWritesNonLocalQuorum must only be set with AsyncStorageWrites")
 	}
 
 	return nil

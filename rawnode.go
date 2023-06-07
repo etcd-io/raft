@@ -32,8 +32,9 @@ var ErrStepPeerNotFound = errors.New("raft: cannot step as peer not found")
 // The methods of this struct correspond to the methods of Node and are described
 // more fully there.
 type RawNode struct {
-	raft               *raft
-	asyncStorageWrites bool
+	raft                             *raft
+	asyncStorageWrites               bool
+	asyncStorageWritesNonLocalQuorum bool
 
 	// Mutable fields.
 	prevSoftSt     *SoftState
@@ -54,6 +55,7 @@ func NewRawNode(config *Config) (*RawNode, error) {
 		raft: r,
 	}
 	rn.asyncStorageWrites = config.AsyncStorageWrites
+	rn.asyncStorageWritesNonLocalQuorum = config.AsyncStorageWritesNonLocalQuorum
 	ss := r.softState()
 	rn.prevSoftSt = &ss
 	rn.prevHardSt = r.hardState()
@@ -443,7 +445,7 @@ func (rn *RawNode) acceptReady(rd Ready) {
 // they are known to be committed but before they have been written locally to
 // stable storage.
 func (rn *RawNode) applyUnstableEntries() bool {
-	return !rn.asyncStorageWrites
+	return !rn.asyncStorageWrites || rn.asyncStorageWritesNonLocalQuorum
 }
 
 // HasReady called when RawNode user need to check if any Ready pending.
