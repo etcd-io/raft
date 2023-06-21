@@ -20,7 +20,7 @@ import (
 	"strings"
 	"testing"
 
-	fuzz "github.com/AdaLogics/go-fuzz-headers"
+	fuzz "github.com/AdamKorcz/go-fuzz-headers-1"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 

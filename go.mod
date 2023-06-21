@@ -3,7 +3,7 @@ module go.etcd.io/raft/v3
 go 1.19
 
 require (
-	github.com/AdaLogics/go-fuzz-headers v0.0.0-20230106234847-43070de90fa1
+	github.com/AdamKorcz/go-fuzz-headers-1 v0.0.0-20230618160516-e936619f9f18
 	github.com/cockroachdb/datadriven v1.0.2
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/protobuf v1.5.2
@@ -12,7 +12,6 @@ require (
 )
 
 require (
-	github.com/cyphar/filepath-securejoin v0.2.3 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/google/go-cmp v0.5.8 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
