@@ -492,7 +492,7 @@ func (n *node) ProposeConfChange(ctx context.Context, cc pb.ConfChangeI) error {
 	if err != nil {
 		return err
 	}
-	return n.Step(ctx, msg)
+	return n.stepWait(ctx, msg)
 }
 
 func (n *node) step(ctx context.Context, m pb.Message) error {
