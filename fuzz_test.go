@@ -74,14 +74,6 @@ func shouldReport(err string) bool {
 	if strings.Contains(err, "index, ") && strings.Contains(err, ", is out of range [") {
 		return false
 	}
-	// This string is found in raft.go because we change all
-	// occurrences from panic(err) to panic("GOT A FUZZ ERROR").
-	// This is done in build.sh as a simple solution to catch
-	// all the panic(err)'s that would otherwise be fuzz
-	// blockers.
-	if strings.Contains(err, "GOT A FUZZ ERROR") {
-		return false
-	}
 
 	return true
 }
