@@ -15,6 +15,7 @@
 package rafttest
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
@@ -86,13 +87,15 @@ func processAppend(n *Node, st raftpb.HardState, ents []raftpb.Entry, snap raftp
 			return err
 		}
 	}
-	if err := s.Append(ents); err != nil {
-		return err
-	}
 	if !raft.IsEmptySnap(snap) {
+		if len(ents) > 0 {
+			return errors.New("can't apply snapshot and entries at the same time")
+		}
 		if err := s.ApplySnapshot(snap); err != nil {
 			return err
 		}
+	} else if err := s.Append(ents); err != nil {
+		return err
 	}
 	return nil
 }

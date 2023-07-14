@@ -149,6 +149,12 @@ func (env *InteractionEnv) Handle(t *testing.T, d datadriven.TestData) string {
 		//
 		// forget-leader 1
 		err = env.handleForgetLeader(t, d)
+	case "send-snapshot":
+		// Sends a snapshot to a node. Takes the source and destination node.
+		// The message will be queued, but not delivered automatically.
+		//
+		// Example: send-snapshot 1 3
+		env.handleSendSnapshot(t, d)
 	case "propose":
 		// Propose an entry.
 		//
