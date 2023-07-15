@@ -343,7 +343,11 @@ type raft struct {
 	// Messages in this list have the type MsgAppResp, MsgVoteResp, or
 	// MsgPreVoteResp. See the comment in raft.send for details.
 	msgsAfterAppend []pb.Message
-
+	// msgsAfterAppendPool is a pool for msgsAfterAppend to avoid frequently
+	// reallocating the underlying array. When assigning a new slice to msgsAfterAppend,
+	// we should try to get it from the pool first; before releasing the msgsAfterAppend
+	// slice, we should put the underlying array into the pool.
+	msgsAfterAppendPool *sync.Pool
 	// the leader id
 	lead uint64
 	// leadTransferee is id of the leader transfer target when its value is not zero.
@@ -421,6 +425,11 @@ func newRaft(c *Config) *raft {
 		preVote:                   c.PreVote,
 		readOnly:                  newReadOnly(c.ReadOnlyOption),
 		disableProposalForwarding: c.DisableProposalForwarding,
+		msgsAfterAppendPool: &sync.Pool{
+			New: func() interface{} {
+				return make([]pb.Message, 0, 8)
+			},
+		},
 	}
 
 	cfg, prs, err := confchange.Restore(confchange.Changer{
@@ -542,6 +551,9 @@ func (r *raft) send(m pb.Message) {
 		// because the safety of such behavior has not been formally verified,
 		// we err on the side of safety and omit a `&& !m.Reject` condition
 		// above.
+		if cap(r.msgsAfterAppend) == 0 {
+			r.msgsAfterAppend = r.msgsAfterAppendPool.Get().([]pb.Message)
+		}
 		r.msgsAfterAppend = append(r.msgsAfterAppend, m)
 	} else {
 		if m.To == r.id {
