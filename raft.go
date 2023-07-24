@@ -283,6 +283,13 @@ type Config struct {
 	// This behavior will become unconditional in the future. See:
 	// https://github.com/etcd-io/raft/issues/83
 	StepDownOnRemoval bool
+
+	// DisableProposalForwardingCallback will be called for each MsgProp message
+	// on nodes which are in follower state.
+	// If this callback returns true, the message will be discarded.
+	// This callback function is used for implementing a mechanism like
+	// DisableProposalForwarding for each message instead of global configuration.
+	DisableProposalForwardingCallback func(m pb.Message) bool
 }
 
 func (c *Config) validate() error {
@@ -413,9 +420,10 @@ type raft struct {
 	// randomizedElectionTimeout is a random number between
 	// [electiontimeout, 2 * electiontimeout - 1]. It gets reset
 	// when raft changes its state to follower or candidate.
-	randomizedElectionTimeout int
-	disableProposalForwarding bool
-	stepDownOnRemoval         bool
+	randomizedElectionTimeout         int
+	disableProposalForwarding         bool
+	stepDownOnRemoval                 bool
+	disableProposalForwardingCallback func(m pb.Message) bool
 
 	tick func()
 	step stepFunc
@@ -440,22 +448,23 @@ func newRaft(c *Config) *raft {
 	}
 
 	r := &raft{
-		id:                          c.ID,
-		lead:                        None,
-		isLearner:                   false,
-		raftLog:                     raftlog,
-		maxMsgSize:                  entryEncodingSize(c.MaxSizePerMsg),
-		maxUncommittedSize:          entryPayloadSize(c.MaxUncommittedEntriesSize),
-		prs:                         tracker.MakeProgressTracker(c.MaxInflightMsgs, c.MaxInflightBytes),
-		electionTimeout:             c.ElectionTick,
-		heartbeatTimeout:            c.HeartbeatTick,
-		logger:                      c.Logger,
-		checkQuorum:                 c.CheckQuorum,
-		preVote:                     c.PreVote,
-		readOnly:                    newReadOnly(c.ReadOnlyOption),
-		disableProposalForwarding:   c.DisableProposalForwarding,
-		disableConfChangeValidation: c.DisableConfChangeValidation,
-		stepDownOnRemoval:           c.StepDownOnRemoval,
+		id:                                c.ID,
+		lead:                              None,
+		isLearner:                         false,
+		raftLog:                           raftlog,
+		maxMsgSize:                        entryEncodingSize(c.MaxSizePerMsg),
+		maxUncommittedSize:                entryPayloadSize(c.MaxUncommittedEntriesSize),
+		prs:                               tracker.MakeProgressTracker(c.MaxInflightMsgs, c.MaxInflightBytes),
+		electionTimeout:                   c.ElectionTick,
+		heartbeatTimeout:                  c.HeartbeatTick,
+		logger:                            c.Logger,
+		checkQuorum:                       c.CheckQuorum,
+		preVote:                           c.PreVote,
+		readOnly:                          newReadOnly(c.ReadOnlyOption),
+		disableProposalForwarding:         c.DisableProposalForwarding,
+		disableConfChangeValidation:       c.DisableConfChangeValidation,
+		stepDownOnRemoval:                 c.StepDownOnRemoval,
+		disableProposalForwardingCallback: c.DisableProposalForwardingCallback,
 	}
 
 	cfg, prs, err := confchange.Restore(confchange.Changer{
@@ -1675,6 +1684,11 @@ func stepFollower(r *raft, m pb.Message) error {
 			return ErrProposalDropped
 		} else if r.disableProposalForwarding {
 			r.logger.Infof("%x not forwarding to leader %x at term %d; dropping proposal", r.id, r.lead, r.Term)
+			return ErrProposalDropped
+		} else if r.disableProposalForwardingCallback != nil && r.disableProposalForwardingCallback(m) {
+			r.logger.Infof("%x not forwarding to leader %x at term %d"+
+				" because disableProposalForwardingCallback() returned true for the message; dropping proposal",
+				r.id, r.lead, r.Term)
 			return ErrProposalDropped
 		}
 		m.To = r.lead
