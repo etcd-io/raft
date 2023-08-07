@@ -13,7 +13,7 @@ jobs:
         with:
           version: v1.53.3
       - name: protoc
-        uses: arduino/setup-protoc@v1
+        uses: arduino/setup-protoc@v2
         with:
           version: '3.20.3'
       - run: make verify
