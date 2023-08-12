@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 
-	fuzz "github.com/AdamKorcz/go-fuzz-headers-1"
+	fuzz "github.com/AdaLogics/go-fuzz-headers"
 
 	pb "go.etcd.io/raft/v3/raftpb"
 )
