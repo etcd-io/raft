@@ -128,34 +128,34 @@ func FuzzStep(f *testing.F) {
 type ZapRaftLogger struct {
 }
 
-func (zl *ZapRaftLogger) Debug(args ...interface{}) {}
+func (zl *ZapRaftLogger) Debug(_ ...interface{}) {}
 
-func (zl *ZapRaftLogger) Debugf(format string, args ...interface{}) {}
+func (zl *ZapRaftLogger) Debugf(_ string, _ ...interface{}) {}
 
-func (zl *ZapRaftLogger) Error(args ...interface{}) {}
+func (zl *ZapRaftLogger) Error(_ ...interface{}) {}
 
-func (zl *ZapRaftLogger) Errorf(format string, args ...interface{}) {}
+func (zl *ZapRaftLogger) Errorf(_ string, _ ...interface{}) {}
 
-func (zl *ZapRaftLogger) Info(args ...interface{}) {}
+func (zl *ZapRaftLogger) Info(_ ...interface{}) {}
 
-func (zl *ZapRaftLogger) Infof(format string, args ...interface{}) {}
+func (zl *ZapRaftLogger) Infof(_ string, _ ...interface{}) {}
 
-func (zl *ZapRaftLogger) Warning(args ...interface{}) {}
+func (zl *ZapRaftLogger) Warning(_ ...interface{}) {}
 
-func (zl *ZapRaftLogger) Warningf(format string, args ...interface{}) {}
+func (zl *ZapRaftLogger) Warningf(_ string, _ ...interface{}) {}
 
-func (zl *ZapRaftLogger) Fatal(args ...interface{}) {
+func (zl *ZapRaftLogger) Fatal(_ ...interface{}) {
 	panic("ENCOUNTERED A PANIC OR FATAL")
 }
 
-func (zl *ZapRaftLogger) Fatalf(format string, args ...interface{}) {
+func (zl *ZapRaftLogger) Fatalf(_ string, _ ...interface{}) {
 	panic("ENCOUNTERED A PANIC OR FATAL")
 }
 
-func (zl *ZapRaftLogger) Panic(args ...interface{}) {
+func (zl *ZapRaftLogger) Panic(_ ...interface{}) {
 	panic("ENCOUNTERED A PANIC OR FATAL")
 }
 
-func (zl *ZapRaftLogger) Panicf(format string, args ...interface{}) {
+func (zl *ZapRaftLogger) Panicf(_ string, _ ...interface{}) {
 	panic("ENCOUNTERED A PANIC OR FATAL")
 }
