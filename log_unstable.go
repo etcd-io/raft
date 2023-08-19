@@ -163,7 +163,6 @@ func (u *unstable) stableTo(i, t uint64) {
 // potentially large entries that aren't needed anymore. Simply clearing the
 // entries wouldn't be safe because clients might still be using them.
 func (u *unstable) shrinkEntriesSlice(nextUnstableEntryIndex int) {
-
 	if nextUnstableEntryIndex == len(u.entries) { //all log entries have been successfully stored
 		u.entries = nil
 	} else if u.doEntriesNeedCompaction(nextUnstableEntryIndex) {
@@ -176,7 +175,7 @@ func (u *unstable) shrinkEntriesSlice(nextUnstableEntryIndex int) {
 func (u *unstable) doEntriesNeedCompaction(nextUnstableEntryIndex int) bool {
 	//Eligible for compaction if the stable entries occupy more than (1/lenMultiple) times of the:
 	// a) underlying-array indexes, OR
-	// b) underlying-array memory size
+	// b) total memory occupied by entries (both stable and unstable)
 	const lenMultiple = 2
 
 	countStableEntries := nextUnstableEntryIndex
@@ -191,7 +190,6 @@ func (u *unstable) doEntriesNeedCompaction(nextUnstableEntryIndex int) bool {
 		}
 		totalSize += val.Size()
 	}
-
 	return (stableEntriesSize > totalSize/lenMultiple)
 }
 
