@@ -516,13 +516,12 @@ func (n *node) stepWithWaitOption(ctx context.Context, m pb.Message, wait bool) 
 			return ErrStopped
 		}
 	}
-	ch := n.propc
 	pm := msgWithResult{m: m}
 	if wait {
 		pm.result = make(chan error, 1)
 	}
 	select {
-	case ch <- pm:
+	case n.propc <- pm:
 		if !wait {
 			return nil
 		}
