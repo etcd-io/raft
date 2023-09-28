@@ -615,19 +615,13 @@ func TestCommitTo(t *testing.T) {
 	tests := []struct {
 		commit  uint64
 		wcommit uint64
-		wpanic  bool
 	}{
-		{3, 3, false},
-		{1, 2, false}, // never decrease
-		{4, 0, true},  // commit out of range -> panic
+		{3, 3},
+		{1, 2}, // never decrease
+		{4, 3}, // commit out of range -> recover
 	}
 	for i, tt := range tests {
 		t.Run(fmt.Sprint(i), func(t *testing.T) {
-			defer func() {
-				if r := recover(); r != nil {
-					require.True(t, tt.wpanic)
-				}
-			}()
 			raftLog := newLog(NewMemoryStorage(), raftLogger)
 			raftLog.append(previousEnts...)
 			raftLog.committed = commit
