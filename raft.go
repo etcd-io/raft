@@ -1303,7 +1303,7 @@ func stepLeader(r *raft, m pb.Message) error {
 	case pb.MsgReadIndex:
 		// only one voting member (the leader) in the cluster
 		if r.prs.IsSingleton() {
-			if resp := r.responseToReadIndexReq(m, r.raftLog.committed); resp.To != None {
+			if resp := r.responseToReadIndexReq(m, r.readIndex()); resp.To != None {
 				r.send(resp)
 			}
 			return nil
@@ -2086,13 +2086,22 @@ func sendMsgReadIndexResponse(r *raft, m pb.Message) {
 	switch r.readOnly.option {
 	// If more than the local vote is needed, go through a full broadcast.
 	case ReadOnlySafe:
-		r.readOnly.addRequest(r.raftLog.committed, m)
+		r.readOnly.addRequest(r.readIndex(), m)
 		// The local node automatically acks the request.
 		r.readOnly.recvAck(r.id, m.Entries[0].Data)
 		r.bcastHeartbeatWithCtx(m.Entries[0].Data)
 	case ReadOnlyLeaseBased:
-		if resp := r.responseToReadIndexReq(m, r.raftLog.committed); resp.To != None {
+		if resp := r.responseToReadIndexReq(m, r.readIndex()); resp.To != None {
 			r.send(resp)
 		}
 	}
+}
+
+// As long as a log has been replicated to majority members, the log is considered
+// as "actually committed", which is `r.prs.Committed()`. When the log is further
+// confirmed by the leader, then it's considered as "officially committed", which
+// is `r.raftLog.committed`. Usually "officially committed" <= "actually committed".
+// We should return the bigger one.
+func (r *raft) readIndex() uint64 {
+	return max(r.raftLog.committed, r.prs.Committed())
 }
