@@ -206,6 +206,47 @@ func TestDisableProposalForwarding(t *testing.T) {
 	}
 }
 
+func TestDisableProposalForwardingCallback(t *testing.T) {
+	r1 := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1, 2, 3)))
+	r2 := newTestRaft(2, 10, 1, newTestMemoryStorage(withPeers(1, 2, 3)))
+	cfg3 := newTestConfig(3, 10, 1, newTestMemoryStorage(withPeers(1, 2, 3)))
+	dropMessageData := []byte("testdata_should_be_dropped")
+	cfg3.DisableProposalForwardingCallback = func(m raftpb.Message) bool {
+		for _, entry := range m.Entries {
+			if bytes.Equal(entry.Data, dropMessageData) {
+				return true
+			}
+		}
+		return false
+	}
+	r3 := newRaft(cfg3)
+	nt := newNetwork(r1, r2, r3)
+
+	// elect r1 as leader
+	nt.send(raftpb.Message{From: 1, To: 1, Type: raftpb.MsgHup})
+
+	var testEntriesShouldBeForwarded = []raftpb.Entry{{Data: []byte("testdata")}}
+	var testEntriesShouldBeDropped = []raftpb.Entry{{Data: dropMessageData}, {Data: []byte("testdata")}}
+
+	// send proposal to r2(follower) where DisableProposalForwardingCallback is nil
+	r2.Step(raftpb.Message{From: 2, To: 2, Type: raftpb.MsgProp, Entries: testEntriesShouldBeForwarded})
+	r2.Step(raftpb.Message{From: 2, To: 2, Type: raftpb.MsgProp, Entries: testEntriesShouldBeDropped})
+
+	// verify r2(follower) does forward the proposal when DisableProposalForwardingCallback is nil
+	if len(r2.msgs) != 2 {
+		t.Fatalf("len(r2.msgs) expected 2, got %d", len(r2.msgs))
+	}
+
+	// send proposal to r3(follower) where DisableProposalForwardingCallback checks the entries
+	r3.Step(raftpb.Message{From: 3, To: 3, Type: raftpb.MsgProp, Entries: testEntriesShouldBeForwarded})
+	r3.Step(raftpb.Message{From: 3, To: 3, Type: raftpb.MsgProp, Entries: testEntriesShouldBeDropped})
+
+	// verify r3(follower) does not forward the proposal when the callback returns true
+	if len(r3.msgs) != 1 {
+		t.Fatalf("len(r3.msgs) expected 1, got %d", len(r3.msgs))
+	}
+}
+
 // TestNodeReadIndexToOldLeader ensures that raftpb.MsgReadIndex to old leader
 // gets forwarded to the new leader and 'send' method does not attach its term.
 func TestNodeReadIndexToOldLeader(t *testing.T) {
