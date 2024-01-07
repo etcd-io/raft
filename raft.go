@@ -1478,18 +1478,20 @@ func stepLeader(r *raft, m pb.Message) error {
 				switch {
 				case pr.State == tracker.StateProbe:
 					pr.BecomeReplicate()
-				case pr.State == tracker.StateSnapshot && pr.Match >= pr.PendingSnapshot:
-					// TODO(tbg): we should also enter this branch if a snapshot is
-					// received that is below pr.PendingSnapshot but which makes it
-					// possible to use the log again.
-					r.logger.Debugf("%x recovered from needing snapshot, resumed sending replication messages to %x [%s]", r.id, m.From, pr)
-					// Transition back to replicating state via probing state
-					// (which takes the snapshot into account). If we didn't
-					// move to replicating state, that would only happen with
-					// the next round of appends (but there may not be a next
-					// round for a while, exposing an inconsistent RaftStatus).
-					pr.BecomeProbe()
-					pr.BecomeReplicate()
+				case pr.State == tracker.StateSnapshot:
+					if pr.Match >= pr.PendingSnapshot {
+						r.logger.Debugf("%x recovered from needing snapshot, resumed sending replication messages to %x [%s]", r.id, m.From, pr)
+						// Transition back to replicating state via probing state
+						// (which takes the snapshot into account). If we didn't
+						// move to replicating state, that would only happen with
+						// the next round of appends (but there may not be a next
+						// round for a while, exposing an inconsistent RaftStatus).
+						pr.BecomeProbe()
+						pr.BecomeReplicate()
+					} else if pr.Match+1 >= r.raftLog.firstIndex() {
+						r.logger.Debugf("%x recovered from needing snapshot, reset to StateProbe to %x [%s]", r.id, m.From, pr)
+						pr.BecomeProbe()
+					}
 				case pr.State == tracker.StateReplicate:
 					pr.Inflights.FreeLE(m.Index)
 				}
