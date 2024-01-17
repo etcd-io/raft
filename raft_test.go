@@ -1814,6 +1814,13 @@ func testCandidateSelfVoteAfterLostElection(t *testing.T, preVote bool) {
 
 	// n1 calls an election.
 	sm.Step(pb.Message{From: 1, To: 1, Type: pb.MsgHup})
+	expState := StateCandidate
+	if preVote {
+		expState = StatePreCandidate
+	}
+	if sm.state != expState {
+		t.Errorf("state = %v, want %v", sm.state, expState)
+	}
 	steps := sm.takeMessagesAfterAppend()
 
 	// n1 hears that n2 already won the election before it has had a
@@ -1837,51 +1844,104 @@ func testCandidateSelfVoteAfterLostElection(t *testing.T, preVote bool) {
 	}
 }
 
-func TestCandidateDeliversPreCandidateSelfVoteAfterBecomingCandidate(t *testing.T) {
+// The following three tests exercise the behavior of a (pre-)candidate when its
+// own self-vote is delivered back to itself after the peer has already learned
+// that it has won the (pre-)election. The self-vote should be ignored in these
+// cases.
+
+func TestCandidateSelfVoteAfterWonElection(t *testing.T) {
+	testCandidateSelfVoteAfterWonElection(t, false, false)
+}
+
+func TestCandidateSelfVoteAfterWonElectionPreVote(t *testing.T) {
+	testCandidateSelfVoteAfterWonElection(t, true, false)
+}
+
+func TestCandidateSelfVoteAfterWonElectionPreVoteDeliverAsCandidate(t *testing.T) {
+	testCandidateSelfVoteAfterWonElection(t, true, true)
+}
+
+func testCandidateSelfVoteAfterWonElection(t *testing.T, preVote, preVoteDeliverAsCandidate bool) {
 	sm := newTestRaft(1, 5, 1, newTestMemoryStorage(withPeers(1, 2, 3)))
-	sm.preVote = true
+	sm.preVote = preVote
 
 	// n1 calls an election.
 	sm.Step(pb.Message{From: 1, To: 1, Type: pb.MsgHup})
-	if sm.state != StatePreCandidate {
-		t.Errorf("state = %v, want %v", sm.state, StatePreCandidate)
+	expState := StateCandidate
+	if preVote {
+		expState = StatePreCandidate
+	}
+	if sm.state != expState {
+		t.Errorf("state = %v, want %v", sm.state, expState)
 	}
 	steps := sm.takeMessagesAfterAppend()
 
-	// n1 receives pre-candidate votes from both other peers before
-	// voting for itself. n1 becomes a candidate.
-	// NB: pre-vote messages carry the local term + 1.
-	sm.Step(pb.Message{From: 2, To: 1, Term: sm.Term + 1, Type: pb.MsgPreVoteResp})
-	sm.Step(pb.Message{From: 3, To: 1, Term: sm.Term + 1, Type: pb.MsgPreVoteResp})
-	if sm.state != StateCandidate {
-		t.Errorf("state = %v, want %v", sm.state, StateCandidate)
+	if preVote {
+		// n1 receives pre-candidate votes from both other peers before
+		// voting for itself. n1 becomes a candidate.
+		// NB: pre-vote messages carry the local term + 1.
+		sm.Step(pb.Message{From: 2, To: 1, Term: sm.Term + 1, Type: pb.MsgPreVoteResp})
+		sm.Step(pb.Message{From: 3, To: 1, Term: sm.Term + 1, Type: pb.MsgPreVoteResp})
+		if sm.state != StateCandidate {
+			t.Errorf("state = %v, want %v", sm.state, StateCandidate)
+		}
+		steps2 := sm.takeMessagesAfterAppend()
+
+		if preVoteDeliverAsCandidate {
+			// n1 remains a candidate even after its delayed pre-vote self-vote
+			// is delivered.
+			sm.stepOrSend(steps)
+			if sm.state != StateCandidate {
+				t.Errorf("state = %v, want %v", sm.state, StateCandidate)
+			}
+
+			// Its pre-vote self-vote does not make its way to its ProgressTracker.
+			granted, _, _ := sm.trk.TallyVotes()
+			if granted != 0 {
+				t.Errorf("granted = %v, want %v", granted, 0)
+			}
+
+			// Nothing new should be sent since n1 first learned that it was a
+			// candidate.
+			if steps3 := sm.takeMessagesAfterAppend(); len(steps3) != 0 {
+				t.Errorf("unexpected new messages after pre-vote self-vote: %+v", steps3)
+			}
+			steps = steps2
+		} else {
+			// Delay the pre-vote self-vote even longer, until after the peer
+			// becomes the leader.
+			steps = append(steps, steps2...)
+		}
 	}
 
-	// n1 remains a candidate even after its delayed pre-vote self-vote is
-	// delivered.
-	sm.stepOrSend(steps)
-	if sm.state != StateCandidate {
-		t.Errorf("state = %v, want %v", sm.state, StateCandidate)
-	}
-	steps = sm.takeMessagesAfterAppend()
-
-	// Its pre-vote self-vote does not make its way to its ProgressTracker.
-	granted, _, _ := sm.trk.TallyVotes()
-	if granted != 0 {
-		t.Errorf("granted = %v, want %v", granted, 0)
-	}
-
-	// A single vote from n2 does not move n1 to the leader.
+	// n1 receives candidate votes from both other peers before voting for
+	// itself. n1 becomes the leader.
 	sm.Step(pb.Message{From: 2, To: 1, Term: sm.Term, Type: pb.MsgVoteResp})
-	if sm.state != StateCandidate {
-		t.Errorf("state = %v, want %v", sm.state, StateCandidate)
+	sm.Step(pb.Message{From: 3, To: 1, Term: sm.Term, Type: pb.MsgVoteResp})
+	if sm.state != StateLeader {
+		t.Errorf("state = %v, want %v", sm.state, StateLeader)
 	}
 
-	// n1 becomes the leader once its self-vote is received because now
-	// quorum is reached.
+	// n1 can propose a write and have it committed by the two followers, still
+	// without its self-vote(s) being accounted for.
+	commit := sm.raftLog.committed
+	sm.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Data: []byte("somedata")}}})
+	sm.Step(pb.Message{From: 2, To: 1, Term: sm.Term, Index: sm.raftLog.lastIndex(), Type: pb.MsgAppResp})
+	sm.Step(pb.Message{From: 3, To: 1, Term: sm.Term, Index: sm.raftLog.lastIndex(), Type: pb.MsgAppResp})
+	if sm.raftLog.committed <= commit {
+		t.Errorf("committed = %v, want > %v", sm.raftLog.committed, commit)
+	}
+
+	// n1 remains a leader even after its delayed self-vote(s) is/are delivered.
 	sm.stepOrSend(steps)
 	if sm.state != StateLeader {
 		t.Errorf("state = %v, want %v", sm.state, StateLeader)
+	}
+
+	// Its self-vote does not make its way to its ProgressTracker.
+	granted, _, _ := sm.trk.TallyVotes()
+	if granted != 0 {
+		t.Errorf("granted = %v, want %v", granted, 0)
 	}
 }
 
