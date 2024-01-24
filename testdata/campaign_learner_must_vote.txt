@@ -135,10 +135,10 @@ stabilize 2 3
   CommittedEntries:
   1/4 EntryConfChangeV2 v3
   Messages:
-  3->2 MsgAppResp Term:2 Log:0/5
+  3->2 MsgAppResp Term:2 Log:0/5 Commit:4
   INFO 3 switched to configuration voters=(1 2 3)
 > 2 receiving messages
-  3->2 MsgAppResp Term:2 Log:0/5
+  3->2 MsgAppResp Term:2 Log:0/5 Commit:4
 > 2 handling Ready
   Ready MustSync=false:
   HardState Term:2 Vote:2 Commit:5
@@ -154,6 +154,6 @@ stabilize 2 3
   CommittedEntries:
   2/5 EntryNormal ""
   Messages:
-  3->2 MsgAppResp Term:2 Log:0/5
+  3->2 MsgAppResp Term:2 Log:0/5 Commit:5
 > 2 receiving messages
-  3->2 MsgAppResp Term:2 Log:0/5
+  3->2 MsgAppResp Term:2 Log:0/5 Commit:5

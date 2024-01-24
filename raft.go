@@ -827,7 +827,7 @@ func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 	//  if r.maybeCommit() {
 	//  	r.bcastAppend()
 	//  }
-	r.send(pb.Message{To: r.id, Type: pb.MsgAppResp, Index: li})
+	r.send(pb.Message{To: r.id, Type: pb.MsgAppResp, Index: li, Commit: r.raftLog.committed})
 	return true
 }
 
@@ -1493,7 +1493,9 @@ func stepLeader(r *raft, m pb.Message) error {
 			// equals pr.Match we know we don't m.Index+1 in our log, so moving
 			// back to replicating state is not useful; besides pr.PendingSnapshot
 			// would prevent it.
-			if pr.MaybeUpdate(m.Index) || (pr.Match == m.Index && pr.State == tracker.StateProbe) {
+			updated := pr.MaybeUpdate(m.Index)
+			pr.UpdateCommit(m.Commit)
+			if updated || (pr.Match == m.Index && pr.State == tracker.StateProbe) {
 				switch {
 				case pr.State == tracker.StateProbe:
 					pr.BecomeReplicate()
@@ -1765,12 +1767,12 @@ func (r *raft) handleAppendEntries(m pb.Message) {
 	// message, and validate it before taking any action (e.g. bumping term).
 	a := logSliceFromMsgApp(&m)
 
-	if a.prev.index < r.raftLog.committed {
-		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: r.raftLog.committed})
+	if commit := r.raftLog.committed; a.prev.index < commit {
+		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: r.raftLog.committed, Commit: commit})
 		return
 	}
 	if mlastIndex, ok := r.raftLog.maybeAppend(a, m.Commit); ok {
-		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: mlastIndex})
+		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: mlastIndex, Commit: r.raftLog.committed})
 		return
 	}
 	r.logger.Debugf("%x [logterm: %d, index: %d] rejected MsgApp [logterm: %d, index: %d] from %x",

@@ -28,6 +28,7 @@ package raft
 
 import (
 	"fmt"
+	"github.com/stretchr/testify/require"
 	"reflect"
 	"sort"
 	"testing"
@@ -606,20 +607,21 @@ func TestFollowerCheckMsgApp(t *testing.T) {
 		term        uint64
 		index       uint64
 		windex      uint64
+		wcommit     uint64
 		wreject     bool
 		wrejectHint uint64
 		wlogterm    uint64
 	}{
 		// match with committed entries
-		{0, 0, 1, false, 0, 0},
-		{ents[0].Term, ents[0].Index, 1, false, 0, 0},
+		{0, 0, 1, 1, false, 0, 0},
+		{ents[0].Term, ents[0].Index, 1, 1, false, 0, 0},
 		// match with uncommitted entries
-		{ents[1].Term, ents[1].Index, 2, false, 0, 0},
+		{ents[1].Term, ents[1].Index, 2, 1, false, 0, 0},
 
 		// unmatch with existing entry
-		{ents[0].Term, ents[1].Index, ents[1].Index, true, 1, 1},
+		{ents[0].Term, ents[1].Index, ents[1].Index, 0, true, 1, 1},
 		// unexisting entry
-		{ents[1].Term + 1, ents[1].Index + 1, ents[1].Index + 1, true, 2, 2},
+		{ents[1].Term + 1, ents[1].Index + 1, ents[1].Index + 1, 0, true, 2, 2},
 	}
 	for i, tt := range tests {
 		storage := newTestMemoryStorage(withPeers(1, 2, 3))
@@ -630,13 +632,11 @@ func TestFollowerCheckMsgApp(t *testing.T) {
 
 		r.Step(pb.Message{From: 2, To: 1, Type: pb.MsgApp, Term: 2, LogTerm: tt.term, Index: tt.index})
 
-		msgs := r.readMessages()
-		wmsgs := []pb.Message{
-			{From: 1, To: 2, Type: pb.MsgAppResp, Term: 2, Index: tt.windex, Reject: tt.wreject, RejectHint: tt.wrejectHint, LogTerm: tt.wlogterm},
+		wmsg := pb.Message{
+			From: 1, To: 2, Type: pb.MsgAppResp, Term: 2, Index: tt.windex, Commit: tt.wcommit,
+			Reject: tt.wreject, RejectHint: tt.wrejectHint, LogTerm: tt.wlogterm,
 		}
-		if !reflect.DeepEqual(msgs, wmsgs) {
-			t.Errorf("#%d: msgs = %+v, want %+v", i, msgs, wmsgs)
-		}
+		require.Equal(t, []pb.Message{wmsg}, r.readMessages(), "#%d", i)
 	}
 }
 
