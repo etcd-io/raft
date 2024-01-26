@@ -5,27 +5,14 @@
 # StateReplicate for the follower. In other words, we don't end up in
 # a stable state with a fully caught up follower in StateProbe.
 
-# Turn off output during the setup of the test.
 log-level none
-----
-ok
-
 add-nodes 3 voters=(1,2,3) index=10
-----
-ok
-
 campaign 1
-----
-ok
-
 stabilize
 ----
 ok
 
 log-level debug
-----
-ok
-
 status 1
 ----
 1: StateReplicate match=11 next=12
@@ -43,11 +30,8 @@ status 1
 2: StateProbe match=11 next=12
 3: StateReplicate match=11 next=12
 
-tick-heartbeat 1
-----
-ok
-
 # Heartbeat -> HeartbeatResp -> MsgApp -> MsgAppResp -> StateReplicate.
+tick-heartbeat 1
 stabilize
 ----
 > 1 handling Ready
