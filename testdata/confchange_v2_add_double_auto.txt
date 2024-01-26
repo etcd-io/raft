@@ -4,13 +4,11 @@
 
 # Bootstrap n1.
 add-nodes 1 voters=(1) index=2
+campaign 1
 ----
 INFO 1 switched to configuration voters=(1)
 INFO 1 became follower at term 0
 INFO newRaft 1 [peers: [1], term: 0, commit: 2, applied: 2, lastindex: 2, lastterm: 1]
-
-campaign 1
-----
 INFO 1 is starting a new election at term 0
 INFO 1 became candidate at term 1
 
@@ -250,9 +248,6 @@ stabilize 2 3
 # be a bug in which these proposals would prompt the leader to transition out of
 # the same joint state multiple times, which would cause a panic.
 propose 1 foo
-----
-ok
-
 propose 1 bar
 ----
 ok
