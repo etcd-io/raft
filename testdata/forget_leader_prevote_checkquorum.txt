@@ -3,27 +3,16 @@
 #
 # Also tests that forgetting the leader still won't grant prevotes to a
 # replica that isn't up-to-date.
+
 log-level none
-----
-ok
-
 add-nodes 3 voters=(1,2,3) index=10 prevote=true checkquorum=true
-----
-ok
-
 campaign 1
-----
-ok
-
 stabilize
 ----
 ok
 
-log-level debug
-----
-ok
-
 # If 3 attempts to campaign, 2 rejects it because it has a leader.
+log-level debug
 campaign 3
 ----
 INFO 3 is starting a new election at term 1
@@ -51,9 +40,6 @@ INFO 2 [logterm: 1, index: 11, vote: 1] ignored MsgPreVote from 3 [logterm: 1, i
 
 # Make 1 assert leadership over 3 again.
 tick-heartbeat 1
-----
-ok
-
 stabilize
 ----
 > 1 handling Ready
@@ -98,14 +84,12 @@ raft-state
 3: StateFollower (Voter) Term:1 Lead:1
 
 campaign 3
+stabilize 3
 ----
 INFO 3 is starting a new election at term 1
 INFO 3 became pre-candidate at term 1
 INFO 3 [logterm: 1, index: 11] sent MsgPreVote request to 1 at term 1
 INFO 3 [logterm: 1, index: 11] sent MsgPreVote request to 2 at term 1
-
-stabilize 3
-----
 > 3 handling Ready
   Ready MustSync=false:
   Lead:0 State:StatePreCandidate
@@ -160,9 +144,6 @@ raft-state
 # Test that forgetting the leader still won't grant prevotes if the candidate
 # isn't up-to-date. We first replicate a proposal on 3 and 2.
 propose 3 prop_1
-----
-ok
-
 stabilize 3
 ----
 > 3 handling Ready
