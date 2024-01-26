@@ -26,11 +26,11 @@ import (
 	pb "go.etcd.io/raft/v3/raftpb"
 )
 
-func (env *InteractionEnv) handleAddNodes(t *testing.T, d datadriven.TestData) error {
-	n := firstAsInt(t, d)
+func (env *InteractionEnv) handleAddNodes(t *testing.T, args []datadriven.CmdArg) error {
+	n := firstAsInt(t, args)
 	var snap pb.Snapshot
 	cfg := raftConfigStub()
-	for _, arg := range d.CmdArgs[1:] {
+	for _, arg := range args[1:] {
 		for i := range arg.Vals {
 			switch arg.Key {
 			case "voters":

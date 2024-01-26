@@ -21,9 +21,9 @@ import (
 	"github.com/cockroachdb/datadriven"
 )
 
-func (env *InteractionEnv) handleCompact(t *testing.T, d datadriven.TestData) error {
-	idx := firstAsNodeIdx(t, d)
-	newFirstIndex, err := strconv.ParseUint(d.CmdArgs[1].Key, 10, 64)
+func (env *InteractionEnv) handleCompact(t *testing.T, args []datadriven.CmdArg) error {
+	idx := firstAsNodeIdx(t, args)
+	newFirstIndex, err := strconv.ParseUint(args[1].Key, 10, 64)
 	if err != nil {
 		return err
 	}
