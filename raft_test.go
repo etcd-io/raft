@@ -1332,16 +1332,24 @@ func TestHandleMsgApp(t *testing.T) {
 func TestHandleHeartbeat(t *testing.T) {
 	commit := uint64(2)
 	tests := []struct {
-		m       pb.Message
-		wCommit uint64
+		m        pb.Message
+		lastTerm uint64
+		wCommit  uint64
 	}{
-		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit + 1}, commit + 1},
-		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit - 1}, commit}, // do not decrease commit
+		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit + 1}, 2, commit + 1},
+		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit - 1}, 2, commit}, // do not decrease commit
+		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit - 1}, 1, commit},
+
+		// Do not increase the commit index if the log is not guaranteed to be a
+		// prefix of the leader's log.
+		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit + 1}, 1, commit},
+		// Do not increase the commit index beyond our log size.
+		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit + 10}, 2, commit + 1},
 	}
 
 	for i, tt := range tests {
 		storage := newTestMemoryStorage(withPeers(1, 2))
-		storage.Append([]pb.Entry{{Index: 1, Term: 1}, {Index: 2, Term: 2}, {Index: 3, Term: 3}})
+		storage.Append([]pb.Entry{{Index: 1, Term: 1}, {Index: 2, Term: 1}, {Index: 3, Term: tt.lastTerm}})
 		sm := newTestRaft(1, 5, 1, storage)
 		sm.becomeFollower(2, 2)
 		sm.raftLog.commitTo(commit)

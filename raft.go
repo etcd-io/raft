@@ -935,6 +935,8 @@ func (r *raft) becomeLeader() {
 	// so the preceding log append does not count against the uncommitted log
 	// quota of the new leader. In other words, after the call to appendEntry,
 	// r.uncommittedSize is still 0.
+
+	r.raftLog.leaderTerm = r.Term // the leader's log is consistent with itself
 	r.logger.Infof("%x became leader at term %d", r.id, r.Term)
 }
 
@@ -1735,6 +1737,7 @@ func (r *raft) handleAppendEntries(m pb.Message) {
 		return
 	}
 	if mlastIndex, ok := r.raftLog.maybeAppend(m.Index, m.LogTerm, m.Commit, m.Entries...); ok {
+		r.raftLog.leaderTerm = m.Term // the log is now consistent with the leader
 		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: mlastIndex})
 		return
 	}
@@ -1770,7 +1773,16 @@ func (r *raft) handleAppendEntries(m pb.Message) {
 }
 
 func (r *raft) handleHeartbeat(m pb.Message) {
-	r.raftLog.commitTo(m.Commit)
+	// It is only safe to advance the commit index if our log is a prefix of the
+	// leader's log. Otherwise, entries at this index may mismatch.
+	//
+	// TODO(pav-kv): move this logic to r.raftLog, which is more appropriate for
+	// handling safety. The raftLog can use leaderTerm for other safety checks.
+	// For example, unstable.truncateAndAppend currently may override a suffix of
+	// the log unconditionally, but it can only be done if m.Term > leaderTerm.
+	if m.Term == r.raftLog.leaderTerm {
+		r.raftLog.commitTo(min(m.Commit, r.raftLog.lastIndex()))
+	}
 	r.send(pb.Message{To: m.From, Type: pb.MsgHeartbeatResp, Context: m.Context})
 }
 
@@ -1785,6 +1797,7 @@ func (r *raft) handleSnapshot(m pb.Message) {
 	if r.restore(s) {
 		r.logger.Infof("%x [commit: %d] restored snapshot [index: %d, term: %d]",
 			r.id, r.raftLog.committed, sindex, sterm)
+		r.raftLog.leaderTerm = m.Term // the log is now consistent with the leader
 		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: r.raftLog.lastIndex()})
 	} else {
 		r.logger.Infof("%x [commit: %d] ignored snapshot [index: %d, term: %d]",

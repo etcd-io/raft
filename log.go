@@ -29,6 +29,35 @@ type raftLog struct {
 	// they will be saved into storage.
 	unstable unstable
 
+	// leaderTerm is a term of the leader with whom our log is "consistent". The
+	// log is guaranteed to be a prefix of this term's leader log.
+	//
+	// The leaderTerm can be safely updated to `t` if:
+	//	1. the last entry in the log has term `t`, or, more generally,
+	//	2. the last successful append was sent by the leader `t`.
+	//
+	// This is due to the following safety property (see raft paper §5.3):
+	//
+	//	Log Matching: if two logs contain an entry with the same index and term,
+	//	then the logs are identical in all entries up through the given index.
+	//
+	// We use (1) to initialize leaderTerm, and (2) to maintain it on updates.
+	//
+	// NB: (2) does not imply (1). If our log is behind the leader's log, the last
+	// entry term can be below leaderTerm.
+	//
+	// NB: leaderTerm does not necessarily match this raft node's term. It only
+	// does for the leader. For followers and candidates, when we first learn or
+	// bump to a new term, we don't have a proof that our log is consistent with
+	// the new term's leader (current or prospective). The new leader may override
+	// any suffix of the log after the committed index. Only when the first append
+	// from the new leader succeeds, we can update leaderTerm.
+	//
+	// During normal operation, leaderTerm matches the node term though. During a
+	// leader change, it briefly lags behind, and matches again when the first
+	// append message succeeds.
+	leaderTerm uint64
+
 	// committed is the highest log position that is known to be in
 	// stable storage on a quorum of nodes.
 	committed uint64
@@ -88,6 +117,11 @@ func newLogWithSize(storage Storage, logger Logger, maxApplyingEntsSize entryEnc
 	if err != nil {
 		panic(err) // TODO(bdarnell)
 	}
+	lastTerm, err := storage.Term(lastIndex)
+	if err != nil {
+		panic(err) // TODO(pav-kv)
+	}
+	log.leaderTerm = lastTerm
 	log.unstable.offset = lastIndex + 1
 	log.unstable.offsetInProgress = lastIndex + 1
 	log.unstable.logger = logger
@@ -106,6 +140,15 @@ func (l *raftLog) String() string {
 
 // maybeAppend returns (0, false) if the entries cannot be appended. Otherwise,
 // it returns (last index of new entries, true).
+//
+// TODO(pav-kv): pass in the term of the leader who sent this update. It is only
+// safe to handle this append if this term is >= l.leaderTerm. It is only safe
+// to override an uncommitted suffix of entries if term > l.leaderTerm.
+//
+// TODO(pav-kv): introduce a struct that consolidates the append metadata. The
+// (prevEntryIndex, prevEntryTerm, leaderTerm) tuple must always be carried
+// together, and safety of this append must be checked at the lowest layer here,
+// rather than up in raft.go.
 func (l *raftLog) maybeAppend(index, logTerm, committed uint64, ents ...pb.Entry) (lastnewi uint64, ok bool) {
 	if !l.matchTerm(index, logTerm) {
 		return 0, false
