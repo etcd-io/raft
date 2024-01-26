@@ -2,34 +2,18 @@
 # newStorageAppendRespMsg, exercising a few interesting interactions
 # between asynchronous storage writes, term changes, and log truncation.
 
-log-level none
-----
-ok
-
-add-nodes 7 voters=(1,2,3,4,5,6,7) index=10 async-storage-writes=true
-----
-ok
-
 # Step 1: node 2 is the leader.
-
+log-level none
+add-nodes 7 voters=(1,2,3,4,5,6,7) index=10 async-storage-writes=true
 campaign 2
-----
-ok
-
 stabilize
-----
-ok
-
-log-level info
 ----
 ok
 
 # Step 2: node 2 proposes some log entries but only node 1 receives these entries.
 
+log-level info
 propose 2 init_prop
-----
-ok
-
 process-ready 2
 ----
 Ready MustSync=true:
@@ -339,9 +323,6 @@ dropped: 4->1 MsgVote Term:3 Log:1/11
 dropped: 4->1 MsgApp Term:3 Log:1/11 Commit:11 Entries:[3/12 EntryNormal ""]
 
 tick-heartbeat 4
-----
-ok
-
 process-ready 4
 ----
 Ready MustSync=false:
