@@ -672,21 +672,12 @@ func (r *raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 
 // sendHeartbeat sends a heartbeat RPC to the given peer.
 func (r *raft) sendHeartbeat(to uint64, ctx []byte) {
-	// Attach the commit as min(to.matched, r.committed).
-	// When the leader sends out heartbeat message,
-	// the receiver(follower) might not be matched with the leader
-	// or it might not have all the committed entries.
-	// The leader MUST NOT forward the follower's commit to
-	// an unmatched index.
-	commit := min(r.trk.Progress[to].Match, r.raftLog.committed)
-	m := pb.Message{
+	r.send(pb.Message{
 		To:      to,
 		Type:    pb.MsgHeartbeat,
-		Commit:  commit,
+		Commit:  r.raftLog.committed,
 		Context: ctx,
-	}
-
-	r.send(m)
+	})
 }
 
 // bcastAppend sends RPC, with entries to all peers that are not up-to-date
