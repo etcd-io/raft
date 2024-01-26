@@ -1332,11 +1332,18 @@ func TestHandleMsgApp(t *testing.T) {
 func TestHandleHeartbeat(t *testing.T) {
 	commit := uint64(2)
 	tests := []struct {
-		m       pb.Message
-		wCommit uint64
+		m         pb.Message
+		logSynced bool
+		wCommit   uint64
 	}{
-		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit + 1}, commit + 1},
-		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit - 1}, commit}, // do not decrease commit
+		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit + 1}, true, commit + 1},
+		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit - 1}, true, commit}, // do not decrease commit
+		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit - 1}, false, commit},
+
+		// Increase the commit index only if the log is in sync with the leader.
+		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit + 1}, false, commit},
+		// Do not increase the commit index beyond our log size.
+		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit + 10}, true, commit + 1},
 	}
 
 	for i, tt := range tests {
@@ -1345,6 +1352,8 @@ func TestHandleHeartbeat(t *testing.T) {
 		sm := newTestRaft(1, 5, 1, storage)
 		sm.becomeFollower(2, 2)
 		sm.raftLog.commitTo(commit)
+		sm.logSynced = tt.logSynced
+
 		sm.handleHeartbeat(tt.m)
 		if sm.raftLog.committed != tt.wCommit {
 			t.Errorf("#%d: committed = %d, want %d", i, sm.raftLog.committed, tt.wCommit)
