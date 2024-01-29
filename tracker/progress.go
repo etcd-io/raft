@@ -173,12 +173,7 @@ func (pr *Progress) SentEntries(entries int, bytes uint64) {
 		// consider this message being a probe, so that the flow is paused.
 		pr.MsgAppFlowPaused = pr.Inflights.Full()
 	case StateProbe:
-		// TODO(pavelkalinnikov): this condition captures the previous behaviour,
-		// but we should set MsgAppFlowPaused unconditionally for simplicity, because any
-		// MsgApp in StateProbe is a probe, not only non-empty ones.
-		if entries > 0 {
-			pr.MsgAppFlowPaused = true
-		}
+		pr.MsgAppFlowPaused = true
 	default:
 		panic(fmt.Sprintf("sending append in unhandled state %s", pr.State))
 	}
