@@ -1209,6 +1209,7 @@ func TestCommit(t *testing.T) {
 		storage.hardState = pb.HardState{Term: tt.smTerm}
 
 		sm := newTestRaft(1, 10, 2, storage)
+		sm.raftLog.leaderTerm = tt.smTerm
 		for j := 0; j < len(tt.matches); j++ {
 			id := uint64(j) + 1
 			if id > 1 {
@@ -1299,8 +1300,9 @@ func TestHandleMsgApp(t *testing.T) {
 		{pb.Message{Type: pb.MsgApp, Term: 2, LogTerm: 1, Index: 1, Commit: 4, Entries: []pb.Entry{{Index: 2, Term: 2}}}, 2, 2, false},
 
 		// Ensure 3
-		{pb.Message{Type: pb.MsgApp, Term: 1, LogTerm: 1, Index: 1, Commit: 3}, 2, 1, false},                                           // match entry 1, commit up to last new entry 1
-		{pb.Message{Type: pb.MsgApp, Term: 1, LogTerm: 1, Index: 1, Commit: 3, Entries: []pb.Entry{{Index: 2, Term: 2}}}, 2, 2, false}, // match entry 1, commit up to last new entry 2
+		{pb.Message{Type: pb.MsgApp, Term: 1, LogTerm: 1, Index: 1, Commit: 3}, 2, 0, true},                                            // can't commit under outdated term
+		{pb.Message{Type: pb.MsgApp, Term: 2, LogTerm: 1, Index: 1, Commit: 3}, 2, 1, false},                                           // match entry 1, commit up to entry 1
+		{pb.Message{Type: pb.MsgApp, Term: 2, LogTerm: 1, Index: 1, Commit: 3, Entries: []pb.Entry{{Index: 2, Term: 2}}}, 2, 2, false}, // match entry 1, commit up to last new entry 2
 		{pb.Message{Type: pb.MsgApp, Term: 2, LogTerm: 2, Index: 2, Commit: 3}, 2, 2, false},                                           // match entry 2, commit up to last new entry 2
 		{pb.Message{Type: pb.MsgApp, Term: 2, LogTerm: 2, Index: 2, Commit: 4}, 2, 2, false},                                           // commit up to log.last()
 	}
@@ -1352,7 +1354,7 @@ func TestHandleHeartbeat(t *testing.T) {
 		storage.Append([]pb.Entry{{Index: 1, Term: 1}, {Index: 2, Term: 1}, {Index: 3, Term: tt.lastTerm}})
 		sm := newTestRaft(1, 5, 1, storage)
 		sm.becomeFollower(2, 2)
-		sm.raftLog.commitTo(commit)
+		sm.raftLog.commitTo(sm.raftLog.leaderTerm, commit)
 		sm.handleHeartbeat(tt.m)
 		if sm.raftLog.committed != tt.wCommit {
 			t.Errorf("#%d: committed = %d, want %d", i, sm.raftLog.committed, tt.wCommit)
@@ -1374,7 +1376,7 @@ func TestHandleHeartbeatResp(t *testing.T) {
 	sm := newTestRaft(1, 5, 1, storage)
 	sm.becomeCandidate()
 	sm.becomeLeader()
-	sm.raftLog.commitTo(sm.raftLog.lastIndex())
+	sm.raftLog.commitTo(sm.raftLog.leaderTerm, sm.raftLog.lastIndex())
 
 	// A heartbeat response from a node that is behind; re-send MsgApp
 	sm.Step(pb.Message{From: 2, Type: pb.MsgHeartbeatResp})
@@ -1419,7 +1421,7 @@ func TestRaftFreesReadOnlyMem(t *testing.T) {
 	sm := newTestRaft(1, 5, 1, newTestMemoryStorage(withPeers(1, 2)))
 	sm.becomeCandidate()
 	sm.becomeLeader()
-	sm.raftLog.commitTo(sm.raftLog.lastIndex())
+	sm.raftLog.commitTo(sm.Term, sm.raftLog.lastIndex())
 
 	ctx := []byte("ctx")
 
@@ -2783,7 +2785,7 @@ func TestLeaderIncreaseNext(t *testing.T) {
 
 	for i, tt := range tests {
 		sm := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1, 2)))
-		sm.raftLog.append(previousEnts...)
+		sm.raftLog.append(1, previousEnts...)
 		sm.becomeCandidate()
 		sm.becomeLeader()
 		sm.trk.Progress[2].State = tt.state
@@ -2932,7 +2934,7 @@ func TestRestore(t *testing.T) {
 
 	storage := newTestMemoryStorage(withPeers(1, 2))
 	sm := newTestRaft(1, 10, 1, storage)
-	if ok := sm.restore(s); !ok {
+	if ok := sm.restore(sm.Term, s); !ok {
 		t.Fatal("restore fail, want succeed")
 	}
 
@@ -2947,7 +2949,7 @@ func TestRestore(t *testing.T) {
 		t.Errorf("sm.Voters = %+v, want %+v", sg, s.Metadata.ConfState.Voters)
 	}
 
-	if ok := sm.restore(s); ok {
+	if ok := sm.restore(sm.Term, s); ok {
 		t.Fatal("restore succeed, want fail")
 	}
 	// It should not campaign before actually applying data.
@@ -2971,7 +2973,7 @@ func TestRestoreWithLearner(t *testing.T) {
 
 	storage := newTestMemoryStorage(withPeers(1, 2), withLearners(3))
 	sm := newTestLearnerRaft(3, 8, 2, storage)
-	if ok := sm.restore(s); !ok {
+	if ok := sm.restore(sm.Term, s); !ok {
 		t.Error("restore fail, want succeed")
 	}
 
@@ -3000,7 +3002,7 @@ func TestRestoreWithLearner(t *testing.T) {
 		}
 	}
 
-	if ok := sm.restore(s); ok {
+	if ok := sm.restore(sm.Term, s); ok {
 		t.Error("restore succeed, want fail")
 	}
 }
@@ -3017,7 +3019,7 @@ func TestRestoreWithVotersOutgoing(t *testing.T) {
 
 	storage := newTestMemoryStorage(withPeers(1, 2))
 	sm := newTestRaft(1, 10, 1, storage)
-	if ok := sm.restore(s); !ok {
+	if ok := sm.restore(sm.Term, s); !ok {
 		t.Fatal("restore fail, want succeed")
 	}
 
@@ -3032,7 +3034,7 @@ func TestRestoreWithVotersOutgoing(t *testing.T) {
 		t.Errorf("sm.Voters = %+v, want %+v", sg, s.Metadata.ConfState.Voters)
 	}
 
-	if ok := sm.restore(s); ok {
+	if ok := sm.restore(sm.Term, s); ok {
 		t.Fatal("restore succeed, want fail")
 	}
 	// It should not campaign before actually applying data.
@@ -3067,7 +3069,7 @@ func TestRestoreVoterToLearner(t *testing.T) {
 	if sm.isLearner {
 		t.Errorf("%x is learner, want not", sm.id)
 	}
-	if ok := sm.restore(s); !ok {
+	if ok := sm.restore(sm.Term, s); !ok {
 		t.Error("restore failed unexpectedly")
 	}
 }
@@ -3090,7 +3092,7 @@ func TestRestoreLearnerPromotion(t *testing.T) {
 		t.Errorf("%x is not learner, want yes", sm.id)
 	}
 
-	if ok := sm.restore(s); !ok {
+	if ok := sm.restore(sm.Term, s); !ok {
 		t.Error("restore fail, want succeed")
 	}
 
@@ -3114,7 +3116,7 @@ func TestLearnerReceiveSnapshot(t *testing.T) {
 	n1 := newTestLearnerRaft(1, 10, 1, store)
 	n2 := newTestLearnerRaft(2, 10, 1, newTestMemoryStorage(withPeers(1), withLearners(2)))
 
-	n1.restore(s)
+	n1.restore(n1.Term, s)
 	snap := n1.raftLog.nextUnstableSnapshot()
 	store.ApplySnapshot(*snap)
 	n1.appliedSnap(snap)
@@ -3138,8 +3140,8 @@ func TestRestoreIgnoreSnapshot(t *testing.T) {
 	commit := uint64(1)
 	storage := newTestMemoryStorage(withPeers(1, 2))
 	sm := newTestRaft(1, 10, 1, storage)
-	sm.raftLog.append(previousEnts...)
-	sm.raftLog.commitTo(commit)
+	sm.raftLog.append(1, previousEnts...)
+	sm.raftLog.commitTo(1, commit)
 
 	s := pb.Snapshot{
 		Metadata: pb.SnapshotMetadata{
@@ -3150,7 +3152,7 @@ func TestRestoreIgnoreSnapshot(t *testing.T) {
 	}
 
 	// ignore snapshot
-	if ok := sm.restore(s); ok {
+	if ok := sm.restore(1, s); ok {
 		t.Errorf("restore = %t, want %t", ok, false)
 	}
 	if sm.raftLog.committed != commit {
@@ -3159,7 +3161,7 @@ func TestRestoreIgnoreSnapshot(t *testing.T) {
 
 	// ignore snapshot and fast forward commit
 	s.Metadata.Index = commit + 1
-	if ok := sm.restore(s); ok {
+	if ok := sm.restore(1, s); ok {
 		t.Errorf("restore = %t, want %t", ok, false)
 	}
 	if sm.raftLog.committed != commit+1 {
@@ -3178,7 +3180,7 @@ func TestProvideSnap(t *testing.T) {
 	}
 	storage := newTestMemoryStorage(withPeers(1))
 	sm := newTestRaft(1, 10, 1, storage)
-	sm.restore(s)
+	sm.restore(sm.Term, s)
 
 	sm.becomeCandidate()
 	sm.becomeLeader()
@@ -3208,7 +3210,7 @@ func TestIgnoreProvidingSnap(t *testing.T) {
 	}
 	storage := newTestMemoryStorage(withPeers(1))
 	sm := newTestRaft(1, 10, 1, storage)
-	sm.restore(s)
+	sm.restore(sm.Term, s)
 
 	sm.becomeCandidate()
 	sm.becomeLeader()

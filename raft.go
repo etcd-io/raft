@@ -754,7 +754,7 @@ func (r *raft) appliedSnap(snap *pb.Snapshot) {
 // r.bcastAppend).
 func (r *raft) maybeCommit() bool {
 	mci := r.trk.Committed()
-	return r.raftLog.maybeCommit(mci, r.Term)
+	return r.raftLog.maybeCommit(r.Term, mci, r.Term)
 }
 
 func (r *raft) reset(term uint64) {
@@ -804,7 +804,7 @@ func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 		return false
 	}
 	// use latest "last" index after truncate/append
-	li = r.raftLog.append(es...)
+	li = r.raftLog.append(r.Term, es...)
 	// The leader needs to self-ack the entries just appended once they have
 	// been durably persisted (since it doesn't send an MsgApp to itself). This
 	// response message will be added to msgsAfterAppend and delivered back to
@@ -1733,11 +1733,13 @@ func stepFollower(r *raft, m pb.Message) error {
 
 func (r *raft) handleAppendEntries(m pb.Message) {
 	if m.Index < r.raftLog.committed {
+		// TODO(pav-kv): we may still append some entries from this message if they
+		// are consistent with the log. In addition, this message carries a commit
+		// index update that may bump our commit index.
 		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: r.raftLog.committed})
 		return
 	}
-	if mlastIndex, ok := r.raftLog.maybeAppend(m.Index, m.LogTerm, m.Commit, m.Entries...); ok {
-		r.raftLog.leaderTerm = m.Term // the log is now consistent with the leader
+	if mlastIndex, ok := r.raftLog.maybeAppend(m.Term, m.Index, m.LogTerm, m.Commit, m.Entries...); ok {
 		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: mlastIndex})
 		return
 	}
@@ -1773,16 +1775,7 @@ func (r *raft) handleAppendEntries(m pb.Message) {
 }
 
 func (r *raft) handleHeartbeat(m pb.Message) {
-	// It is only safe to advance the commit index if our log is a prefix of the
-	// leader's log. Otherwise, entries at this index may mismatch.
-	//
-	// TODO(pav-kv): move this logic to r.raftLog, which is more appropriate for
-	// handling safety. The raftLog can use leaderTerm for other safety checks.
-	// For example, unstable.truncateAndAppend currently may override a suffix of
-	// the log unconditionally, but it can only be done if m.Term > leaderTerm.
-	if m.Term == r.raftLog.leaderTerm {
-		r.raftLog.commitTo(min(m.Commit, r.raftLog.lastIndex()))
-	}
+	r.raftLog.commitTo(m.Term, m.Commit)
 	r.send(pb.Message{To: m.From, Type: pb.MsgHeartbeatResp, Context: m.Context})
 }
 
@@ -1794,7 +1787,7 @@ func (r *raft) handleSnapshot(m pb.Message) {
 		s = *m.Snapshot
 	}
 	sindex, sterm := s.Metadata.Index, s.Metadata.Term
-	if r.restore(s) {
+	if r.restore(m.Term, s) {
 		r.logger.Infof("%x [commit: %d] restored snapshot [index: %d, term: %d]",
 			r.id, r.raftLog.committed, sindex, sterm)
 		r.raftLog.leaderTerm = m.Term // the log is now consistent with the leader
@@ -1809,7 +1802,7 @@ func (r *raft) handleSnapshot(m pb.Message) {
 // restore recovers the state machine from a snapshot. It restores the log and the
 // configuration of state machine. If this method returns false, the snapshot was
 // ignored, either because it was obsolete or because of an error.
-func (r *raft) restore(s pb.Snapshot) bool {
+func (r *raft) restore(leaderTerm uint64, s pb.Snapshot) bool {
 	if s.Metadata.Index <= r.raftLog.committed {
 		return false
 	}
@@ -1862,7 +1855,7 @@ func (r *raft) restore(s pb.Snapshot) bool {
 	if r.raftLog.matchTerm(s.Metadata.Index, s.Metadata.Term) {
 		r.logger.Infof("%x [commit: %d, lastindex: %d, lastterm: %d] fast-forwarded commit to snapshot [index: %d, term: %d]",
 			r.id, r.raftLog.committed, r.raftLog.lastIndex(), r.raftLog.lastTerm(), s.Metadata.Index, s.Metadata.Term)
-		r.raftLog.commitTo(s.Metadata.Index)
+		r.raftLog.commitTo(leaderTerm, s.Metadata.Index)
 		return false
 	}
 
