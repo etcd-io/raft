@@ -37,6 +37,11 @@ type Progress struct {
 	// Invariant: 0 <= Match < Next.
 	Next uint64
 
+	// pendingCommit is the highest commit index in flight to the follower.
+	//
+	// Invariant: 0 <= pendingCommit < Next.
+	pendingCommit uint64
+
 	// State defines how the leader should interact with the follower.
 	//
 	// When in StateProbe, leader sends at most one replication message
@@ -127,6 +132,7 @@ func (pr *Progress) BecomeProbe() {
 	} else {
 		pr.ResetState(StateProbe)
 		pr.Next = pr.Match + 1
+		pr.pendingCommit = min(pr.pendingCommit, pr.Match)
 	}
 }
 
@@ -134,6 +140,7 @@ func (pr *Progress) BecomeProbe() {
 func (pr *Progress) BecomeReplicate() {
 	pr.ResetState(StateReplicate)
 	pr.Next = pr.Match + 1
+	pr.pendingCommit = min(pr.pendingCommit, pr.Match)
 }
 
 // BecomeSnapshot moves the Progress to StateSnapshot with the specified pending
@@ -163,6 +170,20 @@ func (pr *Progress) SentEntries(entries int, bytes uint64) {
 	default:
 		panic(fmt.Sprintf("sending append in unhandled state %s", pr.State))
 	}
+}
+
+// CanBumpCommit returns true if sending the given commit index can potentially
+// advance the follower's commit index.
+func (pr *Progress) CanBumpCommit(index uint64) bool {
+	return pr.pendingCommit < min(index, pr.Next-1)
+}
+
+// SentCommit updates the pendingCommit.
+func (pr *Progress) SentCommit(commit uint64) {
+	// Sending the given commit index may bump the follower's commit index up to
+	// Next-1, or even higher. We track only up to Next-1, and maintain the
+	// invariant: pendingCommit < Next.
+	pr.pendingCommit = min(max(pr.pendingCommit, commit), pr.Next-1)
 }
 
 // MaybeUpdate is called when an MsgAppResp arrives from the follower, with the
@@ -200,6 +221,7 @@ func (pr *Progress) MaybeDecrTo(rejected, matchHint uint64) bool {
 		//
 		// TODO(tbg): why not use matchHint if it's larger?
 		pr.Next = pr.Match + 1
+		pr.pendingCommit = min(pr.pendingCommit, pr.Match)
 		return true
 	}
 
@@ -211,6 +233,7 @@ func (pr *Progress) MaybeDecrTo(rejected, matchHint uint64) bool {
 	}
 
 	pr.Next = max(min(rejected, matchHint+1), pr.Match+1)
+	pr.pendingCommit = min(pr.pendingCommit, pr.Next-1)
 	pr.MsgAppFlowPaused = false
 	return true
 }
