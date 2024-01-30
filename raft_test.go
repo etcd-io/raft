@@ -1332,11 +1332,18 @@ func TestHandleMsgApp(t *testing.T) {
 func TestHandleHeartbeat(t *testing.T) {
 	commit := uint64(2)
 	tests := []struct {
-		m       pb.Message
-		wCommit uint64
+		m         pb.Message
+		logSynced bool
+		wCommit   uint64
 	}{
-		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit + 1}, commit + 1},
-		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit - 1}, commit}, // do not decrease commit
+		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit + 1}, true, commit + 1},
+		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit - 1}, true, commit}, // do not decrease commit
+		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit - 1}, false, commit},
+
+		// Increase the commit index only if the log is in sync with the leader.
+		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit + 1}, false, commit},
+		// Do not increase the commit index beyond our log size.
+		{pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeat, Term: 2, Commit: commit + 10}, true, commit + 1},
 	}
 
 	for i, tt := range tests {
@@ -1345,6 +1352,8 @@ func TestHandleHeartbeat(t *testing.T) {
 		sm := newTestRaft(1, 5, 1, storage)
 		sm.becomeFollower(2, 2)
 		sm.raftLog.commitTo(commit)
+		sm.logSynced = tt.logSynced
+
 		sm.handleHeartbeat(tt.m)
 		if sm.raftLog.committed != tt.wCommit {
 			t.Errorf("#%d: committed = %d, want %d", i, sm.raftLog.committed, tt.wCommit)
@@ -2690,10 +2699,6 @@ func TestBcastBeat(t *testing.T) {
 	if len(msgs) != 2 {
 		t.Fatalf("len(msgs) = %v, want 2", len(msgs))
 	}
-	wantCommitMap := map[uint64]uint64{
-		2: min(sm.raftLog.committed, sm.trk.Progress[2].Match),
-		3: min(sm.raftLog.committed, sm.trk.Progress[3].Match),
-	}
 	for i, m := range msgs {
 		if m.Type != pb.MsgHeartbeat {
 			t.Fatalf("#%d: type = %v, want = %v", i, m.Type, pb.MsgHeartbeat)
@@ -2704,13 +2709,8 @@ func TestBcastBeat(t *testing.T) {
 		if m.LogTerm != 0 {
 			t.Fatalf("#%d: prevTerm = %d, want %d", i, m.LogTerm, 0)
 		}
-		if wantCommitMap[m.To] == 0 {
-			t.Fatalf("#%d: unexpected to %d", i, m.To)
-		} else {
-			if m.Commit != wantCommitMap[m.To] {
-				t.Fatalf("#%d: commit = %d, want %d", i, m.Commit, wantCommitMap[m.To])
-			}
-			delete(wantCommitMap, m.To)
+		if m.Commit != sm.raftLog.committed {
+			t.Fatalf("#%d: commit = %d, want %d", i, m.Commit, sm.raftLog.committed)
 		}
 		if len(m.Entries) != 0 {
 			t.Fatalf("#%d: len(entries) = %d, want 0", i, len(m.Entries))
