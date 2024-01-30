@@ -4355,9 +4355,7 @@ func TestPreVoteMigrationCanCompleteElection(t *testing.T) {
 	nt.send(pb.Message{From: 2, To: 2, Type: pb.MsgHup})
 
 	// Do we have a leader?
-	if n2.state != StateLeader && n3.state != StateFollower {
-		t.Errorf("no leader")
-	}
+	require.False(t, n2.state != StateLeader && n3.state != StateLeader, "no leader");
 }
 
 func TestPreVoteMigrationWithFreeStuckPreCandidate(t *testing.T) {
@@ -4787,7 +4785,7 @@ func TestFastLogRejection(t *testing.T) {
 			require.Equal(t, test.rejectHintTerm, msgs[0].LogTerm, "hint log term mismatch")
 			require.Equal(t, test.rejectHintIndex, msgs[0].RejectHint, "hint log index mismatch")
 
-			require.NoError(t, n1.Step(msgs[0]), "peer 1 step append fail")
+			require.NoError(t, n1.Step(msgs[0]), "peer 1 step append response fail")
 			msgs = n1.readMessages()
 			require.Equal(t, test.nextAppendTerm, msgs[0].LogTerm)
 			require.Equal(t, test.nextAppendIndex, msgs[0].Index)
