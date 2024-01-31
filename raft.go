@@ -795,7 +795,10 @@ func (r *raft) reset(term uint64) {
 }
 
 func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
-	li := r.raftLog.lastIndex()
+	li, lt := r.raftLog.tip()
+	if r.Term < lt {
+		r.logger.Panicf("%x appending out-of-order term: %d < %d", r.id, r.Term, lt)
+	}
 	for i := range es {
 		es[i].Term = r.Term
 		es[i].Index = li + 1 + uint64(i)
@@ -1816,6 +1819,16 @@ func (r *raft) restore(s pb.Snapshot) bool {
 		// state when this method is called.
 		r.logger.Warningf("%x attempted to restore snapshot as leader; should never happen", r.id)
 		r.becomeFollower(r.Term+1, None)
+		return false
+	}
+
+	// Another defense-in-depth: the follower is seeing a snapshot at a bigger
+	// term, but hasn't updated its own term.
+	if s.Metadata.Term > r.Term {
+		r.logger.Warningf("%x attempted to restore snapshot at term %d while being at earlier term %d; "+
+			"should transition to follower at a larger term first",
+			r.id, s.Metadata.Term, r.Term)
+		r.becomeFollower(s.Metadata.Term, None)
 		return false
 	}
 

@@ -371,11 +371,17 @@ func (l *raftLog) stableSnapTo(i uint64) { l.unstable.stableSnapTo(i) }
 func (l *raftLog) acceptUnstable() { l.unstable.acceptInProgress() }
 
 func (l *raftLog) lastTerm() uint64 {
-	t, err := l.term(l.lastIndex())
+	_, term := l.tip()
+	return term
+}
+
+func (l *raftLog) tip() (index, term uint64) {
+	index = l.lastIndex()
+	t, err := l.term(index)
 	if err != nil {
 		l.logger.Panicf("unexpected error when getting the last term (%v)", err)
 	}
-	return t
+	return index, t
 }
 
 func (l *raftLog) term(i uint64) (uint64, error) {
