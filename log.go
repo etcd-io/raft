@@ -109,9 +109,6 @@ func (l *raftLog) maybeAppend(a logSlice, committed uint64) (lastnewi uint64, ok
 	if !ok {
 		return 0, false
 	}
-	if match.index < a.lastIndex() && match.index < l.committed {
-		l.logger.Panicf("entry %d is already committed [committed(%d)]", match.index+1, l.committed)
-	}
 
 	// Fast-forward to the first mismatching or missing entry.
 	// NB: prev.index <= match.index <= a.lastIndex(), so the sub-slicing is safe.
@@ -129,8 +126,8 @@ func (l *raftLog) append(ents ...pb.Entry) uint64 {
 	if len(ents) == 0 {
 		return l.lastIndex()
 	}
-	if after := ents[0].Index - 1; after < l.committed {
-		l.logger.Panicf("after(%d) is out of range [committed(%d)]", after, l.committed)
+	if first := ents[0].Index; first <= l.committed {
+		l.logger.Panicf("entry %d is already committed [committed(%d)]", first, l.committed)
 	}
 	l.unstable.truncateAndAppend(ents)
 	return l.lastIndex()
