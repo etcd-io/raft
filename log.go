@@ -29,6 +29,35 @@ type raftLog struct {
 	// they will be saved into storage.
 	unstable unstable
 
+	// leaderTerm is a term of the leader with whom our log is "consistent". The
+	// log is guaranteed to be a prefix of this term's leader log.
+	//
+	// The leaderTerm can be safely updated to `t` if:
+	//	1. the last entry in the log has term `t`, or, more generally,
+	//	2. the last successful append was sent by the leader `t`.
+	//
+	// This is due to the following safety property (see raft paper §5.3):
+	//
+	//	Log Matching: if two logs contain an entry with the same index and term,
+	//	then the logs are identical in all entries up through the given index.
+	//
+	// We use (1) to initialize leaderTerm, and (2) to maintain it on updates.
+	//
+	// NB: (2) does not imply (1). If our log is behind the leader's log, the last
+	// entry term can be below leaderTerm.
+	//
+	// NB: leaderTerm does not necessarily match this raft node's term. It only
+	// does for the leader. For followers and candidates, when we first learn or
+	// bump to a new term, we don't have a proof that our log is consistent with
+	// the new term's leader (current or prospective). The new leader may override
+	// any suffix of the log after the committed index. Only when the first append
+	// from the new leader succeeds, we can update leaderTerm.
+	//
+	// During normal operation, leaderTerm matches the node term though. During a
+	// leader change, it briefly lags behind, and matches again when the first
+	// append message succeeds.
+	leaderTerm uint64
+
 	// committed is the highest log position that is known to be in
 	// stable storage on a quorum of nodes.
 	committed uint64
@@ -88,6 +117,11 @@ func newLogWithSize(storage Storage, logger Logger, maxApplyingEntsSize entryEnc
 	if err != nil {
 		panic(err) // TODO(bdarnell)
 	}
+	lastTerm, err := storage.Term(lastIndex)
+	if err != nil {
+		panic(err) // TODO(pav-kv)
+	}
+	log.leaderTerm = lastTerm
 	log.unstable.offset = lastIndex + 1
 	log.unstable.offsetInProgress = lastIndex + 1
 	log.unstable.logger = logger
@@ -106,35 +140,73 @@ func (l *raftLog) String() string {
 
 // maybeAppend returns (0, false) if the entries cannot be appended. Otherwise,
 // it returns (last index of new entries, true).
-func (l *raftLog) maybeAppend(index, logTerm, committed uint64, ents ...pb.Entry) (lastnewi uint64, ok bool) {
-	if !l.matchTerm(index, logTerm) {
+//
+// TODO(pav-kv): introduce a struct that consolidates the append metadata. The
+// (leaderTerm, prevIndex, prevTerm) tuple must always be carried together, so
+// that safety properties for this append are checked at the lowest layers
+// rather than up in raft.go.
+func (l *raftLog) maybeAppend(leaderTerm, prevIndex, prevTerm, committed uint64, ents ...pb.Entry) (lastnewi uint64, ok bool) {
+	// Can not accept append requests from an outdated leader.
+	if leaderTerm < l.leaderTerm {
+		return 0, false
+	}
+	// Can not accept append requests that are not consistent with our log.
+	//
+	// NB: it is unnecessary to check matchTerm() if leaderTerm == l.leaderTerm,
+	// because the leader always sends self-consistent appends. For ensuring raft
+	// safety, this check is only necessary if leaderTerm > l.leaderTerm.
+	//
+	// TODO(pav-kv): however, we should log an error if leaderTerm == l.leaderTerm
+	// and the entry does not match. This means either the leader is sending
+	// inconsistent appends, or there is some state corruption in general.
+	if !l.matchTerm(prevIndex, prevTerm) {
 		return 0, false
 	}
 
-	lastnewi = index + uint64(len(ents))
+	lastnewi = prevIndex + uint64(len(ents))
 	ci := l.findConflict(ents)
 	switch {
 	case ci == 0:
 	case ci <= l.committed:
 		l.logger.Panicf("entry %d conflict with committed entry [committed(%d)]", ci, l.committed)
 	default:
-		offset := index + 1
+		offset := prevIndex + 1
 		if ci-offset > uint64(len(ents)) {
 			l.logger.Panicf("index, %d, is out of range [%d]", ci-offset, len(ents))
 		}
-		l.append(ents[ci-offset:]...)
+		l.append(leaderTerm, ents[ci-offset:]...)
 	}
-	l.commitTo(min(committed, lastnewi))
+	// TODO(pav-kv): call commitTo from outside of this method, for a smaller API.
+	// TODO(pav-kv): it is safe to pass committed index as is here instead of min,
+	// but it breaks some tests that make incorrect assumptions. Fix this.
+	l.commitTo(leaderTerm, min(committed, lastnewi))
 	return lastnewi, true
 }
 
-func (l *raftLog) append(ents ...pb.Entry) uint64 {
-	if len(ents) == 0 {
+func (l *raftLog) append(leaderTerm uint64, ents ...pb.Entry) uint64 {
+	// Can not accept append requests from an outdated leader.
+	if leaderTerm < l.leaderTerm {
+		return l.lastIndex()
+	}
+	if len(ents) == 0 { // no-op
 		return l.lastIndex()
 	}
 	if after := ents[0].Index - 1; after < l.committed {
 		l.logger.Panicf("after(%d) is out of range [committed(%d)]", after, l.committed)
 	}
+
+	// INVARIANT: l.term(i) <= l.leaderTerm, for any entry in the log.
+	//
+	// TODO(pav-kv): we should more generally check that the content of ents slice
+	// is correct: all entries have consecutive indices, and terms do not regress.
+	// We should do this validation once, on every incoming message, and pass the
+	// append in a type-safe "validated append" wrapper. This wrapper can provide
+	// convenient accessors to the prev/last entry, instead of raw slices access.
+	if lastTerm := ents[len(ents)-1].Term; lastTerm > leaderTerm {
+		l.logger.Panicf("leader at term %d tries to append a higher term %d", leaderTerm, lastTerm)
+	}
+	l.leaderTerm = leaderTerm // l.leaderTerm never regresses here
+
 	l.unstable.truncateAndAppend(ents)
 	return l.lastIndex()
 }
@@ -315,12 +387,16 @@ func (l *raftLog) lastIndex() uint64 {
 	return i
 }
 
-func (l *raftLog) commitTo(tocommit uint64) {
-	// never decrease commit
-	if l.committed < tocommit {
-		if l.lastIndex() < tocommit {
-			l.logger.Panicf("tocommit(%d) is out of range [lastIndex(%d)]. Was the raft log corrupted, truncated, or lost?", tocommit, l.lastIndex())
-		}
+func (l *raftLog) commitTo(leaderTerm, tocommit uint64) {
+	// Do not accept the commit index update from a leader if our log is not
+	// consistent with the leader's log.
+	if leaderTerm != l.leaderTerm {
+		return
+	}
+	// Otherwise, we have the guarantee that our log is a prefix of the leader's
+	// log. All entries <= min(tocommit, lastIndex) can thus be committed.
+	tocommit = min(tocommit, l.lastIndex())
+	if tocommit > l.committed {
 		l.committed = tocommit
 	}
 }
@@ -444,12 +520,14 @@ func (l *raftLog) matchTerm(i, term uint64) bool {
 	return t == term
 }
 
-func (l *raftLog) maybeCommit(maxIndex, term uint64) bool {
+// TODO(pav-kv): clarify that (maxIndex, term) is the ID of the entry at the
+// committed index. Clean this up.
+func (l *raftLog) maybeCommit(leaderTerm, maxIndex, term uint64) bool {
 	// NB: term should never be 0 on a commit because the leader campaigns at
 	// least at term 1. But if it is 0 for some reason, we don't want to consider
 	// this a term match in case zeroTermOnOutOfBounds returns 0.
 	if maxIndex > l.committed && term != 0 && l.zeroTermOnOutOfBounds(l.term(maxIndex)) == term {
-		l.commitTo(maxIndex)
+		l.commitTo(leaderTerm, maxIndex)
 		return true
 	}
 	return false

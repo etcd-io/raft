@@ -683,7 +683,7 @@ func TestFollowerAppendEntries(t *testing.T) {
 		r := newTestRaft(1, 10, 1, storage)
 		r.becomeFollower(2, 2)
 
-		r.Step(pb.Message{From: 2, To: 1, Type: pb.MsgApp, Term: 2, LogTerm: tt.term, Index: tt.index, Entries: tt.ents})
+		r.Step(pb.Message{From: 2, To: 1, Type: pb.MsgApp, Term: 10, LogTerm: tt.term, Index: tt.index, Entries: tt.ents})
 
 		if g := r.raftLog.allEntries(); !reflect.DeepEqual(g, tt.wents) {
 			t.Errorf("#%d: ents = %+v, want %+v", i, g, tt.wents)

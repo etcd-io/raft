@@ -58,7 +58,7 @@ func (rn *RawNode) Bootstrap(peers []Peer) error {
 
 		ents[i] = pb.Entry{Type: pb.EntryConfChange, Term: 1, Index: uint64(i + 1), Data: data}
 	}
-	rn.raft.raftLog.append(ents...)
+	rn.raft.raftLog.append(rn.raft.Term, ents...)
 
 	// Now apply them, mainly so that the application can call Campaign
 	// immediately after StartNode in tests. Note that these nodes will
