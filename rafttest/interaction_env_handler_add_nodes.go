@@ -144,6 +144,7 @@ func (env *InteractionEnv) AddNodes(n int, cfg raft.Config, snap pb.Snapshot) er
 		}
 		cfg.Logger = env.Output
 
+		cfg.DisableEagerAppends = true
 		rn, err := raft.NewRawNode(&cfg)
 		if err != nil {
 			return err

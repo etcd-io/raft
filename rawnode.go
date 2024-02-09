@@ -16,7 +16,6 @@ package raft
 
 import (
 	"errors"
-
 	pb "go.etcd.io/raft/v3/raftpb"
 	"go.etcd.io/raft/v3/tracker"
 )
@@ -206,6 +205,15 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 				rd.Messages = append(rd.Messages, m)
 			}
 		}
+	}
+
+	if r.disableEagerAppends && r.state == StateLeader {
+		r.trk.Visit(func(id uint64, pr *tracker.Progress) {
+			if id == r.id {
+				return
+			}
+			rd.Messages = r.getMessages(id, FlowControl{}, rd.Messages)
+		})
 	}
 
 	return rd
@@ -485,6 +493,17 @@ func (rn *RawNode) HasReady() bool {
 	}
 	if len(r.msgs) > 0 || len(r.msgsAfterAppend) > 0 {
 		return true
+	}
+	if rn.raft.state == StateLeader {
+		ready := false
+		rn.raft.trk.Visit(func(id uint64, pr *tracker.Progress) {
+			if id != rn.raft.id && !ready {
+				ready = rn.raft.appendsReady(pr)
+			}
+		})
+		if ready {
+			return true
+		}
 	}
 	if r.raftLog.hasNextUnstableEnts() || r.raftLog.hasNextCommittedEnts(rn.applyUnstableEntries()) {
 		return true

@@ -36,16 +36,16 @@ Ready MustSync=true:
 Entries:
 1/12 EntryNormal "init_prop"
 Messages:
+2->AppendThread MsgStorageAppend Term:0 Log:0/0 Entries:[1/12 EntryNormal "init_prop"] Responses:[
+  2->2 MsgAppResp Term:1 Log:0/12
+  AppendThread->2 MsgStorageAppendResp Term:1 Log:1/12
+]
 2->1 MsgApp Term:1 Log:1/11 Commit:11 Entries:[1/12 EntryNormal "init_prop"]
 2->3 MsgApp Term:1 Log:1/11 Commit:11 Entries:[1/12 EntryNormal "init_prop"]
 2->4 MsgApp Term:1 Log:1/11 Commit:11 Entries:[1/12 EntryNormal "init_prop"]
 2->5 MsgApp Term:1 Log:1/11 Commit:11 Entries:[1/12 EntryNormal "init_prop"]
 2->6 MsgApp Term:1 Log:1/11 Commit:11 Entries:[1/12 EntryNormal "init_prop"]
 2->7 MsgApp Term:1 Log:1/11 Commit:11 Entries:[1/12 EntryNormal "init_prop"]
-2->AppendThread MsgStorageAppend Term:0 Log:0/0 Entries:[1/12 EntryNormal "init_prop"] Responses:[
-  2->2 MsgAppResp Term:1 Log:0/12
-  AppendThread->2 MsgStorageAppendResp Term:1 Log:1/12
-]
 
 deliver-msgs 1 drop=(3,4,5,6,7)
 ----
@@ -191,16 +191,16 @@ Lead:3 State:StateLeader
 Entries:
 2/12 EntryNormal ""
 Messages:
+3->AppendThread MsgStorageAppend Term:0 Log:0/0 Entries:[2/12 EntryNormal ""] Responses:[
+  3->3 MsgAppResp Term:2 Log:0/12
+  AppendThread->3 MsgStorageAppendResp Term:2 Log:2/12
+]
 3->1 MsgApp Term:2 Log:1/11 Commit:11 Entries:[2/12 EntryNormal ""]
 3->2 MsgApp Term:2 Log:1/11 Commit:11 Entries:[2/12 EntryNormal ""]
 3->4 MsgApp Term:2 Log:1/11 Commit:11 Entries:[2/12 EntryNormal ""]
 3->5 MsgApp Term:2 Log:1/11 Commit:11 Entries:[2/12 EntryNormal ""]
 3->6 MsgApp Term:2 Log:1/11 Commit:11 Entries:[2/12 EntryNormal ""]
 3->7 MsgApp Term:2 Log:1/11 Commit:11 Entries:[2/12 EntryNormal ""]
-3->AppendThread MsgStorageAppend Term:0 Log:0/0 Entries:[2/12 EntryNormal ""] Responses:[
-  3->3 MsgAppResp Term:2 Log:0/12
-  AppendThread->3 MsgStorageAppendResp Term:2 Log:2/12
-]
 
 deliver-msgs 1 drop=(2,4,5,6,7)
 ----
@@ -348,16 +348,16 @@ Lead:4 State:StateLeader
 Entries:
 3/12 EntryNormal ""
 Messages:
+4->AppendThread MsgStorageAppend Term:0 Log:0/0 Entries:[3/12 EntryNormal ""] Responses:[
+  4->4 MsgAppResp Term:3 Log:0/12
+  AppendThread->4 MsgStorageAppendResp Term:3 Log:3/12
+]
 4->1 MsgApp Term:3 Log:1/11 Commit:11 Entries:[3/12 EntryNormal ""]
 4->2 MsgApp Term:3 Log:1/11 Commit:11 Entries:[3/12 EntryNormal ""]
 4->3 MsgApp Term:3 Log:1/11 Commit:11 Entries:[3/12 EntryNormal ""]
 4->5 MsgApp Term:3 Log:1/11 Commit:11 Entries:[3/12 EntryNormal ""]
 4->6 MsgApp Term:3 Log:1/11 Commit:11 Entries:[3/12 EntryNormal ""]
 4->7 MsgApp Term:3 Log:1/11 Commit:11 Entries:[3/12 EntryNormal ""]
-4->AppendThread MsgStorageAppend Term:0 Log:0/0 Entries:[3/12 EntryNormal ""] Responses:[
-  4->4 MsgAppResp Term:3 Log:0/12
-  AppendThread->4 MsgStorageAppendResp Term:3 Log:3/12
-]
 
 # Step 7: before the new entries reach node 1, it hears of the term change
 # through a heartbeat and persists the new term. Node 1 then receives these

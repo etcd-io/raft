@@ -626,7 +626,8 @@ func (r *raft) getMessages(to uint64, fc FlowControl, buffer []pb.Message) []pb.
 	}
 	pr := r.trk.Progress[to]
 	buf := msgBuf(buffer)
-	r.maybeSendAppendBuf(to, pr, &buf)
+	for r.maybeSendAppendBuf(to, pr, &buf) {
+	}
 	return buf
 }
 
@@ -648,6 +649,10 @@ func (r *raft) maybeSendAppend(to uint64, pr *tracker.Progress) bool {
 		return false
 	}
 	return r.maybeSendAppendBuf(to, pr, &r.msgs)
+}
+
+func (r *raft) appendsReady(pr *tracker.Progress) bool {
+	return pr.ShouldSendMsgApp(r.raftLog.lastIndex(), r.raftLog.committed)
 }
 
 // maybeSendAppendBuf implements maybeSendAppend, and puts the messages into the
