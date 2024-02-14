@@ -476,7 +476,7 @@ func TestRawNodeJointAutoLeave(t *testing.T) {
 	}
 
 	// Move the RawNode along. It should not leave joint because it's follower.
-	rd := rawNode.readyWithoutAccept()
+	rd := rawNode.readyWithoutAccept(ReadyOpts{})
 	// Check that the right ConfChange comes out.
 	if len(rd.Entries) != 0 {
 		t.Fatalf("expected zero entry, got %+v", rd)
@@ -1123,7 +1123,7 @@ func TestRawNodeConsumeReady(t *testing.T) {
 
 	// Inject first message, make sure it's visible via readyWithoutAccept.
 	rn.raft.msgs = append(rn.raft.msgs, m1)
-	rd := rn.readyWithoutAccept()
+	rd := rn.readyWithoutAccept(ReadyOpts{})
 	if len(rd.Messages) != 1 || !reflect.DeepEqual(rd.Messages[0], m1) {
 		t.Fatalf("expected only m1 sent, got %+v", rd.Messages)
 	}

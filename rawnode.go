@@ -131,20 +131,28 @@ func (rn *RawNode) Step(m pb.Message) error {
 // and sending messages. The returned Ready() *must* be handled and subsequently
 // passed back via Advance().
 func (rn *RawNode) Ready() Ready {
-	rd := rn.readyWithoutAccept()
+	return rn.ReadyWithOpts(ReadyOpts{})
+}
+
+// ReadyWithOpts is like Ready(), with options helping the caller to control
+// aspects of the work returned.
+func (rn *RawNode) ReadyWithOpts(opts ReadyOpts) Ready {
+	rd := rn.readyWithoutAccept(opts)
 	rn.acceptReady(rd)
 	return rd
 }
 
 // readyWithoutAccept returns a Ready. This is a read-only operation, i.e. there
 // is no obligation that the Ready must be handled.
-func (rn *RawNode) readyWithoutAccept() Ready {
+func (rn *RawNode) readyWithoutAccept(opts ReadyOpts) Ready {
 	r := rn.raft
 
 	rd := Ready{
-		Entries:          r.raftLog.nextUnstableEnts(),
-		CommittedEntries: r.raftLog.nextCommittedEnts(rn.applyUnstableEntries()),
-		Messages:         r.msgs,
+		Entries:  r.raftLog.nextUnstableEnts(),
+		Messages: r.msgs,
+	}
+	if !opts.DisableCommittedEntries {
+		rd.CommittedEntries = r.raftLog.nextCommittedEnts(rn.applyUnstableEntries())
 	}
 	if softSt := r.softState(); !softSt.equal(rn.prevSoftSt) {
 		// Allocate only when SoftState changes.

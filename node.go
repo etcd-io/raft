@@ -114,6 +114,19 @@ type Ready struct {
 	MustSync bool
 }
 
+// ReadyOpts shapes and tunes the work returned via the Ready struct.
+type ReadyOpts struct {
+	// DisableCommittedEntries instructs raft not to push more committed entries
+	// through Ready.CommittedEntries. This indicates that the Ready handler is
+	// not prepared to apply committed log entries at the moment.
+	//
+	// Normally, raft keeps up to Config.MaxCommittedSizePerReady worth of
+	// committed entries in flight to be applied. DisableCommittedEntries allows
+	// the caller to pause this flow. For instance, this is helpful when the
+	// handler temporarily does not have resources to apply more entries timely.
+	DisableCommittedEntries bool
+}
+
 func isHardStateEqual(a, b pb.HardState) bool {
 	return a.Term == b.Term && a.Vote == b.Vote && a.Commit == b.Commit
 }
@@ -360,7 +373,7 @@ func (n *node) run() {
 			// handled first, but it's generally good to emit larger Readys plus
 			// it simplifies testing (by emitting less frequently and more
 			// predictably).
-			rd = n.rn.readyWithoutAccept()
+			rd = n.rn.readyWithoutAccept(ReadyOpts{})
 			readyc = n.readyc
 		}
 
