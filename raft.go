@@ -1058,12 +1058,24 @@ func (r *raft) poll(id uint64, t pb.MessageType, v bool) (granted int, rejected 
 }
 
 func (r *raft) Step(m pb.Message) error {
+	var (
+		bakElectionElapsed           int
+		bakRandomizedElectionTimeout int
+		higherTerm                   bool
+	)
+
 	// Handle the message term, which may result in our stepping down to a follower.
 	switch {
 	case m.Term == 0:
 		// local message
 	case m.Term > r.Term:
+		higherTerm = true
+
 		if m.Type == pb.MsgVote || m.Type == pb.MsgPreVote {
+			// backup the electionElapsed and randomizedElectionTimeout, we
+			// will restore the values if we don't grant the Vote.
+			bakElectionElapsed, bakRandomizedElectionTimeout = r.electionElapsed, r.randomizedElectionTimeout
+
 			force := bytes.Equal(m.Context, []byte(campaignTransfer))
 			inLease := r.checkQuorum && r.lead != None && r.electionElapsed < r.electionTimeout
 			if !force && inLease {
@@ -1221,6 +1233,18 @@ func (r *raft) Step(m pb.Message) error {
 				r.Vote = m.From
 			}
 		} else {
+			// If the local node receives a `MsgVote` message with higher
+			// term, but it doesn't grant the vote; it turns into a follower,
+			// but it shouldn't reset the electionElapsed, to ensure it
+			// has higher priority to start a campaign in the next round
+			// of election. If we reject a node, it's highly likely we
+			// will reject it again if it immediately campaigns again.
+			// So it may waste a long time to elect a leader if we reset
+			// the electionElapsed.
+			if higherTerm && m.Type == pb.MsgVote {
+				r.electionElapsed = bakElectionElapsed
+				r.randomizedElectionTimeout = bakRandomizedElectionTimeout
+			}
 			r.logger.Infof("%x [logterm: %d, index: %d, vote: %x] rejected %s from %x [logterm: %d, index: %d] at term %d",
 				r.id, lastID.term, lastID.index, r.Vote, m.Type, m.From, candLastID.term, candLastID.index, r.Term)
 			r.send(pb.Message{To: m.From, Term: r.Term, Type: voteRespMsgType(m.Type), Reject: true})
