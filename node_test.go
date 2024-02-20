@@ -380,13 +380,13 @@ func TestNodeProposeAddDuplicateNode(t *testing.T) {
 	cancel()
 	<-goroutineStopped
 
-	if len(allCommittedEntries) != 4 {
-		t.Errorf("len(entry) = %d, want %d, %v\n", len(allCommittedEntries), 4, allCommittedEntries)
+	if len(allCommittedEntries) != 6 {
+		t.Errorf("len(entry) = %d, want %d, %v\n", len(allCommittedEntries), 6, allCommittedEntries)
 	}
 	if !bytes.Equal(allCommittedEntries[1].Data, ccdata1) {
 		t.Errorf("data = %v, want %v", allCommittedEntries[1].Data, ccdata1)
 	}
-	if !bytes.Equal(allCommittedEntries[3].Data, ccdata2) {
+	if !bytes.Equal(allCommittedEntries[5].Data, ccdata2) {
 		t.Errorf("data = %v, want %v", allCommittedEntries[3].Data, ccdata2)
 	}
 }
@@ -816,18 +816,21 @@ func TestNodeProposeAddLearnerNode(t *testing.T) {
 					}
 					var cc raftpb.ConfChange
 					cc.Unmarshal(ent.Data)
-					state := n.ApplyConfChange(cc)
-					if len(state.Learners) == 0 ||
-						state.Learners[0] != cc.NodeID ||
-						cc.NodeID != 2 {
-						t.Errorf("apply conf change should return new added learner: %v", state.String())
+					state, err := n.ApplyConfChange(cc)
+					if err == nil {
+						if len(state.Learners) == 0 ||
+							state.Learners[0] != cc.NodeID ||
+							cc.NodeID != 2 {
+							t.Errorf("apply conf change should return new added learner: %v", state.String())
+						}
+
+						if len(state.Voters) != 1 {
+							t.Errorf("add learner should not change the nodes: %v", state.String())
+						}
+						t.Logf("apply raft conf %v changed to: %v", cc, state.String())
+						applyConfChan <- struct{}{}
 					}
 
-					if len(state.Voters) != 1 {
-						t.Errorf("add learner should not change the nodes: %v", state.String())
-					}
-					t.Logf("apply raft conf %v changed to: %v", cc, state.String())
-					applyConfChan <- struct{}{}
 				}
 				n.Advance()
 			}

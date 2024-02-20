@@ -95,6 +95,9 @@ type Progress struct {
 
 	// IsLearner is true if this progress is tracked for a learner.
 	IsLearner bool
+
+	// IsWitness is true if this progress is tracked for a witness.
+	IsWitness bool
 }
 
 // ResetState moves the Progress into the specified State, resetting MsgAppFlowPaused,
@@ -238,6 +241,9 @@ func (pr *Progress) String() string {
 	fmt.Fprintf(&buf, "%s match=%d next=%d", pr.State, pr.Match, pr.Next)
 	if pr.IsLearner {
 		fmt.Fprint(&buf, " learner")
+	}
+	if pr.IsWitness {
+		fmt.Fprint(&buf, " witness")
 	}
 	if pr.IsPaused() {
 		fmt.Fprint(&buf, " paused")

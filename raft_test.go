@@ -429,6 +429,9 @@ func TestLearnerPromotion(t *testing.T) {
 	nt.send(pb.Message{From: 1, To: 1, Type: pb.MsgBeat})
 
 	n1.applyConfChange(pb.ConfChange{NodeID: 2, Type: pb.ConfChangeAddNode}.AsV2())
+	n1.advanceMessagesAfterAppend() // empty entry will be added in leader log after config change
+	nt.send(pb.Message{From: 1, To: 1, Type: pb.MsgBeat})
+
 	n2.applyConfChange(pb.ConfChange{NodeID: 2, Type: pb.ConfChangeAddNode}.AsV2())
 	if n2.isLearner {
 		t.Error("peer 2 is learner, want not")
@@ -3572,8 +3575,8 @@ func TestCommitAfterRemoveNode(t *testing.T) {
 	// pending command can now commit.
 	r.applyConfChange(cc.AsV2())
 	ents = nextEnts(r, s)
-	if len(ents) != 1 || ents[0].Type != pb.EntryNormal ||
-		string(ents[0].Data) != "hello" {
+	if len(ents) != 2 || ents[0].Type != pb.EntryNormal || ents[1].Type != pb.EntryNormal ||
+		string(ents[0].Data) != "hello" || len(ents[1].Data) != 0 {
 		t.Fatalf("expected one committed EntryNormal, got %v", ents)
 	}
 }

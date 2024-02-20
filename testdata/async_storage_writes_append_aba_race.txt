@@ -167,16 +167,18 @@ deliver-msgs 3
 ----
 3->3 MsgVoteResp Term:2 Log:0/0
 INFO 3 received MsgVoteResp from 3 at term 2
-INFO 3 has received 1 MsgVoteResp votes and 0 vote rejections
+INFO 3 has received 1 MsgVoteResp votes and 0 vote rejections. It needs [3 0] votes to win
 4->3 MsgVoteResp Term:2 Log:0/0
 INFO 3 received MsgVoteResp from 4 at term 2
-INFO 3 has received 2 MsgVoteResp votes and 0 vote rejections
+INFO 3 has received 2 MsgVoteResp votes and 0 vote rejections. It needs [2 0] votes to win
 5->3 MsgVoteResp Term:2 Log:0/0
 INFO 3 received MsgVoteResp from 5 at term 2
-INFO 3 has received 3 MsgVoteResp votes and 0 vote rejections
+INFO 3 has received 3 MsgVoteResp votes and 0 vote rejections. It needs [1 0] votes to win
 6->3 MsgVoteResp Term:2 Log:0/0
 INFO 3 received MsgVoteResp from 6 at term 2
-INFO 3 has received 4 MsgVoteResp votes and 0 vote rejections
+INFO 3 has received 4 MsgVoteResp votes and 0 vote rejections. It needs [0 0] votes to win
+INFO 3 resets replication set to {1,2,3,4,5,6,7}, {}
+INFO 3 starts new subterm. Term: 2, Subterm: 0
 INFO 3 became leader at term 2
 
 # Step 5: node 3 proposes some log entries and node 1 receives these entries,
@@ -329,16 +331,18 @@ deliver-msgs 4
 ----
 4->4 MsgVoteResp Term:3 Log:0/0
 INFO 4 received MsgVoteResp from 4 at term 3
-INFO 4 has received 1 MsgVoteResp votes and 0 vote rejections
+INFO 4 has received 1 MsgVoteResp votes and 0 vote rejections. It needs [3 0] votes to win
 5->4 MsgVoteResp Term:3 Log:0/0
 INFO 4 received MsgVoteResp from 5 at term 3
-INFO 4 has received 2 MsgVoteResp votes and 0 vote rejections
+INFO 4 has received 2 MsgVoteResp votes and 0 vote rejections. It needs [2 0] votes to win
 6->4 MsgVoteResp Term:3 Log:0/0
 INFO 4 received MsgVoteResp from 6 at term 3
-INFO 4 has received 3 MsgVoteResp votes and 0 vote rejections
+INFO 4 has received 3 MsgVoteResp votes and 0 vote rejections. It needs [1 0] votes to win
 7->4 MsgVoteResp Term:3 Log:0/0
 INFO 4 received MsgVoteResp from 7 at term 3
-INFO 4 has received 4 MsgVoteResp votes and 0 vote rejections
+INFO 4 has received 4 MsgVoteResp votes and 0 vote rejections. It needs [0 0] votes to win
+INFO 4 resets replication set to {1,2,3,4,5,6,7}, {}
+INFO 4 starts new subterm. Term: 3, Subterm: 0
 INFO 4 became leader at term 3
 
 process-ready 4

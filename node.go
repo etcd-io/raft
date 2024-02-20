@@ -112,6 +112,8 @@ type Ready struct {
 	// MustSync indicates whether the HardState and Entries must be durably
 	// written to disk or if a non-durable write is permissible.
 	MustSync bool
+
+	WitnessMessages []WitnessMessage
 }
 
 func isHardStateEqual(a, b pb.HardState) bool {
@@ -184,7 +186,7 @@ type Node interface {
 	//
 	// Returns an opaque non-nil ConfState protobuf which must be recorded in
 	// snapshots.
-	ApplyConfChange(cc pb.ConfChangeI) *pb.ConfState
+	ApplyConfChange(cc pb.ConfChangeI) (*pb.ConfState, error)
 
 	// TransferLeadership attempts to transfer leadership to the given transferee.
 	TransferLeadership(ctx context.Context, lead, transferee uint64)
@@ -243,8 +245,9 @@ type Node interface {
 }
 
 type Peer struct {
-	ID      uint64
-	Context []byte
+	ID        uint64
+	Context   []byte
+	IsWitness bool
 }
 
 func setupNode(c *Config, peers []Peer) *node {
@@ -293,12 +296,17 @@ type msgWithResult struct {
 	result chan error
 }
 
+type confStateWithResult struct {
+	cs     *pb.ConfState
+	result error
+}
+
 // node is the canonical implementation of the Node interface
 type node struct {
 	propc      chan msgWithResult
 	recvc      chan pb.Message
 	confc      chan pb.ConfChangeV2
-	confstatec chan pb.ConfState
+	confstatec chan confStateWithResult
 	readyc     chan Ready
 	advancec   chan struct{}
 	tickc      chan struct{}
@@ -314,7 +322,7 @@ func newNode(rn *RawNode) node {
 		propc:      make(chan msgWithResult),
 		recvc:      make(chan pb.Message),
 		confc:      make(chan pb.ConfChangeV2),
-		confstatec: make(chan pb.ConfState),
+		confstatec: make(chan confStateWithResult),
 		readyc:     make(chan Ready),
 		advancec:   make(chan struct{}),
 		// make tickc a buffered chan, so raft node can buffer some ticks when the node
@@ -399,35 +407,39 @@ func (n *node) run() {
 			r.Step(m)
 		case cc := <-n.confc:
 			_, okBefore := r.trk.Progress[r.id]
-			cs := r.applyConfChange(cc)
-			// If the node was removed, block incoming proposals. Note that we
-			// only do this if the node was in the config before. Nodes may be
-			// a member of the group without knowing this (when they're catching
-			// up on the log and don't have the latest config) and we don't want
-			// to block the proposal channel in that case.
-			//
-			// NB: propc is reset when the leader changes, which, if we learn
-			// about it, sort of implies that we got readded, maybe? This isn't
-			// very sound and likely has bugs.
-			if _, okAfter := r.trk.Progress[r.id]; okBefore && !okAfter {
-				var found bool
-				for _, sl := range [][]uint64{cs.Voters, cs.VotersOutgoing} {
-					for _, id := range sl {
-						if id == r.id {
-							found = true
+			cs, err := r.applyConfChange(cc)
+			if err != nil {
+				r.logger.Warningf("raft.node: %x failed to apply conf change. Error: %s", r.id, err.Error())
+			} else {
+				// If the node was removed, block incoming proposals. Note that we
+				// only do this if the node was in the config before. Nodes may be
+				// a member of the group without knowing this (when they're catching
+				// up on the log and don't have the latest config) and we don't want
+				// to block the proposal channel in that case.
+				//
+				// NB: propc is reset when the leader changes, which, if we learn
+				// about it, sort of implies that we got readded, maybe? This isn't
+				// very sound and likely has bugs.
+				if _, okAfter := r.trk.Progress[r.id]; okBefore && !okAfter {
+					var found bool
+					for _, sl := range [][]uint64{cs.Voters, cs.VotersOutgoing} {
+						for _, id := range sl {
+							if id == r.id {
+								found = true
+								break
+							}
+						}
+						if found {
 							break
 						}
 					}
-					if found {
-						break
+					if !found {
+						propc = nil
 					}
-				}
-				if !found {
-					propc = nil
 				}
 			}
 			select {
-			case n.confstatec <- cs:
+			case n.confstatec <- confStateWithResult{cs: cs, result: err}:
 			case <-n.done:
 			}
 		case <-n.tickc:
@@ -553,8 +565,8 @@ func (n *node) Advance() {
 	}
 }
 
-func (n *node) ApplyConfChange(cc pb.ConfChangeI) *pb.ConfState {
-	var cs pb.ConfState
+func (n *node) ApplyConfChange(cc pb.ConfChangeI) (*pb.ConfState, error) {
+	var cs confStateWithResult
 	select {
 	case n.confc <- cc.AsV2():
 	case <-n.done:
@@ -563,7 +575,7 @@ func (n *node) ApplyConfChange(cc pb.ConfChangeI) *pb.ConfState {
 	case cs = <-n.confstatec:
 	case <-n.done:
 	}
-	return &cs
+	return cs.cs, cs.result
 }
 
 func (n *node) Status() Status {

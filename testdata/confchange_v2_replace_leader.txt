@@ -83,15 +83,21 @@ stabilize
   Messages:
   1->2 MsgApp Term:1 Log:1/4 Commit:4
   1->3 MsgApp Term:1 Log:1/4 Commit:4
+  INFO 1 resets replication set to {2,3,4}, {1,2,3}
+  INFO 1 starts new subterm. Term: 1, Subterm: 1
   INFO 1 switched to configuration voters=(2 3 4)&&(1 2 3)
 > 2 receiving messages
   1->2 MsgApp Term:1 Log:1/4 Commit:4
 > 3 receiving messages
   1->3 MsgApp Term:1 Log:1/4 Commit:4
 > 1 handling Ready
-  Ready MustSync=false:
+  Ready MustSync=true:
+  Entries:
+  1/5 EntryNormal ""
   Messages:
-  1->4 MsgApp Term:1 Log:1/3 Commit:4 Entries:[1/4 EntryConfChangeV2 r1 v4]
+  1->2 MsgApp Term:1 Log:1/4 Commit:4 Entries:[1/5 EntryNormal ""]
+  1->3 MsgApp Term:1 Log:1/4 Commit:4 Entries:[1/5 EntryNormal ""]
+  1->4 MsgApp Term:1 Log:1/3 Commit:4 Entries:[1/4 EntryConfChangeV2 r1 v4, 1/5 EntryNormal ""]
 > 2 handling Ready
   Ready MustSync=false:
   HardState Term:1 Vote:1 Commit:4
@@ -111,10 +117,26 @@ stabilize
 > 1 receiving messages
   2->1 MsgAppResp Term:1 Log:0/4
   3->1 MsgAppResp Term:1 Log:0/4
+> 2 receiving messages
+  1->2 MsgApp Term:1 Log:1/4 Commit:4 Entries:[1/5 EntryNormal ""]
+> 3 receiving messages
+  1->3 MsgApp Term:1 Log:1/4 Commit:4 Entries:[1/5 EntryNormal ""]
 > 4 receiving messages
-  1->4 MsgApp Term:1 Log:1/3 Commit:4 Entries:[1/4 EntryConfChangeV2 r1 v4]
+  1->4 MsgApp Term:1 Log:1/3 Commit:4 Entries:[1/4 EntryConfChangeV2 r1 v4, 1/5 EntryNormal ""]
   INFO 4 [term: 0] received a MsgApp message with higher term from 1 [term: 1]
   INFO 4 became follower at term 1
+> 2 handling Ready
+  Ready MustSync=true:
+  Entries:
+  1/5 EntryNormal ""
+  Messages:
+  2->1 MsgAppResp Term:1 Log:0/5
+> 3 handling Ready
+  Ready MustSync=true:
+  Entries:
+  1/5 EntryNormal ""
+  Messages:
+  3->1 MsgAppResp Term:1 Log:0/5
 > 4 handling Ready
   Ready MustSync=true:
   Lead:1 State:StateFollower
@@ -122,9 +144,14 @@ stabilize
   Messages:
   4->1 MsgAppResp Term:1 Log:0/3 Rejected (Hint: 0)
 > 1 receiving messages
+  2->1 MsgAppResp Term:1 Log:0/5
+  3->1 MsgAppResp Term:1 Log:0/5
   4->1 MsgAppResp Term:1 Log:0/3 Rejected (Hint: 0)
 > 1 handling Ready
   Ready MustSync=false:
+  HardState Term:1 Vote:1 Commit:5
+  CommittedEntries:
+  1/5 EntryNormal ""
   Messages:
   1->4 MsgSnap Term:1 Log:0/0
     Snapshot: Index:4 Term:1 ConfState:Voters:[2 3 4] VotersOutgoing:[1 2 3] Learners:[] LearnersNext:[] AutoLeave:false
@@ -135,6 +162,20 @@ stabilize
   INFO 4 switched to configuration voters=(2 3 4)&&(1 2 3)
   INFO 4 [commit: 4, lastindex: 4, lastterm: 1] restored snapshot [index: 4, term: 1]
   INFO 4 [commit: 4] restored snapshot [index: 4, term: 1]
+> 2 handling Ready
+  Ready MustSync=false:
+  HardState Term:1 Vote:1 Commit:5
+  CommittedEntries:
+  1/5 EntryNormal ""
+  Messages:
+  2->1 MsgAppResp Term:1 Log:0/5
+> 3 handling Ready
+  Ready MustSync=false:
+  HardState Term:1 Vote:1 Commit:5
+  CommittedEntries:
+  1/5 EntryNormal ""
+  Messages:
+  3->1 MsgAppResp Term:1 Log:0/5
 > 4 handling Ready
   Ready MustSync=false:
   HardState Term:1 Commit:4
@@ -142,19 +183,26 @@ stabilize
   Messages:
   4->1 MsgAppResp Term:1 Log:0/4
 > 1 receiving messages
+  2->1 MsgAppResp Term:1 Log:0/5
+  3->1 MsgAppResp Term:1 Log:0/5
   4->1 MsgAppResp Term:1 Log:0/4
 > 1 handling Ready
   Ready MustSync=false:
   Messages:
-  1->4 MsgApp Term:1 Log:1/4 Commit:4
+  1->4 MsgApp Term:1 Log:1/4 Commit:5 Entries:[1/5 EntryNormal ""]
 > 4 receiving messages
-  1->4 MsgApp Term:1 Log:1/4 Commit:4
+  1->4 MsgApp Term:1 Log:1/4 Commit:5 Entries:[1/5 EntryNormal ""]
 > 4 handling Ready
-  Ready MustSync=false:
+  Ready MustSync=true:
+  HardState Term:1 Commit:5
+  Entries:
+  1/5 EntryNormal ""
+  CommittedEntries:
+  1/5 EntryNormal ""
   Messages:
-  4->1 MsgAppResp Term:1 Log:0/4
+  4->1 MsgAppResp Term:1 Log:0/5
 > 1 receiving messages
-  4->1 MsgAppResp Term:1 Log:0/4
+  4->1 MsgAppResp Term:1 Log:0/5
 
 
 # Transfer leadership while in the joint config.
@@ -183,145 +231,147 @@ stabilize
   INFO 4 [term 1] received MsgTimeoutNow from 1 and starts an election to get leadership.
   INFO 4 is starting a new election at term 1
   INFO 4 became candidate at term 2
-  INFO 4 [logterm: 1, index: 4] sent MsgVote request to 1 at term 2
-  INFO 4 [logterm: 1, index: 4] sent MsgVote request to 2 at term 2
-  INFO 4 [logterm: 1, index: 4] sent MsgVote request to 3 at term 2
+  INFO 4 [logterm: 1, index: 5] sent MsgVote request to 1 at term 2
+  INFO 4 [logterm: 1, index: 5] sent MsgVote request to 2 at term 2
+  INFO 4 [logterm: 1, index: 5] sent MsgVote request to 3 at term 2
 > 4 handling Ready
   Ready MustSync=true:
   Lead:0 State:StateCandidate
-  HardState Term:2 Vote:4 Commit:4
+  HardState Term:2 Vote:4 Commit:5
   Messages:
-  4->1 MsgVote Term:2 Log:1/4
-  4->2 MsgVote Term:2 Log:1/4
-  4->3 MsgVote Term:2 Log:1/4
+  4->1 MsgVote Term:2 Log:1/5
+  4->2 MsgVote Term:2 Log:1/5
+  4->3 MsgVote Term:2 Log:1/5
   INFO 4 received MsgVoteResp from 4 at term 2
-  INFO 4 has received 1 MsgVoteResp votes and 0 vote rejections
+  INFO 4 has received 1 MsgVoteResp votes and 0 vote rejections. It needs [1 2] votes to win
 > 1 receiving messages
-  4->1 MsgVote Term:2 Log:1/4
+  4->1 MsgVote Term:2 Log:1/5
   INFO 1 [term: 1] received a MsgVote message with higher term from 4 [term: 2]
   INFO 1 became follower at term 2
-  INFO 1 [logterm: 1, index: 4, vote: 0] cast MsgVote for 4 [logterm: 1, index: 4] at term 2
+  INFO 1 [logterm: 1, index: 5, vote: 0] cast MsgVote for 4 [logterm: 1, index: 5] at term 2
 > 2 receiving messages
-  4->2 MsgVote Term:2 Log:1/4
+  4->2 MsgVote Term:2 Log:1/5
   INFO 2 [term: 1] received a MsgVote message with higher term from 4 [term: 2]
   INFO 2 became follower at term 2
-  INFO 2 [logterm: 1, index: 4, vote: 0] cast MsgVote for 4 [logterm: 1, index: 4] at term 2
+  INFO 2 [logterm: 1, index: 5, vote: 0] cast MsgVote for 4 [logterm: 1, index: 5] at term 2
 > 3 receiving messages
-  4->3 MsgVote Term:2 Log:1/4
+  4->3 MsgVote Term:2 Log:1/5
   INFO 3 [term: 1] received a MsgVote message with higher term from 4 [term: 2]
   INFO 3 became follower at term 2
-  INFO 3 [logterm: 1, index: 4, vote: 0] cast MsgVote for 4 [logterm: 1, index: 4] at term 2
+  INFO 3 [logterm: 1, index: 5, vote: 0] cast MsgVote for 4 [logterm: 1, index: 5] at term 2
 > 1 handling Ready
   Ready MustSync=true:
   Lead:0 State:StateFollower
-  HardState Term:2 Vote:4 Commit:4
+  HardState Term:2 Vote:4 Commit:5
   Messages:
   1->4 MsgVoteResp Term:2 Log:0/0
 > 2 handling Ready
   Ready MustSync=true:
   Lead:0 State:StateFollower
-  HardState Term:2 Vote:4 Commit:4
+  HardState Term:2 Vote:4 Commit:5
   Messages:
   2->4 MsgVoteResp Term:2 Log:0/0
 > 3 handling Ready
   Ready MustSync=true:
   Lead:0 State:StateFollower
-  HardState Term:2 Vote:4 Commit:4
+  HardState Term:2 Vote:4 Commit:5
   Messages:
   3->4 MsgVoteResp Term:2 Log:0/0
 > 4 receiving messages
   1->4 MsgVoteResp Term:2 Log:0/0
   INFO 4 received MsgVoteResp from 1 at term 2
-  INFO 4 has received 2 MsgVoteResp votes and 0 vote rejections
+  INFO 4 has received 2 MsgVoteResp votes and 0 vote rejections. It needs [1 1] votes to win
   2->4 MsgVoteResp Term:2 Log:0/0
   INFO 4 received MsgVoteResp from 2 at term 2
-  INFO 4 has received 3 MsgVoteResp votes and 0 vote rejections
+  INFO 4 has received 3 MsgVoteResp votes and 0 vote rejections. It needs [0 0] votes to win
+  INFO 4 resets replication set to {2,3,4}, {1,2,3}
+  INFO 4 starts new subterm. Term: 2, Subterm: 0
   INFO 4 became leader at term 2
   3->4 MsgVoteResp Term:2 Log:0/0
 > 4 handling Ready
   Ready MustSync=true:
   Lead:4 State:StateLeader
   Entries:
-  2/5 EntryNormal ""
+  2/6 EntryNormal ""
   Messages:
-  4->1 MsgApp Term:2 Log:1/4 Commit:4 Entries:[2/5 EntryNormal ""]
-  4->2 MsgApp Term:2 Log:1/4 Commit:4 Entries:[2/5 EntryNormal ""]
-  4->3 MsgApp Term:2 Log:1/4 Commit:4 Entries:[2/5 EntryNormal ""]
+  4->1 MsgApp Term:2 Log:1/5 Commit:5 Entries:[2/6 EntryNormal ""]
+  4->2 MsgApp Term:2 Log:1/5 Commit:5 Entries:[2/6 EntryNormal ""]
+  4->3 MsgApp Term:2 Log:1/5 Commit:5 Entries:[2/6 EntryNormal ""]
 > 1 receiving messages
-  4->1 MsgApp Term:2 Log:1/4 Commit:4 Entries:[2/5 EntryNormal ""]
+  4->1 MsgApp Term:2 Log:1/5 Commit:5 Entries:[2/6 EntryNormal ""]
 > 2 receiving messages
-  4->2 MsgApp Term:2 Log:1/4 Commit:4 Entries:[2/5 EntryNormal ""]
+  4->2 MsgApp Term:2 Log:1/5 Commit:5 Entries:[2/6 EntryNormal ""]
 > 3 receiving messages
-  4->3 MsgApp Term:2 Log:1/4 Commit:4 Entries:[2/5 EntryNormal ""]
+  4->3 MsgApp Term:2 Log:1/5 Commit:5 Entries:[2/6 EntryNormal ""]
 > 1 handling Ready
   Ready MustSync=true:
   Lead:4 State:StateFollower
   Entries:
-  2/5 EntryNormal ""
+  2/6 EntryNormal ""
   Messages:
-  1->4 MsgAppResp Term:2 Log:0/5
+  1->4 MsgAppResp Term:2 Log:0/6
 > 2 handling Ready
   Ready MustSync=true:
   Lead:4 State:StateFollower
   Entries:
-  2/5 EntryNormal ""
+  2/6 EntryNormal ""
   Messages:
-  2->4 MsgAppResp Term:2 Log:0/5
+  2->4 MsgAppResp Term:2 Log:0/6
 > 3 handling Ready
   Ready MustSync=true:
   Lead:4 State:StateFollower
   Entries:
-  2/5 EntryNormal ""
+  2/6 EntryNormal ""
   Messages:
-  3->4 MsgAppResp Term:2 Log:0/5
+  3->4 MsgAppResp Term:2 Log:0/6
 > 4 receiving messages
-  1->4 MsgAppResp Term:2 Log:0/5
-  2->4 MsgAppResp Term:2 Log:0/5
-  3->4 MsgAppResp Term:2 Log:0/5
+  1->4 MsgAppResp Term:2 Log:0/6
+  2->4 MsgAppResp Term:2 Log:0/6
+  3->4 MsgAppResp Term:2 Log:0/6
 > 4 handling Ready
   Ready MustSync=false:
-  HardState Term:2 Vote:4 Commit:5
+  HardState Term:2 Vote:4 Commit:6
   CommittedEntries:
-  2/5 EntryNormal ""
+  2/6 EntryNormal ""
   Messages:
-  4->1 MsgApp Term:2 Log:2/5 Commit:4
-  4->1 MsgApp Term:2 Log:2/5 Commit:5
-  4->2 MsgApp Term:2 Log:2/5 Commit:5
-  4->3 MsgApp Term:2 Log:2/5 Commit:5
+  4->1 MsgApp Term:2 Log:2/6 Commit:5
+  4->1 MsgApp Term:2 Log:2/6 Commit:6
+  4->2 MsgApp Term:2 Log:2/6 Commit:6
+  4->3 MsgApp Term:2 Log:2/6 Commit:6
 > 1 receiving messages
-  4->1 MsgApp Term:2 Log:2/5 Commit:4
-  4->1 MsgApp Term:2 Log:2/5 Commit:5
+  4->1 MsgApp Term:2 Log:2/6 Commit:5
+  4->1 MsgApp Term:2 Log:2/6 Commit:6
 > 2 receiving messages
-  4->2 MsgApp Term:2 Log:2/5 Commit:5
+  4->2 MsgApp Term:2 Log:2/6 Commit:6
 > 3 receiving messages
-  4->3 MsgApp Term:2 Log:2/5 Commit:5
+  4->3 MsgApp Term:2 Log:2/6 Commit:6
 > 1 handling Ready
   Ready MustSync=false:
-  HardState Term:2 Vote:4 Commit:5
+  HardState Term:2 Vote:4 Commit:6
   CommittedEntries:
-  2/5 EntryNormal ""
+  2/6 EntryNormal ""
   Messages:
-  1->4 MsgAppResp Term:2 Log:0/5
-  1->4 MsgAppResp Term:2 Log:0/5
+  1->4 MsgAppResp Term:2 Log:0/6
+  1->4 MsgAppResp Term:2 Log:0/6
 > 2 handling Ready
   Ready MustSync=false:
-  HardState Term:2 Vote:4 Commit:5
+  HardState Term:2 Vote:4 Commit:6
   CommittedEntries:
-  2/5 EntryNormal ""
+  2/6 EntryNormal ""
   Messages:
-  2->4 MsgAppResp Term:2 Log:0/5
+  2->4 MsgAppResp Term:2 Log:0/6
 > 3 handling Ready
   Ready MustSync=false:
-  HardState Term:2 Vote:4 Commit:5
+  HardState Term:2 Vote:4 Commit:6
   CommittedEntries:
-  2/5 EntryNormal ""
+  2/6 EntryNormal ""
   Messages:
-  3->4 MsgAppResp Term:2 Log:0/5
+  3->4 MsgAppResp Term:2 Log:0/6
 > 4 receiving messages
-  1->4 MsgAppResp Term:2 Log:0/5
-  1->4 MsgAppResp Term:2 Log:0/5
-  2->4 MsgAppResp Term:2 Log:0/5
-  3->4 MsgAppResp Term:2 Log:0/5
+  1->4 MsgAppResp Term:2 Log:0/6
+  1->4 MsgAppResp Term:2 Log:0/6
+  2->4 MsgAppResp Term:2 Log:0/6
+  3->4 MsgAppResp Term:2 Log:0/6
 
 # Leadership transfer succeeded.
 raft-state
@@ -342,84 +392,141 @@ stabilize
 > 4 handling Ready
   Ready MustSync=true:
   Entries:
-  2/6 EntryConfChangeV2
+  2/7 EntryConfChangeV2
   Messages:
-  4->1 MsgApp Term:2 Log:2/5 Commit:5 Entries:[2/6 EntryConfChangeV2]
-  4->2 MsgApp Term:2 Log:2/5 Commit:5 Entries:[2/6 EntryConfChangeV2]
-  4->3 MsgApp Term:2 Log:2/5 Commit:5 Entries:[2/6 EntryConfChangeV2]
+  4->1 MsgApp Term:2 Log:2/6 Commit:6 Entries:[2/7 EntryConfChangeV2]
+  4->2 MsgApp Term:2 Log:2/6 Commit:6 Entries:[2/7 EntryConfChangeV2]
+  4->3 MsgApp Term:2 Log:2/6 Commit:6 Entries:[2/7 EntryConfChangeV2]
 > 1 receiving messages
-  4->1 MsgApp Term:2 Log:2/5 Commit:5 Entries:[2/6 EntryConfChangeV2]
+  4->1 MsgApp Term:2 Log:2/6 Commit:6 Entries:[2/7 EntryConfChangeV2]
 > 2 receiving messages
-  4->2 MsgApp Term:2 Log:2/5 Commit:5 Entries:[2/6 EntryConfChangeV2]
+  4->2 MsgApp Term:2 Log:2/6 Commit:6 Entries:[2/7 EntryConfChangeV2]
 > 3 receiving messages
-  4->3 MsgApp Term:2 Log:2/5 Commit:5 Entries:[2/6 EntryConfChangeV2]
+  4->3 MsgApp Term:2 Log:2/6 Commit:6 Entries:[2/7 EntryConfChangeV2]
 > 1 handling Ready
   Ready MustSync=true:
   Entries:
-  2/6 EntryConfChangeV2
+  2/7 EntryConfChangeV2
   Messages:
-  1->4 MsgAppResp Term:2 Log:0/6
+  1->4 MsgAppResp Term:2 Log:0/7
 > 2 handling Ready
   Ready MustSync=true:
   Entries:
-  2/6 EntryConfChangeV2
+  2/7 EntryConfChangeV2
   Messages:
-  2->4 MsgAppResp Term:2 Log:0/6
+  2->4 MsgAppResp Term:2 Log:0/7
 > 3 handling Ready
   Ready MustSync=true:
   Entries:
-  2/6 EntryConfChangeV2
+  2/7 EntryConfChangeV2
   Messages:
-  3->4 MsgAppResp Term:2 Log:0/6
+  3->4 MsgAppResp Term:2 Log:0/7
 > 4 receiving messages
-  1->4 MsgAppResp Term:2 Log:0/6
-  2->4 MsgAppResp Term:2 Log:0/6
-  3->4 MsgAppResp Term:2 Log:0/6
+  1->4 MsgAppResp Term:2 Log:0/7
+  2->4 MsgAppResp Term:2 Log:0/7
+  3->4 MsgAppResp Term:2 Log:0/7
 > 4 handling Ready
   Ready MustSync=false:
-  HardState Term:2 Vote:4 Commit:6
+  HardState Term:2 Vote:4 Commit:7
   CommittedEntries:
-  2/6 EntryConfChangeV2
+  2/7 EntryConfChangeV2
   Messages:
-  4->1 MsgApp Term:2 Log:2/6 Commit:6
-  4->2 MsgApp Term:2 Log:2/6 Commit:6
-  4->3 MsgApp Term:2 Log:2/6 Commit:6
+  4->1 MsgApp Term:2 Log:2/7 Commit:7
+  4->2 MsgApp Term:2 Log:2/7 Commit:7
+  4->3 MsgApp Term:2 Log:2/7 Commit:7
+  INFO 4 resets replication set to {2,3,4}, {}
+  INFO 4 starts new subterm. Term: 2, Subterm: 1
   INFO 4 switched to configuration voters=(2 3 4)
 > 1 receiving messages
-  4->1 MsgApp Term:2 Log:2/6 Commit:6
+  4->1 MsgApp Term:2 Log:2/7 Commit:7
 > 2 receiving messages
-  4->2 MsgApp Term:2 Log:2/6 Commit:6
+  4->2 MsgApp Term:2 Log:2/7 Commit:7
 > 3 receiving messages
-  4->3 MsgApp Term:2 Log:2/6 Commit:6
+  4->3 MsgApp Term:2 Log:2/7 Commit:7
 > 1 handling Ready
   Ready MustSync=false:
-  HardState Term:2 Vote:4 Commit:6
+  HardState Term:2 Vote:4 Commit:7
   CommittedEntries:
-  2/6 EntryConfChangeV2
+  2/7 EntryConfChangeV2
   Messages:
-  1->4 MsgAppResp Term:2 Log:0/6
+  1->4 MsgAppResp Term:2 Log:0/7
   INFO 1 switched to configuration voters=(2 3 4)
 > 2 handling Ready
   Ready MustSync=false:
-  HardState Term:2 Vote:4 Commit:6
+  HardState Term:2 Vote:4 Commit:7
   CommittedEntries:
-  2/6 EntryConfChangeV2
+  2/7 EntryConfChangeV2
   Messages:
-  2->4 MsgAppResp Term:2 Log:0/6
+  2->4 MsgAppResp Term:2 Log:0/7
   INFO 2 switched to configuration voters=(2 3 4)
 > 3 handling Ready
   Ready MustSync=false:
-  HardState Term:2 Vote:4 Commit:6
+  HardState Term:2 Vote:4 Commit:7
   CommittedEntries:
-  2/6 EntryConfChangeV2
+  2/7 EntryConfChangeV2
   Messages:
-  3->4 MsgAppResp Term:2 Log:0/6
+  3->4 MsgAppResp Term:2 Log:0/7
   INFO 3 switched to configuration voters=(2 3 4)
+> 4 handling Ready
+  Ready MustSync=true:
+  Entries:
+  2/8 EntryNormal ""
+  Messages:
+  4->2 MsgApp Term:2 Log:2/7 Commit:7 Entries:[2/8 EntryNormal ""]
+  4->3 MsgApp Term:2 Log:2/7 Commit:7 Entries:[2/8 EntryNormal ""]
+> 2 receiving messages
+  4->2 MsgApp Term:2 Log:2/7 Commit:7 Entries:[2/8 EntryNormal ""]
+> 3 receiving messages
+  4->3 MsgApp Term:2 Log:2/7 Commit:7 Entries:[2/8 EntryNormal ""]
 > 4 receiving messages
-  1->4 MsgAppResp Term:2 Log:0/6
+  1->4 MsgAppResp Term:2 Log:0/7
   raft: cannot step as peer not found
-  2->4 MsgAppResp Term:2 Log:0/6
-  3->4 MsgAppResp Term:2 Log:0/6
+  2->4 MsgAppResp Term:2 Log:0/7
+  3->4 MsgAppResp Term:2 Log:0/7
+> 2 handling Ready
+  Ready MustSync=true:
+  Entries:
+  2/8 EntryNormal ""
+  Messages:
+  2->4 MsgAppResp Term:2 Log:0/8
+> 3 handling Ready
+  Ready MustSync=true:
+  Entries:
+  2/8 EntryNormal ""
+  Messages:
+  3->4 MsgAppResp Term:2 Log:0/8
+> 4 receiving messages
+  2->4 MsgAppResp Term:2 Log:0/8
+  3->4 MsgAppResp Term:2 Log:0/8
+> 4 handling Ready
+  Ready MustSync=false:
+  HardState Term:2 Vote:4 Commit:8
+  CommittedEntries:
+  2/8 EntryNormal ""
+  Messages:
+  4->2 MsgApp Term:2 Log:2/8 Commit:8
+  4->3 MsgApp Term:2 Log:2/8 Commit:8
+> 2 receiving messages
+  4->2 MsgApp Term:2 Log:2/8 Commit:8
+> 3 receiving messages
+  4->3 MsgApp Term:2 Log:2/8 Commit:8
+> 2 handling Ready
+  Ready MustSync=false:
+  HardState Term:2 Vote:4 Commit:8
+  CommittedEntries:
+  2/8 EntryNormal ""
+  Messages:
+  2->4 MsgAppResp Term:2 Log:0/8
+> 3 handling Ready
+  Ready MustSync=false:
+  HardState Term:2 Vote:4 Commit:8
+  CommittedEntries:
+  2/8 EntryNormal ""
+  Messages:
+  3->4 MsgAppResp Term:2 Log:0/8
+> 4 receiving messages
+  2->4 MsgAppResp Term:2 Log:0/8
+  3->4 MsgAppResp Term:2 Log:0/8
 
 # n1 is out of the configuration.
 raft-state

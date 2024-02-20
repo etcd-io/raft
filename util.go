@@ -94,8 +94,8 @@ func DescribeSoftState(ss SoftState) string {
 
 func DescribeConfState(state pb.ConfState) string {
 	return fmt.Sprintf(
-		"Voters:%v VotersOutgoing:%v Learners:%v LearnersNext:%v AutoLeave:%v",
-		state.Voters, state.VotersOutgoing, state.Learners, state.LearnersNext, state.AutoLeave,
+		"Voters:%v VotersOutgoing:%v Learners:%v LearnersNext:%v Witness:%v WitnessOutgoing:%v AutoLeave:%v",
+		state.Voters, state.VotersOutgoing, state.Learners, state.LearnersNext, state.Witness, state.WitnessOutgoing, state.AutoLeave,
 	)
 }
 
@@ -185,6 +185,26 @@ func describeMessageWithIndent(indent string, m pb.Message, f EntryFormatter) st
 		}
 		fmt.Fprintf(&buf, "\n%s]", indent)
 	}
+	return buf.String()
+}
+
+func DescribeWitnessMessage(m WitnessMessage, f EntryFormatter) string {
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "%s->%s %v Term:%d Log:%d/%d/%d",
+		describeTarget(m.From), describeTarget(m.To), m.Type, m.Term, m.LastLogTerm, m.LastLogSubterm, m.LastLogIndex)
+	for i, rs := range m.ReplicationSet {
+		if len(rs) > 0 {
+			fmt.Fprintf(&buf, " ReplicationSet[%d]:[", i)
+			for j, r := range rs {
+				if j != 0 {
+					buf.WriteString(", ")
+				}
+				buf.WriteString(describeTarget(r))
+			}
+			fmt.Fprint(&buf, "]")
+		}
+	}
+
 	return buf.String()
 }
 

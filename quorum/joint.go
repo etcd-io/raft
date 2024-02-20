@@ -73,3 +73,21 @@ func (c JointConfig) VoteResult(votes map[uint64]bool) VoteResult {
 	// One side won, the other one is pending, so the whole outcome is.
 	return VotePending
 }
+
+func (c JointConfig) VoteResultWithDifference(votes map[uint64]bool) (VoteResult, [2]int) {
+	r1, v1 := c[0].VoteResultWithDifference(votes)
+	r2, v2 := c[1].VoteResultWithDifference(votes)
+
+	votesToWin := [2]int{v1, v2}
+
+	if r1 == r2 {
+		// If they agree, return the agreed state.
+		return r1, votesToWin
+	}
+	if r1 == VoteLost || r2 == VoteLost {
+		// If either config has lost, loss is the only possible outcome.
+		return VoteLost, votesToWin
+	}
+	// One side won, the other one is pending, so the whole outcome is.
+	return VotePending, votesToWin
+}

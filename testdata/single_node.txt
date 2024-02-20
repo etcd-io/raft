@@ -20,7 +20,9 @@ stabilize
   Lead:0 State:StateCandidate
   HardState Term:1 Vote:1 Commit:3
   INFO 1 received MsgVoteResp from 1 at term 1
-  INFO 1 has received 1 MsgVoteResp votes and 0 vote rejections
+  INFO 1 has received 1 MsgVoteResp votes and 0 vote rejections. It needs [0 0] votes to win
+  INFO 1 resets replication set to {1}, {}
+  INFO 1 starts new subterm. Term: 1, Subterm: 0
   INFO 1 became leader at term 1
 > 1 handling Ready
   Ready MustSync=true:
