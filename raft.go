@@ -1177,16 +1177,6 @@ func (r *raft) campaign(t CampaignType) {
 	}
 }
 
-func (r *raft) poll(id uint64, t pb.MessageType, v bool) (granted int, rejected int, result quorum.VoteResult) {
-	if v {
-		r.logger.Infof("%x received %s from %x at term %d", r.id, t, id, r.Term)
-	} else {
-		r.logger.Infof("%x received %s rejection from %x at term %d", r.id, t, id, r.Term)
-	}
-	r.trk.RecordVote(id, v)
-	return r.trk.TallyVotes()
-}
-
 func (r *raft) pollAndReportDiff(id uint64, t pb.MessageType, v bool) (granted int, rejected int, result quorum.VoteResult, votesToWin [2]int) {
 	if v {
 		r.logger.Infof("%x received %s from %x at term %d", r.id, t, id, r.Term)
@@ -2282,16 +2272,6 @@ func (r *raft) maybeStartNewSubterm(newTerm bool, confChange bool) bool {
 
 	r.logger.Infof("%x starts new subterm. Term: %d, Subterm: %d", r.id, r.Term, r.trk.Epoch.Subterm)
 	return true
-}
-
-func numOfPendingConf(ents []pb.Entry) int {
-	n := 0
-	for i := range ents {
-		if ents[i].Type == pb.EntryConfChange || ents[i].Type == pb.EntryConfChangeV2 {
-			n++
-		}
-	}
-	return n
 }
 
 func releasePendingReadIndexMessages(r *raft) {

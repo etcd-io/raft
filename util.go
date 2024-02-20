@@ -188,7 +188,7 @@ func describeMessageWithIndent(indent string, m pb.Message, f EntryFormatter) st
 	return buf.String()
 }
 
-func DescribeWitnessMessage(m WitnessMessage, f EntryFormatter) string {
+func DescribeWitnessMessage(m WitnessMessage) string {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "%s->%s %v Term:%d Log:%d/%d/%d",
 		describeTarget(m.From), describeTarget(m.To), m.Type, m.Term, m.LastLogTerm, m.LastLogSubterm, m.LastLogIndex)

@@ -3409,13 +3409,11 @@ func TestRemoveNode(t *testing.T) {
 		t.Errorf("nodes = %v, want %v", g, w)
 	}
 
-	// Removing the remaining voter will panic.
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("did not panic")
-		}
-	}()
-	r.applyConfChange(pb.ConfChange{NodeID: 1, Type: pb.ConfChangeRemoveNode}.AsV2())
+	_, err := r.applyConfChange(pb.ConfChange{NodeID: 1, Type: pb.ConfChangeRemoveNode}.AsV2())
+	// Removing the remaining voter will return error "removed all voters".
+	if err.Error() != "removed all voters" {
+		t.Errorf("Removing the remaining voter will return error")
+	}
 }
 
 // TestRemoveLearner tests that removeNode could update nodes and
@@ -3433,13 +3431,11 @@ func TestRemoveLearner(t *testing.T) {
 		t.Errorf("nodes = %v, want %v", g, w)
 	}
 
-	// Removing the remaining voter will panic.
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("did not panic")
-		}
-	}()
-	r.applyConfChange(pb.ConfChange{NodeID: 1, Type: pb.ConfChangeRemoveNode}.AsV2())
+	_, err := r.applyConfChange(pb.ConfChange{NodeID: 1, Type: pb.ConfChangeRemoveNode}.AsV2())
+	// Removing the remaining voter will return error "removed all voters".
+	if err.Error() != "removed all voters" {
+		t.Errorf("Removing the remaining voter will return error")
+	}
 }
 
 func TestPromotable(t *testing.T) {
