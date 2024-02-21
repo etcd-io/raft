@@ -21,21 +21,17 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
 	"go.etcd.io/raft/v3"
-	"go.etcd.io/raft/v3/raftexample/fileutil"
-	"go.etcd.io/raft/v3/raftexample/rafthttp"
-	"go.etcd.io/raft/v3/raftexample/snap"
-	"go.etcd.io/raft/v3/raftexample/types"
-	stats "go.etcd.io/raft/v3/raftexample/v2stats"
-	"go.etcd.io/raft/v3/raftexample/wal"
-	"go.etcd.io/raft/v3/raftexample/wal/walpb"
 	"go.etcd.io/raft/v3/raftpb"
 
 	"go.uber.org/zap"
 )
+
+const snapSuffix = ".snap"
 
 type commit struct {
 	data       []string
@@ -69,10 +65,8 @@ type raftNode struct {
 	// raft backing for the commit/error channel
 	node        raft.Node
 	raftStorage *raft.MemoryStorage
-	wal         *wal.WAL
 
 	snapCount uint64
-	transport *rafthttp.Transport
 	stopc     chan struct{} // signals proposal channel closed
 	httpstopc chan struct{} // signals http server to shutdown
 	httpdonec chan struct{} // signals http server shutdown complete
@@ -89,10 +83,6 @@ type SnapshotStorage interface {
 	// Load reads and returns the newest snapshot that is
 	// available.
 	Load() (*raftpb.Snapshot, error)
-
-	// LoadNewestAvailable loads the newest available snapshot
-	// whose term and index matches one of those in walSnaps.
-	LoadNewestAvailable(walSnaps []walpb.Snapshot) (*raftpb.Snapshot, error)
 }
 
 var defaultSnapshotCount uint64 = 10000
@@ -154,10 +144,7 @@ func startRaftNode(
 
 	rc.loadAndApplySnapshot()
 
-	oldwal := wal.Exist(rc.waldir)
-	rc.wal = rc.replayWAL()
-
-	go rc.startRaft(oldwal)
+	go rc.startRaft()
 
 	return rc
 }
@@ -373,7 +360,7 @@ func (rc *raftNode) writeError(err error) {
 	rc.node.Stop()
 }
 
-func (rc *raftNode) startRaft(oldwal bool) {
+func (rc *raftNode) startRaft() {
 	rpeers := make([]raft.Peer, len(rc.peers))
 	for i := range rpeers {
 		rpeers[i] = raft.Peer{ID: uint64(i + 1)}
@@ -614,10 +601,68 @@ func (rc *raftNode) ReportSnapshot(id uint64, status raft.SnapshotStatus) {
 }
 
 func newSnapshotStorage(lg *zap.Logger, dir string) (SnapshotStorage, error) {
-	if !fileutil.Exist(dir) {
-		if err := os.Mkdir(dir, 0750); err != nil {
+	_, err := os.Stat(dir)
+	if os.IsNotExist(err) {
+		if err = os.Mkdir(dir, 0750); err != nil {
 			return nil, fmt.Errorf("cannot create dir for snapshot: %w", err)
 		}
 	}
-	return snap.New(lg, dir), nil
+	return New(lg, dir), nil
+}
+
+type snapshotter struct {
+	lg  *zap.Logger
+	dir string
+}
+
+func New(lg *zap.Logger, dir string) SnapshotStorage {
+	if lg == nil {
+		lg = zap.NewNop()
+	}
+	return &snapshotter{
+		lg:  lg,
+		dir: dir,
+	}
+}
+
+func (s *snapshotter) SaveSnap(snapshot raftpb.Snapshot) error {
+	if raft.IsEmptySnap(snapshot) {
+		return nil
+	}
+	return s.save(&snapshot)
+}
+
+func (s *snapshotter) Load() (*raftpb.Snapshot, error) {
+	snapName := fmt.Sprintf("%s%s", "snapshot", snapSuffix)
+	fpath := filepath.Join(s.dir, snapName)
+	data, err := os.ReadFile(fpath)
+	if err != nil {
+		s.lg.Warn("failed to read a snap file", zap.String("path", snapName), zap.Error(err))
+		return nil, err
+	}
+	var snap raftpb.Snapshot
+	if err = snap.Unmarshal(data); err != nil {
+		s.lg.Warn("failed to unmarshal raftpb.Snapshot", zap.String("path", snapName), zap.Error(err))
+		return nil, err
+	}
+	return &snap, nil
+}
+
+func (s *snapshotter) save(snapshot *raftpb.Snapshot) error {
+	fname := fmt.Sprintf("%s%s", "snapshot", snapSuffix)
+	data, err := snapshot.Marshal()
+	if err != nil {
+		return fmt.Errorf("failed to marshal snapshot: %w", err)
+	}
+	spath := filepath.Join(s.dir, fname)
+	err = os.WriteFile(spath, data, 0666)
+	if err != nil {
+		s.lg.Warn("failed to write a snap file", zap.String("path", spath), zap.Error(err))
+		rerr := os.Remove(spath)
+		if rerr != nil {
+			s.lg.Warn("failed to remove a broken snap file", zap.String("path", spath), zap.Error(rerr))
+		}
+		return err
+	}
+	return nil
 }
