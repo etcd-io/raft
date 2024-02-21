@@ -306,6 +306,18 @@ func (l *raftLog) firstIndex() uint64 {
 	return index
 }
 
+func (l *raftLog) entry(i uint64) *pb.Entry {
+	ents, err := l.entries(i, noLimit)
+	if err != nil {
+		panic(err)
+	}
+	return &ents[0]
+}
+func (l *raftLog) lastEntry() *pb.Entry {
+	idx := l.lastIndex()
+	return l.entry(idx)
+}
+
 func (l *raftLog) lastIndex() uint64 {
 	if i, ok := l.unstable.maybeLastIndex(); ok {
 		return i

@@ -61,7 +61,7 @@ log is empty: first index=6, last index=5
 send-snapshot 1 3
 ----
 1->3 MsgSnap Term:1 Log:0/0
-  Snapshot: Index:11 Term:1 ConfState:Voters:[1 2 3] VotersOutgoing:[] Learners:[] LearnersNext:[] AutoLeave:false
+  Snapshot: Index:11 Term:1 ConfState:Voters:[1 2 3] VotersOutgoing:[] Learners:[] LearnersNext:[] Witness:0 WitnessOutgoing:0 AutoLeave:false
 
 # Propose and commit an additional entry, which makes the leader's
 # last index 12, beyond the snapshot it sent at index 11.
@@ -108,7 +108,7 @@ Messages:
 deliver-msgs 3
 ----
 1->3 MsgSnap Term:1 Log:0/0
-  Snapshot: Index:11 Term:1 ConfState:Voters:[1 2 3] VotersOutgoing:[] Learners:[] LearnersNext:[] AutoLeave:false
+  Snapshot: Index:11 Term:1 ConfState:Voters:[1 2 3] VotersOutgoing:[] Learners:[] LearnersNext:[] Witness:0 WitnessOutgoing:0 AutoLeave:false
 INFO log [committed=5, applied=5, applying=5, unstable.offset=6, unstable.offsetInProgress=6, len(unstable.Entries)=0] starts to restore snapshot [index: 11, term: 1]
 INFO 3 switched to configuration voters=(1 2 3)
 INFO 3 [commit: 11, lastindex: 11, lastterm: 1] restored snapshot [index: 11, term: 1]
@@ -129,13 +129,13 @@ stabilize 1
   Ready MustSync=false:
   Messages:
   1->3 MsgSnap Term:1 Log:0/0
-    Snapshot: Index:12 Term:1 ConfState:Voters:[1 2 3] VotersOutgoing:[] Learners:[] LearnersNext:[] AutoLeave:false
+    Snapshot: Index:12 Term:1 ConfState:Voters:[1 2 3] VotersOutgoing:[] Learners:[] LearnersNext:[] Witness:0 WitnessOutgoing:0 AutoLeave:false
 
 # Drop the extra MsgSnap(index=12) that 1 just sent, to keep the test tidy.
 deliver-msgs drop=(3)
 ----
 dropped: 1->3 MsgSnap Term:1 Log:0/0
-  Snapshot: Index:12 Term:1 ConfState:Voters:[1 2 3] VotersOutgoing:[] Learners:[] LearnersNext:[] AutoLeave:false
+  Snapshot: Index:12 Term:1 ConfState:Voters:[1 2 3] VotersOutgoing:[] Learners:[] LearnersNext:[] Witness:0 WitnessOutgoing:0 AutoLeave:false
 
 # 3 sends the affirmative MsgAppResp that resulted from applying the snapshot
 # at index 11.
@@ -144,7 +144,7 @@ stabilize 3
 > 3 handling Ready
   Ready MustSync=false:
   HardState Term:1 Vote:1 Commit:11
-  Snapshot Index:11 Term:1 ConfState:Voters:[1 2 3] VotersOutgoing:[] Learners:[] LearnersNext:[] AutoLeave:false
+  Snapshot Index:11 Term:1 ConfState:Voters:[1 2 3] VotersOutgoing:[] Learners:[] LearnersNext:[] Witness:0 WitnessOutgoing:0 AutoLeave:false
   Messages:
   3->1 MsgAppResp Term:1 Log:0/11
 

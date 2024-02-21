@@ -17,6 +17,7 @@ package tracker
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"go.etcd.io/raft/v3/quorum"
@@ -75,11 +76,19 @@ type Config struct {
 	// right away when entering the joint configuration, so that it is caught up
 	// as soon as possible.
 	LearnersNext map[uint64]struct{}
+	Witnesses    [2]uint64
 }
 
 func (c Config) String() string {
 	var buf strings.Builder
 	fmt.Fprintf(&buf, "voters=%s", c.Voters)
+	if c.Witnesses[0] > 0 && c.Witnesses[1] > 0 {
+		fmt.Fprintf(&buf, " witness={%d,%d}", c.Witnesses[0], c.Witnesses[1])
+	} else if c.Witnesses[0] > 0 {
+		fmt.Fprintf(&buf, " witness=%d", c.Witnesses[0])
+	} else if c.Witnesses[1] > 0 {
+		fmt.Fprintf(&buf, " witness=%d", c.Witnesses[1])
+	}
 	if c.Learners != nil {
 		fmt.Fprintf(&buf, " learners=%s", quorum.MajorityConfig(c.Learners).String())
 	}
@@ -108,7 +117,61 @@ func (c *Config) Clone() Config {
 		Voters:       quorum.JointConfig{clone(c.Voters[0]), clone(c.Voters[1])},
 		Learners:     clone(c.Learners),
 		LearnersNext: clone(c.LearnersNext),
+		Witnesses:    [2]uint64{c.Witnesses[0], c.Witnesses[1]},
 	}
+}
+
+type ReplicationSet struct {
+	Witness          uint64
+	Excluded         uint64
+	NonWitnessVoters map[uint64]struct{}
+}
+
+func (r *ReplicationSet) Clone() ReplicationSet {
+	result := ReplicationSet{
+		Witness:  r.Witness,
+		Excluded: r.Excluded,
+	}
+	return result
+}
+
+func (r *ReplicationSet) GetNonWitnessVoterSlice() []uint64 {
+	results := []uint64{}
+	for v := range r.NonWitnessVoters {
+		results = append(results, v)
+	}
+	return results
+}
+
+func (r *ReplicationSet) String() string {
+	ids := []uint64{}
+	for id := range r.NonWitnessVoters {
+		ids = append(ids, id)
+	}
+	if r.Excluded != r.Witness {
+		ids = append(ids, r.Witness)
+	}
+
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
+	replSet := make([]string, 0, 2)
+	for _, id := range ids {
+		replSet = append(replSet, strconv.FormatUint(id, 16))
+	}
+	return fmt.Sprintf("{%s}", strings.Join(replSet, ","))
+}
+
+type Epoch struct {
+	Subterm        uint64
+	ReplicationSet [2]ReplicationSet
+}
+
+func (e *Epoch) HasWitness() bool {
+	return e.ReplicationSet[0].Witness != 0 || e.ReplicationSet[1].Witness != 0
+}
+
+func (e *Epoch) ReplicateToWitness() (bool, bool) {
+	return (e.ReplicationSet[0].Witness != 0 && e.ReplicationSet[0].Excluded != e.ReplicationSet[0].Witness), (e.ReplicationSet[1].Witness != 0 && e.ReplicationSet[1].Excluded != e.ReplicationSet[1].Witness)
 }
 
 // ProgressTracker tracks the currently active configuration and the information
@@ -123,6 +186,8 @@ type ProgressTracker struct {
 
 	MaxInflight      int
 	MaxInflightBytes uint64
+
+	Epoch *Epoch
 }
 
 // MakeProgressTracker initializes a ProgressTracker.
@@ -137,9 +202,14 @@ func MakeProgressTracker(maxInflight int, maxBytes uint64) ProgressTracker {
 			},
 			Learners:     nil, // only populated when used
 			LearnersNext: nil, // only populated when used
+			Witnesses:    [2]uint64{0, 0},
 		},
 		Votes:    map[uint64]bool{},
 		Progress: map[uint64]*Progress{},
+		Epoch: &Epoch{
+			Subterm:        0,
+			ReplicationSet: [2]ReplicationSet{},
+		},
 	}
 	return p
 }
@@ -147,11 +217,13 @@ func MakeProgressTracker(maxInflight int, maxBytes uint64) ProgressTracker {
 // ConfState returns a ConfState representing the active configuration.
 func (p *ProgressTracker) ConfState() pb.ConfState {
 	return pb.ConfState{
-		Voters:         p.Voters[0].Slice(),
-		VotersOutgoing: p.Voters[1].Slice(),
-		Learners:       quorum.MajorityConfig(p.Learners).Slice(),
-		LearnersNext:   quorum.MajorityConfig(p.LearnersNext).Slice(),
-		AutoLeave:      p.AutoLeave,
+		Voters:          p.Voters[0].Slice(),
+		VotersOutgoing:  p.Voters[1].Slice(),
+		Learners:        quorum.MajorityConfig(p.Learners).Slice(),
+		LearnersNext:    quorum.MajorityConfig(p.LearnersNext).Slice(),
+		AutoLeave:       p.AutoLeave,
+		Witness:         p.Witnesses[0],
+		WitnessOutgoing: p.Witnesses[1],
 	}
 }
 
@@ -174,10 +246,46 @@ func (l matchAckIndexer) AckedIndex(id uint64) (quorum.Index, bool) {
 	return quorum.Index(pr.Match), true
 }
 
+type scopedAckIndexer struct {
+	indexer quorum.AckedIndexer
+	scope   map[uint64]struct{}
+}
+
+func (s scopedAckIndexer) AckedIndex(id uint64) (quorum.Index, bool) {
+	if _, ok := s.scope[id]; !ok {
+		return 0, false
+	}
+	return s.indexer.AckedIndex(id)
+}
+
 // Committed returns the largest log index known to be committed based on what
 // the voting members of the group have acknowledged.
 func (p *ProgressTracker) Committed() uint64 {
 	return uint64(p.Voters.CommittedIndex(matchAckIndexer(p.Progress)))
+}
+
+func (p *ProgressTracker) OneLessThanQuorumInReplicationSet() map[uint64]quorum.Index {
+	w1, w2 := p.Epoch.ReplicateToWitness()
+	if !w1 && !w2 {
+		return nil
+	}
+
+	epoch := p.Epoch
+	indexer := scopedAckIndexer{indexer: matchAckIndexer(p.Progress), scope: epoch.ReplicationSet[0].NonWitnessVoters}
+	result := map[uint64]quorum.Index{}
+
+	if w1 {
+		result[epoch.ReplicationSet[0].Witness] = p.Voters[0].OneLessThanQuorum(indexer)
+	}
+	if w2 {
+		indexer.scope = epoch.ReplicationSet[1].NonWitnessVoters
+		idx := p.Voters[1].OneLessThanQuorum(indexer)
+		if idx1, ok := result[epoch.ReplicationSet[1].Witness]; !ok || idx < idx1 {
+			result[epoch.ReplicationSet[1].Witness] = idx
+		}
+	}
+
+	return result
 }
 
 func insertionSort(sl []uint64) {
@@ -287,4 +395,122 @@ func (p *ProgressTracker) TallyVotes() (granted int, rejected int, _ quorum.Vote
 	}
 	result := p.Voters.VoteResult(p.Votes)
 	return granted, rejected, result
+}
+
+func (p *ProgressTracker) TallyVotesWithDifference() (granted int, rejected int, _ quorum.VoteResult, votesToWin [2]int) {
+	// Make sure to populate granted/rejected correctly even if the Votes slice
+	// contains members no longer part of the configuration. This doesn't really
+	// matter in the way the numbers are used (they're informational), but might
+	// as well get it right.
+	for id, pr := range p.Progress {
+		if pr.IsLearner {
+			continue
+		}
+		v, voted := p.Votes[id]
+		if !voted {
+			continue
+		}
+		if v {
+			granted++
+		} else {
+			rejected++
+		}
+	}
+	result, votesToWin := p.Voters.VoteResultWithDifference(p.Votes)
+	return granted, rejected, result, votesToWin
+}
+
+func (p *ProgressTracker) ResetReplicationSet(resetSubterm bool) {
+	epoch := &Epoch{
+		Subterm:        0,
+		ReplicationSet: [2]ReplicationSet{},
+	}
+	if !resetSubterm {
+		epoch.Subterm = p.Epoch.Subterm + 1
+	}
+
+	for i, c := range p.Voters {
+		set := &epoch.ReplicationSet[i]
+		set.Excluded = 0
+		set.Witness = 0
+		set.NonWitnessVoters = map[uint64]struct{}{}
+		for id := range c {
+			if p.Witnesses[i] == id {
+				set.Excluded = id
+				set.Witness = id
+			} else {
+				set.NonWitnessVoters[id] = struct{}{}
+			}
+		}
+	}
+
+	p.Epoch = epoch
+}
+
+func (p *ProgressTracker) ChangeReplicationSet() bool {
+	epoch := p.Epoch
+	if epoch == nil {
+		return false
+	}
+
+	result := &Epoch{
+		Subterm:        p.Epoch.Subterm + 1,
+		ReplicationSet: [2]ReplicationSet{epoch.ReplicationSet[0], epoch.ReplicationSet[1]},
+	}
+	changed := false
+	for i, set := range epoch.ReplicationSet {
+		if set.Excluded == 0 {
+			continue
+		}
+
+		isExcludedReady :=
+			p.Progress[set.Excluded].RecentActive &&
+				(set.Excluded == set.Witness || p.Progress[set.Excluded].State == StateReplicate)
+		if !isExcludedReady {
+			continue
+		}
+
+		inactiveID := uint64(0)
+		for id, pr := range p.Progress {
+			if !pr.RecentActive {
+				if _, ok := set.NonWitnessVoters[id]; ok || id == set.Witness {
+					inactiveID = id
+					break
+				}
+			}
+		}
+		if inactiveID == 0 && set.Excluded == set.Witness {
+			continue
+		}
+
+		changed = true
+
+		if inactiveID > 0 {
+			result.ReplicationSet[i] = ReplicationSet{
+				Witness:          p.Epoch.ReplicationSet[i].Witness,
+				Excluded:         inactiveID,
+				NonWitnessVoters: map[uint64]struct{}{},
+			}
+		} else {
+			result.ReplicationSet[i] = ReplicationSet{
+				Witness:          p.Epoch.ReplicationSet[i].Witness,
+				Excluded:         p.Epoch.ReplicationSet[i].Witness,
+				NonWitnessVoters: map[uint64]struct{}{},
+			}
+		}
+		for id := range set.NonWitnessVoters {
+			if id != result.ReplicationSet[i].Excluded {
+				result.ReplicationSet[i].NonWitnessVoters[id] = struct{}{}
+			}
+		}
+		if set.Excluded != result.ReplicationSet[i].Excluded && set.Excluded != set.Witness {
+			result.ReplicationSet[i].NonWitnessVoters[set.Excluded] = struct{}{}
+		}
+	}
+
+	if changed {
+		p.Epoch = result
+	}
+
+	return changed
 }

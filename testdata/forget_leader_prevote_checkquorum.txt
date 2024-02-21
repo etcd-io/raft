@@ -40,7 +40,7 @@ stabilize 3
   3->1 MsgPreVote Term:2 Log:1/11
   3->2 MsgPreVote Term:2 Log:1/11
   INFO 3 received MsgPreVoteResp from 3 at term 1
-  INFO 3 has received 1 MsgPreVoteResp votes and 0 vote rejections
+  INFO 3 has received 1 MsgPreVoteResp votes and 0 vote rejections. It needs [1 0] votes to win
 
 deliver-msgs 1 2
 ----
@@ -113,7 +113,7 @@ stabilize 3
   3->1 MsgPreVote Term:2 Log:1/11
   3->2 MsgPreVote Term:2 Log:1/11
   INFO 3 received MsgPreVoteResp from 3 at term 1
-  INFO 3 has received 1 MsgPreVoteResp votes and 0 vote rejections
+  INFO 3 has received 1 MsgPreVoteResp votes and 0 vote rejections. It needs [1 0] votes to win
 
 stabilize 2
 ----
@@ -133,7 +133,7 @@ stabilize 3
 > 3 receiving messages
   2->3 MsgPreVoteResp Term:2 Log:0/0
   INFO 3 received MsgPreVoteResp from 2 at term 1
-  INFO 3 has received 2 MsgPreVoteResp votes and 0 vote rejections
+  INFO 3 has received 2 MsgPreVoteResp votes and 0 vote rejections. It needs [0 0] votes to win
   INFO 3 became candidate at term 2
   INFO 3 [logterm: 1, index: 11] sent MsgVote request to 1 at term 2
   INFO 3 [logterm: 1, index: 11] sent MsgVote request to 2 at term 2
@@ -145,7 +145,7 @@ stabilize 3
   3->1 MsgVote Term:2 Log:1/11
   3->2 MsgVote Term:2 Log:1/11
   INFO 3 received MsgVoteResp from 3 at term 2
-  INFO 3 has received 1 MsgVoteResp votes and 0 vote rejections
+  INFO 3 has received 1 MsgVoteResp votes and 0 vote rejections. It needs [1 0] votes to win
 
 stabilize log-level=none
 ----
@@ -209,7 +209,7 @@ Messages:
 1->2 MsgPreVote Term:3 Log:2/12
 1->3 MsgPreVote Term:3 Log:2/12
 INFO 1 received MsgPreVoteResp from 1 at term 2
-INFO 1 has received 1 MsgPreVoteResp votes and 0 vote rejections
+INFO 1 has received 1 MsgPreVoteResp votes and 0 vote rejections. It needs [1 0] votes to win
 
 stabilize 2
 ----

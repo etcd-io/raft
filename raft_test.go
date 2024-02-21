@@ -429,6 +429,9 @@ func TestLearnerPromotion(t *testing.T) {
 	nt.send(pb.Message{From: 1, To: 1, Type: pb.MsgBeat})
 
 	n1.applyConfChange(pb.ConfChange{NodeID: 2, Type: pb.ConfChangeAddNode}.AsV2())
+	n1.advanceMessagesAfterAppend() // empty entry will be added in leader log after config change
+	nt.send(pb.Message{From: 1, To: 1, Type: pb.MsgBeat})
+
 	n2.applyConfChange(pb.ConfChange{NodeID: 2, Type: pb.ConfChangeAddNode}.AsV2())
 	if n2.isLearner {
 		t.Error("peer 2 is learner, want not")
@@ -3406,13 +3409,11 @@ func TestRemoveNode(t *testing.T) {
 		t.Errorf("nodes = %v, want %v", g, w)
 	}
 
-	// Removing the remaining voter will panic.
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("did not panic")
-		}
-	}()
-	r.applyConfChange(pb.ConfChange{NodeID: 1, Type: pb.ConfChangeRemoveNode}.AsV2())
+	_, err := r.applyConfChange(pb.ConfChange{NodeID: 1, Type: pb.ConfChangeRemoveNode}.AsV2())
+	// Removing the remaining voter will return error "removed all voters".
+	if err.Error() != "removed all voters" {
+		t.Errorf("Removing the remaining voter will return error")
+	}
 }
 
 // TestRemoveLearner tests that removeNode could update nodes and
@@ -3430,13 +3431,11 @@ func TestRemoveLearner(t *testing.T) {
 		t.Errorf("nodes = %v, want %v", g, w)
 	}
 
-	// Removing the remaining voter will panic.
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("did not panic")
-		}
-	}()
-	r.applyConfChange(pb.ConfChange{NodeID: 1, Type: pb.ConfChangeRemoveNode}.AsV2())
+	_, err := r.applyConfChange(pb.ConfChange{NodeID: 1, Type: pb.ConfChangeRemoveNode}.AsV2())
+	// Removing the remaining voter will return error "removed all voters".
+	if err.Error() != "removed all voters" {
+		t.Errorf("Removing the remaining voter will return error")
+	}
 }
 
 func TestPromotable(t *testing.T) {
@@ -3572,8 +3571,8 @@ func TestCommitAfterRemoveNode(t *testing.T) {
 	// pending command can now commit.
 	r.applyConfChange(cc.AsV2())
 	ents = nextEnts(r, s)
-	if len(ents) != 1 || ents[0].Type != pb.EntryNormal ||
-		string(ents[0].Data) != "hello" {
+	if len(ents) != 2 || ents[0].Type != pb.EntryNormal || ents[1].Type != pb.EntryNormal ||
+		string(ents[0].Data) != "hello" || len(ents[1].Data) != 0 {
 		t.Fatalf("expected one committed EntryNormal, got %v", ents)
 	}
 }

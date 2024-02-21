@@ -42,7 +42,7 @@ stabilize
   2->1 MsgVote Term:2 Log:1/11
   2->3 MsgVote Term:2 Log:1/11
   INFO 2 received MsgVoteResp from 2 at term 2
-  INFO 2 has received 1 MsgVoteResp votes and 0 vote rejections
+  INFO 2 has received 1 MsgVoteResp votes and 0 vote rejections. It needs [1 0] votes to win
 > 1 receiving messages
   2->1 MsgVote Term:2 Log:1/11
   INFO 1 [logterm: 1, index: 11, vote: 1] ignored MsgVote from 2 [logterm: 1, index: 11] at term 1: lease is not expired (remaining ticks: 3)
@@ -147,7 +147,7 @@ Messages:
 2->1 MsgVote Term:3 Log:1/11
 2->3 MsgVote Term:3 Log:1/11
 INFO 2 received MsgVoteResp from 2 at term 3
-INFO 2 has received 1 MsgVoteResp votes and 0 vote rejections
+INFO 2 has received 1 MsgVoteResp votes and 0 vote rejections. It needs [1 0] votes to win
 
 deliver-msgs 1
 ----
@@ -171,7 +171,9 @@ stabilize
 > 2 receiving messages
   1->2 MsgVoteResp Term:3 Log:0/0
   INFO 2 received MsgVoteResp from 1 at term 3
-  INFO 2 has received 2 MsgVoteResp votes and 0 vote rejections
+  INFO 2 has received 2 MsgVoteResp votes and 0 vote rejections. It needs [0 0] votes to win
+  INFO 2 resets replication set to {1,2,3}, {}
+  INFO 2 starts new subterm. Term: 3, Subterm: 0
   INFO 2 became leader at term 3
 > 2 handling Ready
   Ready MustSync=true:

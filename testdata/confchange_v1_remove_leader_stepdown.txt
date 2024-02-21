@@ -104,11 +104,15 @@ stabilize 1
   1->3 MsgApp Term:1 Log:1/6 Commit:4
   1->2 MsgApp Term:1 Log:1/6 Commit:5
   1->3 MsgApp Term:1 Log:1/6 Commit:5
+  INFO 1 resets replication set to {2,3}, {}
+  INFO 1 starts new subterm. Term: 1, Subterm: 1
   INFO 1 switched to configuration voters=(2 3)
   INFO 1 became follower at term 1
 > 1 handling Ready
-  Ready MustSync=false:
+  Ready MustSync=true:
   Lead:0 State:StateFollower
+  Entries:
+  1/7 EntryNormal ""
 
 raft-state
 ----

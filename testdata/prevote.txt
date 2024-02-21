@@ -71,7 +71,7 @@ Messages:
 3->1 MsgPreVote Term:2 Log:1/11
 3->2 MsgPreVote Term:2 Log:1/11
 INFO 3 received MsgPreVoteResp from 3 at term 1
-INFO 3 has received 1 MsgPreVoteResp votes and 0 vote rejections
+INFO 3 has received 1 MsgPreVoteResp votes and 0 vote rejections. It needs [1 0] votes to win
 
 deliver-msgs 1 2
 ----
@@ -145,7 +145,7 @@ stabilize
   2->1 MsgPreVote Term:2 Log:1/12
   2->3 MsgPreVote Term:2 Log:1/12
   INFO 2 received MsgPreVoteResp from 2 at term 1
-  INFO 2 has received 1 MsgPreVoteResp votes and 0 vote rejections
+  INFO 2 has received 1 MsgPreVoteResp votes and 0 vote rejections. It needs [1 0] votes to win
 > 1 receiving messages
   2->1 MsgPreVote Term:2 Log:1/12
   INFO 1 [logterm: 1, index: 12, vote: 1] cast MsgPreVote for 2 [logterm: 1, index: 12] at term 1
@@ -163,7 +163,7 @@ stabilize
 > 2 receiving messages
   1->2 MsgPreVoteResp Term:2 Log:0/0
   INFO 2 received MsgPreVoteResp from 1 at term 1
-  INFO 2 has received 2 MsgPreVoteResp votes and 0 vote rejections
+  INFO 2 has received 2 MsgPreVoteResp votes and 0 vote rejections. It needs [0 0] votes to win
   INFO 2 became candidate at term 2
   INFO 2 [logterm: 1, index: 12] sent MsgVote request to 1 at term 2
   INFO 2 [logterm: 1, index: 12] sent MsgVote request to 3 at term 2
@@ -176,7 +176,7 @@ stabilize
   2->1 MsgVote Term:2 Log:1/12
   2->3 MsgVote Term:2 Log:1/12
   INFO 2 received MsgVoteResp from 2 at term 2
-  INFO 2 has received 1 MsgVoteResp votes and 0 vote rejections
+  INFO 2 has received 1 MsgVoteResp votes and 0 vote rejections. It needs [1 0] votes to win
 > 1 receiving messages
   2->1 MsgVote Term:2 Log:1/12
   INFO 1 [term: 1] received a MsgVote message with higher term from 2 [term: 2]
@@ -202,7 +202,9 @@ stabilize
 > 2 receiving messages
   1->2 MsgVoteResp Term:2 Log:0/0
   INFO 2 received MsgVoteResp from 1 at term 2
-  INFO 2 has received 2 MsgVoteResp votes and 0 vote rejections
+  INFO 2 has received 2 MsgVoteResp votes and 0 vote rejections. It needs [0 0] votes to win
+  INFO 2 resets replication set to {1,2,3}, {}
+  INFO 2 starts new subterm. Term: 2, Subterm: 0
   INFO 2 became leader at term 2
   3->2 MsgVoteResp Term:2 Log:0/0
 > 2 handling Ready

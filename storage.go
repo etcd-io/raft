@@ -266,6 +266,7 @@ func (ms *MemoryStorage) Compact(compactIndex uint64) error {
 	ents := make([]pb.Entry, 1, uint64(len(ms.ents))-i)
 	ents[0].Index = ms.ents[i].Index
 	ents[0].Term = ms.ents[i].Term
+	ents[0].Subterm = ms.ents[i].Subterm
 	ents = append(ents, ms.ents[i+1:]...)
 	ms.ents = ents
 	return nil

@@ -379,7 +379,7 @@ stabilize 1
   1->6 MsgVote Term:8 Log:6/20
   1->7 MsgVote Term:8 Log:6/20
   INFO 1 received MsgVoteResp from 1 at term 8
-  INFO 1 has received 1 MsgVoteResp votes and 0 vote rejections
+  INFO 1 has received 1 MsgVoteResp votes and 0 vote rejections. It needs [3 0] votes to win
 
 stabilize 2 3 4 5 6 7
 ----
@@ -452,19 +452,21 @@ stabilize 1
 > 1 receiving messages
   2->1 MsgVoteResp Term:8 Log:0/0
   INFO 1 received MsgVoteResp from 2 at term 8
-  INFO 1 has received 2 MsgVoteResp votes and 0 vote rejections
+  INFO 1 has received 2 MsgVoteResp votes and 0 vote rejections. It needs [2 0] votes to win
   3->1 MsgVoteResp Term:8 Log:0/0
   INFO 1 received MsgVoteResp from 3 at term 8
-  INFO 1 has received 3 MsgVoteResp votes and 0 vote rejections
+  INFO 1 has received 3 MsgVoteResp votes and 0 vote rejections. It needs [1 0] votes to win
   4->1 MsgVoteResp Term:8 Log:0/0 Rejected (Hint: 0)
   INFO 1 received MsgVoteResp rejection from 4 at term 8
-  INFO 1 has received 3 MsgVoteResp votes and 1 vote rejections
+  INFO 1 has received 3 MsgVoteResp votes and 1 vote rejections. It needs [1 0] votes to win
   5->1 MsgVoteResp Term:8 Log:0/0 Rejected (Hint: 0)
   INFO 1 received MsgVoteResp rejection from 5 at term 8
-  INFO 1 has received 3 MsgVoteResp votes and 2 vote rejections
+  INFO 1 has received 3 MsgVoteResp votes and 2 vote rejections. It needs [1 0] votes to win
   6->1 MsgVoteResp Term:8 Log:0/0
   INFO 1 received MsgVoteResp from 6 at term 8
-  INFO 1 has received 4 MsgVoteResp votes and 2 vote rejections
+  INFO 1 has received 4 MsgVoteResp votes and 2 vote rejections. It needs [0 0] votes to win
+  INFO 1 resets replication set to {1,2,3,4,5,6,7}, {}
+  INFO 1 starts new subterm. Term: 8, Subterm: 0
   INFO 1 became leader at term 8
   7->1 MsgVoteResp Term:8 Log:0/0
 > 1 handling Ready

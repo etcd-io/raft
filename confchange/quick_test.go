@@ -162,7 +162,8 @@ func (confChanges) Generate(rand *rand.Rand, _ int) reflect.Value {
 		return 1 + uint64(num())
 	}
 	typ := func() pb.ConfChangeType {
-		return pb.ConfChangeType(rand.Intn(len(pb.ConfChangeType_name)))
+		// exclude witness from the test case
+		return pb.ConfChangeType(rand.Intn(len(pb.ConfChangeType_name) - 1))
 	}
 	return reflect.ValueOf(genCC(num, id, typ))
 }

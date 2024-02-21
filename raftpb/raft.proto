@@ -23,6 +23,7 @@ message Entry {
 	optional uint64     Index = 3 [(gogoproto.nullable) = false]; // must be 64-bit aligned for atomic operations
 	optional EntryType  Type  = 1 [(gogoproto.nullable) = false];
 	optional bytes      Data  = 4;
+	optional uint64 	Subterm = 5 [(gogoproto.nullable) = false]; // must be 64-bit aligned for atomic operations
 }
 
 message SnapshotMetadata {
@@ -113,6 +114,16 @@ message HardState {
 	optional uint64 commit = 3 [(gogoproto.nullable) = false];
 }
 
+message WitnessHardState {
+	optional HardState state = 1 [(gogoproto.nullable) = false];
+	optional uint64 lastLogIndex = 2 [(gogoproto.nullable) = false];
+	optional uint64 lastLogTerm = 3 [(gogoproto.nullable) = false];
+	optional uint64 lastLogSubterm = 4 [(gogoproto.nullable) = false];
+	optional uint64 lead = 5 [(gogoproto.nullable) = false];
+	repeated uint64 replicationSet = 6;
+	repeated uint64 replicationSetOutgoing = 7;
+}
+
 // ConfChangeTransition specifies the behavior of a configuration change with
 // respect to joint consensus.
 enum ConfChangeTransition {
@@ -148,6 +159,8 @@ message ConfState {
 	// If set, the config is joint and Raft will automatically transition into
 	// the final config (i.e. remove the outgoing config) when this is safe.
 	optional bool   auto_leave        = 5 [(gogoproto.nullable) = false];
+	optional uint64 witness           = 6 [(gogoproto.nullable) = false];
+	optional uint64 witness_outgoing  = 7 [(gogoproto.nullable) = false];
 }
 
 enum ConfChangeType {
@@ -155,6 +168,7 @@ enum ConfChangeType {
 	ConfChangeRemoveNode     = 1;
 	ConfChangeUpdateNode     = 2;
 	ConfChangeAddLearnerNode = 3;
+	ConfChangeAddWitness     = 4;
 }
 
 message ConfChange {

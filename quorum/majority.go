@@ -171,6 +171,54 @@ func (c MajorityConfig) CommittedIndex(l AckedIndexer) Index {
 	return Index(srt[pos])
 }
 
+func (c MajorityConfig) OneLessThanQuorum(l AckedIndexer) Index {
+	n := len(c)
+	if n == 0 {
+		// This plays well with joint quorums which, when one half is the zero
+		// MajorityConfig, should behave like the other half.
+		return math.MaxUint64
+	}
+
+	// Use an on-stack slice to collect the committed indexes when n <= 7
+	// (otherwise we alloc). The alternative is to stash a slice on
+	// MajorityConfig, but this impairs usability (as is, MajorityConfig is just
+	// a map, and that's nice). The assumption is that running with a
+	// replication factor of >7 is rare, and in cases in which it happens
+	// performance is a lesser concern (additionally the performance
+	// implications of an allocation here are far from drastic).
+	var stk [7]uint64
+	var srt []uint64
+	if len(stk) >= n {
+		srt = stk[:n]
+	} else {
+		srt = make([]uint64, n)
+	}
+
+	{
+		// Fill the slice with the indexes observed. Any unused slots will be
+		// left as zero; these correspond to voters that may report in, but
+		// haven't yet. We fill from the right (since the zeroes will end up on
+		// the left after sorting below anyway).
+		i := n - 1
+		for id := range c {
+			if idx, ok := l.AckedIndex(id); ok {
+				srt[i] = uint64(idx)
+				i--
+			}
+		}
+	}
+
+	// Sort by index. Use a bespoke algorithm (copied from the stdlib's sort
+	// package) to keep srt on the stack.
+	insertionSort(srt)
+
+	// The smallest index into the array for which the value is acked by (quorum - 1).
+	// In other words, from the end of the slice, move n/2+1+1 to the
+	// left (accounting for zero-indexing).
+	pos := n - n/2
+	return Index(srt[pos])
+}
+
 // VoteResult takes a mapping of voters to yes/no (true/false) votes and returns
 // a result indicating whether the vote is pending (i.e. neither a quorum of
 // yes/no has been reached), won (a quorum of yes has been reached), or lost (a
@@ -204,4 +252,38 @@ func (c MajorityConfig) VoteResult(votes map[uint64]bool) VoteResult {
 		return VotePending
 	}
 	return VoteLost
+}
+
+func (c MajorityConfig) VoteResultWithDifference(votes map[uint64]bool) (VoteResult, int) {
+	if len(c) == 0 {
+		// By convention, the elections on an empty config win. This comes in
+		// handy with joint quorums because it'll make a half-populated joint
+		// quorum behave like a majority quorum.
+		return VoteWon, 0
+	}
+
+	ny := [2]int{} // vote counts for no and yes, respectively
+
+	var missing int
+	for id := range c {
+		v, ok := votes[id]
+		if !ok {
+			missing++
+			continue
+		}
+		if v {
+			ny[1]++
+		} else {
+			ny[0]++
+		}
+	}
+
+	q := len(c)/2 + 1
+	if ny[1] >= q {
+		return VoteWon, 0
+	}
+	if ny[1]+missing >= q {
+		return VotePending, q - ny[1]
+	}
+	return VoteLost, 0
 }

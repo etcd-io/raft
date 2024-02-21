@@ -69,6 +69,7 @@ func (c Changer) EnterJoint(autoLeave bool, ccs ...pb.ConfChangeSingle) (tracker
 	for id := range incoming(cfg.Voters) {
 		outgoing(cfg.Voters)[id] = struct{}{}
 	}
+	cfg.Witnesses[1] = cfg.Witnesses[0]
 
 	if err := c.apply(&cfg, trk, ccs...); err != nil {
 		return c.err(err)
@@ -109,12 +110,14 @@ func (c Changer) LeaveJoint() (tracker.Config, tracker.ProgressMap, error) {
 	for id := range outgoing(cfg.Voters) {
 		_, isVoter := incoming(cfg.Voters)[id]
 		_, isLearner := cfg.Learners[id]
+		isWitness := cfg.Witnesses[0] == id
 
-		if !isVoter && !isLearner {
+		if !isVoter && !isLearner && !isWitness {
 			delete(trk, id)
 		}
 	}
 	*outgoingPtr(&cfg.Voters) = nil
+	cfg.Witnesses[1] = 0
 	cfg.AutoLeave = false
 
 	return checkAndReturn(cfg, trk)
@@ -155,16 +158,24 @@ func (c Changer) apply(cfg *tracker.Config, trk tracker.ProgressMap, ccs ...pb.C
 			// here to ignore these.
 			continue
 		}
+
+		var err error
 		switch cc.Type {
 		case pb.ConfChangeAddNode:
-			c.makeVoter(cfg, trk, cc.NodeID)
+			err = c.makeVoter(cfg, trk, cc.NodeID)
 		case pb.ConfChangeAddLearnerNode:
-			c.makeLearner(cfg, trk, cc.NodeID)
+			err = c.makeLearner(cfg, trk, cc.NodeID)
 		case pb.ConfChangeRemoveNode:
 			c.remove(cfg, trk, cc.NodeID)
 		case pb.ConfChangeUpdateNode:
+		case pb.ConfChangeAddWitness:
+			err = c.makeWitness(cfg, trk, cc.NodeID)
 		default:
 			return fmt.Errorf("unexpected conf type %d", cc.Type)
+		}
+
+		if err != nil {
+			return err
 		}
 	}
 	if len(incoming(cfg.Voters)) == 0 {
@@ -175,17 +186,23 @@ func (c Changer) apply(cfg *tracker.Config, trk tracker.ProgressMap, ccs ...pb.C
 
 // makeVoter adds or promotes the given ID to be a voter in the incoming
 // majority config.
-func (c Changer) makeVoter(cfg *tracker.Config, trk tracker.ProgressMap, id uint64) {
+func (c Changer) makeVoter(cfg *tracker.Config, trk tracker.ProgressMap, id uint64) error {
 	pr := trk[id]
 	if pr == nil {
-		c.initProgress(cfg, trk, id, false /* isLearner */)
-		return
+		c.initProgress(cfg, trk, id, false /* isLearner */, false /* isWitness */)
+		return nil
+	}
+
+	if pr.IsWitness {
+		return fmt.Errorf("cannot change witness to non-witness voter")
 	}
 
 	pr.IsLearner = false
 	nilAwareDelete(&cfg.Learners, id)
 	nilAwareDelete(&cfg.LearnersNext, id)
 	incoming(cfg.Voters)[id] = struct{}{}
+
+	return nil
 }
 
 // makeLearner makes the given ID a learner or stages it to be a learner once
@@ -201,14 +218,17 @@ func (c Changer) makeVoter(cfg *tracker.Config, trk tracker.ProgressMap, id uint
 // simultaneously. Instead, we add the learner to LearnersNext, so that it will
 // be added to Learners the moment the outgoing config is removed by
 // LeaveJoint().
-func (c Changer) makeLearner(cfg *tracker.Config, trk tracker.ProgressMap, id uint64) {
+func (c Changer) makeLearner(cfg *tracker.Config, trk tracker.ProgressMap, id uint64) error {
 	pr := trk[id]
 	if pr == nil {
-		c.initProgress(cfg, trk, id, true /* isLearner */)
-		return
+		c.initProgress(cfg, trk, id, true /* isLearner */, false /* isWitness */)
+		return nil
 	}
 	if pr.IsLearner {
-		return
+		return nil
+	}
+	if pr.IsWitness {
+		return fmt.Errorf("cannot change witness to non-witness learner")
 	}
 	// Remove any existing voter in the incoming config...
 	c.remove(cfg, trk, id)
@@ -223,11 +243,35 @@ func (c Changer) makeLearner(cfg *tracker.Config, trk tracker.ProgressMap, id ui
 		nilAwareAdd(&cfg.LearnersNext, id)
 	} else {
 		pr.IsLearner = true
+		pr.IsWitness = false
 		nilAwareAdd(&cfg.Learners, id)
 	}
+
+	return nil
 }
 
-// remove this peer as a voter or learner from the incoming config.
+// makeWitness adds the given ID to be a witness in the incoming
+// majority config.
+func (c Changer) makeWitness(cfg *tracker.Config, trk tracker.ProgressMap, id uint64) error {
+	if cfg.Witnesses[0] > 0 && cfg.Witnesses[0] != id {
+		return fmt.Errorf("cannot have more than one witness in incoming")
+	}
+
+	// now either incoming does not have any witness or it already has this witness
+	pr := trk[id]
+	if pr == nil {
+		c.initProgress(cfg, trk, id, false /* isLearner */, true /* isWitness */)
+		return nil
+	}
+
+	if !pr.IsWitness {
+		return fmt.Errorf("cannot change non-witness voter/learner to witness")
+	}
+
+	return nil
+}
+
+// remove this peer as a voter or learner or witness from the incoming config.
 func (c Changer) remove(cfg *tracker.Config, trk tracker.ProgressMap, id uint64) {
 	if _, ok := trk[id]; !ok {
 		return
@@ -236,6 +280,9 @@ func (c Changer) remove(cfg *tracker.Config, trk tracker.ProgressMap, id uint64)
 	delete(incoming(cfg.Voters), id)
 	nilAwareDelete(&cfg.Learners, id)
 	nilAwareDelete(&cfg.LearnersNext, id)
+	if id == cfg.Witnesses[0] {
+		cfg.Witnesses[0] = 0
+	}
 
 	// If the peer is still a voter in the outgoing config, keep the Progress.
 	if _, onRight := outgoing(cfg.Voters)[id]; !onRight {
@@ -243,10 +290,13 @@ func (c Changer) remove(cfg *tracker.Config, trk tracker.ProgressMap, id uint64)
 	}
 }
 
-// initProgress initializes a new progress for the given node or learner.
-func (c Changer) initProgress(cfg *tracker.Config, trk tracker.ProgressMap, id uint64, isLearner bool) {
+// initProgress initializes a new progress for the given node or learner or witness.
+func (c Changer) initProgress(cfg *tracker.Config, trk tracker.ProgressMap, id uint64, isLearner bool, isWitness bool) {
 	if !isLearner {
 		incoming(cfg.Voters)[id] = struct{}{}
+		if isWitness {
+			cfg.Witnesses[0] = id
+		}
 	} else {
 		nilAwareAdd(&cfg.Learners, id)
 	}
@@ -263,6 +313,7 @@ func (c Changer) initProgress(cfg *tracker.Config, trk tracker.ProgressMap, id u
 		Next:      max(c.LastIndex, 1), // invariant: Match < Next
 		Inflights: tracker.NewInflights(c.Tracker.MaxInflight, c.Tracker.MaxInflightBytes),
 		IsLearner: isLearner,
+		IsWitness: isWitness,
 		// When a node is first added, we should mark it as recently active.
 		// Otherwise, CheckQuorum may cause us to step down if it is invoked
 		// before the added node has had a chance to communicate with us.
@@ -325,6 +376,15 @@ func checkInvariants(cfg tracker.Config, trk tracker.ProgressMap) error {
 		}
 		if cfg.AutoLeave {
 			return fmt.Errorf("AutoLeave must be false when not joint")
+		}
+	}
+
+	for id, voters := range cfg.Voters {
+		w := cfg.Witnesses[id]
+		if w > 0 {
+			if _, ok := voters[w]; !ok {
+				return fmt.Errorf("%d is in Witnesses[%d] but not in Voters[%d]", w, id, id)
+			}
 		}
 	}
 
