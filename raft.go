@@ -601,9 +601,7 @@ func (r *raft) send(m pb.Message) {
 // Returns true if a message was sent, or false otherwise. A message is not sent
 // if the follower log and commit index are up-to-date, the flow is paused (for
 // reasons like in-flight limits), or the message could not be constructed.
-func (r *raft) maybeSendAppend(to uint64) bool {
-	pr := r.trk.Progress[to]
-
+func (r *raft) maybeSendAppend(to uint64, pr *tracker.Progress) bool {
 	last, commit := r.raftLog.lastIndex(), r.raftLog.committed
 	if !pr.ShouldSendMsgApp(last, commit) {
 		return false
@@ -690,11 +688,11 @@ func (r *raft) sendHeartbeat(to uint64, ctx []byte) {
 // bcastAppend sends RPC, with entries to all peers that are not up-to-date
 // according to the progress recorded in r.trk.
 func (r *raft) bcastAppend() {
-	r.trk.Visit(func(id uint64, _ *tracker.Progress) {
+	r.trk.Visit(func(id uint64, pr *tracker.Progress) {
 		if id == r.id {
 			return
 		}
-		r.maybeSendAppend(id)
+		r.maybeSendAppend(id, pr)
 	})
 }
 
@@ -1472,7 +1470,7 @@ func stepLeader(r *raft, m pb.Message) error {
 				if pr.State == tracker.StateReplicate {
 					pr.BecomeProbe()
 				}
-				r.maybeSendAppend(m.From)
+				r.maybeSendAppend(m.From, pr)
 			}
 		} else {
 			// We want to update our tracking if the response updates our
@@ -1517,7 +1515,7 @@ func stepLeader(r *raft, m pb.Message) error {
 				// transitioning from probe to replicate, or when freeTo() covers
 				// multiple messages). Send as many messages as we can.
 				if r.id != m.From {
-					for r.maybeSendAppend(m.From) {
+					for r.maybeSendAppend(m.From, pr) {
 					}
 				}
 				// Transfer leadership is in progress.
@@ -1530,7 +1528,7 @@ func stepLeader(r *raft, m pb.Message) error {
 	case pb.MsgHeartbeatResp:
 		pr.RecentActive = true
 		pr.MsgAppFlowPaused = false
-		r.maybeSendAppend(m.From)
+		r.maybeSendAppend(m.From, pr)
 
 		if r.readOnly.option != ReadOnlySafe || len(m.Context) == 0 {
 			return nil
@@ -1601,7 +1599,7 @@ func stepLeader(r *raft, m pb.Message) error {
 			r.logger.Infof("%x sends MsgTimeoutNow to %x immediately as %x already has up-to-date log", r.id, leadTransferee, leadTransferee)
 		} else {
 			pr.MsgAppFlowPaused = false
-			r.maybeSendAppend(leadTransferee)
+			r.maybeSendAppend(leadTransferee, pr)
 		}
 	}
 	return nil
