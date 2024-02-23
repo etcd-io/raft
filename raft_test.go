@@ -132,7 +132,7 @@ func TestProgressResumeByHeartbeatResp(t *testing.T) {
 	assert.False(t, r.trk.Progress[2].MsgAppFlowPaused)
 	r.trk.Progress[2].MsgAppFlowPaused = true
 	r.Step(pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeatResp})
-	assert.False(t, r.trk.Progress[2].MsgAppFlowPaused)
+	assert.True(t, r.trk.Progress[2].MsgAppFlowPaused)
 }
 
 func TestProgressPaused(t *testing.T) {
@@ -2299,7 +2299,7 @@ func TestSendAppendForProgressProbe(t *testing.T) {
 			// loop. After that, the follower is paused until a heartbeat response is
 			// received.
 			mustAppendEntry(r, pb.Entry{Data: []byte("somedata")})
-			r.sendAppend(2)
+			r.maybeSendAppend(2)
 			msg := r.readMessages()
 			assert.Len(t, msg, 1)
 			assert.Zero(t, msg[0].Index)
@@ -2308,7 +2308,7 @@ func TestSendAppendForProgressProbe(t *testing.T) {
 		assert.True(t, r.trk.Progress[2].MsgAppFlowPaused)
 		for j := 0; j < 10; j++ {
 			mustAppendEntry(r, pb.Entry{Data: []byte("somedata")})
-			r.sendAppend(2)
+			r.maybeSendAppend(2)
 			assert.Empty(t, r.readMessages())
 		}
 
@@ -2341,7 +2341,7 @@ func TestSendAppendForProgressReplicate(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		mustAppendEntry(r, pb.Entry{Data: []byte("somedata")})
-		r.sendAppend(2)
+		r.maybeSendAppend(2)
 		msgs := r.readMessages()
 		assert.Len(t, msgs, 1, "#%d", i)
 	}
@@ -2356,7 +2356,7 @@ func TestSendAppendForProgressSnapshot(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		mustAppendEntry(r, pb.Entry{Data: []byte("somedata")})
-		r.sendAppend(2)
+		r.maybeSendAppend(2)
 		msgs := r.readMessages()
 		assert.Empty(t, msgs, "#%d", i)
 	}
@@ -3876,10 +3876,10 @@ func TestLogReplicationWithReorderedMessage(t *testing.T) {
 
 	// r1 sends 2 MsgApp messages to r2.
 	mustAppendEntry(r1, pb.Entry{Data: []byte("somedata")})
-	r1.sendAppend(2)
+	r1.maybeSendAppend(2)
 	req1 := expectOneMessage(t, r1)
 	mustAppendEntry(r1, pb.Entry{Data: []byte("somedata")})
-	r1.sendAppend(2)
+	r1.maybeSendAppend(2)
 	req2 := expectOneMessage(t, r1)
 
 	// r2 receives the second MsgApp first due to reordering.
