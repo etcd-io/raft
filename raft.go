@@ -1527,7 +1527,7 @@ func stepLeader(r *raft, m pb.Message) error {
 		}
 	case pb.MsgHeartbeatResp:
 		pr.RecentActive = true
-		pr.MsgAppFlowPaused = false
+		pr.PauseMsgAppProbes(false)
 		r.maybeSendAppend(m.From, pr)
 
 		if r.readOnly.option != ReadOnlySafe || len(m.Context) == 0 {
@@ -1561,7 +1561,7 @@ func stepLeader(r *raft, m pb.Message) error {
 		// If snapshot finish, wait for the MsgAppResp from the remote node before sending
 		// out the next MsgApp.
 		// If snapshot failure, wait for a heartbeat interval before next try
-		pr.MsgAppFlowPaused = true
+		pr.PauseMsgAppProbes(true)
 	case pb.MsgUnreachable:
 		// During optimistic replication, if the remote becomes unreachable,
 		// there is huge probability that a MsgApp is lost.
@@ -1598,7 +1598,7 @@ func stepLeader(r *raft, m pb.Message) error {
 			r.sendTimeoutNow(leadTransferee)
 			r.logger.Infof("%x sends MsgTimeoutNow to %x immediately as %x already has up-to-date log", r.id, leadTransferee, leadTransferee)
 		} else {
-			pr.MsgAppFlowPaused = false
+			pr.PauseMsgAppProbes(false)
 			r.maybeSendAppend(leadTransferee, pr)
 		}
 	}

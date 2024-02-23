@@ -87,13 +87,13 @@ type Progress struct {
 	// This is always true on the leader.
 	RecentActive bool
 
-	// MsgAppFlowPaused is used when the MsgApp flow to a node is throttled. This
-	// happens in StateProbe, or StateReplicate with saturated Inflights. In both
-	// cases, we need to continue sending MsgApp once in a while to guarantee
-	// progress, but we only do so when MsgAppFlowPaused is false (it is reset on
-	// receiving a heartbeat response), to not overflow the receiver. See
-	// IsPaused().
-	MsgAppFlowPaused bool
+	// MsgAppProbesPaused set to true prevents sending "probe" MsgApp messages to
+	// this follower. Used in StateProbe, or StateReplicate when all entries are
+	// in-flight or the in-flight volume exceeds limits. See ShouldSendMsgApp().
+	//
+	// TODO(pav-kv): unexport this field. It is used by a few tests, but should be
+	// replaced by PauseMsgAppProbes() and ShouldSendMsgApp().
+	MsgAppProbesPaused bool
 
 	// Inflights is a sliding window for the inflight messages.
 	// Each inflight message contains one or more log entries.
@@ -113,7 +113,7 @@ type Progress struct {
 	IsLearner bool
 }
 
-// ResetState moves the Progress into the specified State, resetting MsgAppFlowPaused,
+// ResetState moves the Progress into the specified State, resetting MsgAppProbesPaused,
 // PendingSnapshot, and Inflights.
 func (pr *Progress) ResetState(state StateType) {
 	pr.PauseMsgAppProbes(false)
@@ -169,7 +169,7 @@ func (pr *Progress) SentEntries(entries int, bytes uint64) {
 // PauseMsgAppProbes pauses or unpauses empty MsgApp messages flow, depending on
 // the passed-in bool.
 func (pr *Progress) PauseMsgAppProbes(pause bool) {
-	pr.MsgAppFlowPaused = pause
+	pr.MsgAppProbesPaused = pause
 }
 
 // CanSendEntries returns true if the flow control state allows sending at least
@@ -251,12 +251,17 @@ func (pr *Progress) MaybeDecrTo(rejected, matchHint uint64) bool {
 // operation, this is false. A throttled node will be contacted less frequently
 // until it has reached a state in which it's able to accept a steady stream of
 // log entries again.
+//
+// TODO(pav-kv): this method is deprecated, remove it. It is still used in tests
+// and String(), find a way to avoid this. The problem is that the actual flow
+// control state depends on the log size and commit index, which are not part of
+// this Progress struct - they are passed-in to methods like ShouldSendMsgApp().
 func (pr *Progress) IsPaused() bool {
 	switch pr.State {
 	case StateProbe:
-		return pr.MsgAppFlowPaused
+		return pr.MsgAppProbesPaused
 	case StateReplicate:
-		return pr.MsgAppFlowPaused && pr.Inflights.Full()
+		return pr.MsgAppProbesPaused && pr.Inflights.Full()
 	case StateSnapshot:
 		return true
 	default:
@@ -286,10 +291,10 @@ func (pr *Progress) IsPaused() bool {
 func (pr *Progress) ShouldSendMsgApp(last, commit uint64) bool {
 	switch pr.State {
 	case StateProbe:
-		return !pr.MsgAppFlowPaused
+		return !pr.MsgAppProbesPaused
 	case StateReplicate:
 		return pr.CanBumpCommit(commit) ||
-			pr.Match < last && (!pr.MsgAppFlowPaused || pr.CanSendEntries(last))
+			pr.Match < last && (!pr.MsgAppProbesPaused || pr.CanSendEntries(last))
 	case StateSnapshot:
 		return false
 	default:
