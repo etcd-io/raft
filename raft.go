@@ -1680,6 +1680,17 @@ func stepCandidate(r *raft, m pb.Message) error {
 			// pb.MsgPreVoteResp contains future term of pre-candidate
 			// m.Term > r.Term; reuse r.Term
 			r.becomeFollower(r.Term, None)
+			// Delay the next campaign if the node lost the vote. If a node lost
+			// the vote, it's highly likely it will also lose next campaign, so
+			// it makes more sense to prioritize campaigns by other nodes within
+			// the current term. Normally the randomized election timeout is in
+			// range [electiontimeout, 2*electiontimeout - 1], now it changes to
+			// [2*electiontimeout, 3*electiontimeout - 1]. Note all time parameters,
+			// including `randomizedElectionTimeout` will be automatically reset
+			// in next term.
+			if myVoteRespType == pb.MsgVoteResp {
+				r.randomizedElectionTimeout += r.electionTimeout
+			}
 		}
 	case pb.MsgTimeoutNow:
 		r.logger.Debugf("%x [term %d state %v] ignored MsgTimeoutNow from %x", r.id, r.Term, r.state, m.From)
