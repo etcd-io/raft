@@ -1,0 +1,175 @@
+# Tests that a node that is behind on the log will lose the vote.
+# It will still lose the vote when campaign again.
+
+log-level none
+----
+ok
+
+add-nodes 2 voters=(1,2) index=10 heartbeat-tick=1 election-tick=5
+----
+ok
+
+campaign 1
+----
+ok
+
+stabilize
+----
+ok
+
+log-level debug
+----
+ok
+
+raft-state
+----
+1: StateLeader (Voter) Term:1 Lead:1
+2: StateFollower (Voter) Term:1 Lead:1
+
+# Propose a command on 1
+propose 1 foo
+----
+ok
+
+# 2 is now behind on its log.
+raft-log 2
+----
+1/11 EntryNormal ""
+
+# Let 2 campaign. It should fail, because it's behind on its log.
+campaign 2
+----
+INFO 2 is starting a new election at term 1
+INFO 2 became candidate at term 2
+INFO 2 [logterm: 1, index: 11] sent MsgVote request to 1 at term 2
+
+process-ready 2
+----
+Ready MustSync=true:
+Lead:0 State:StateCandidate
+HardState Term:2 Vote:2 Commit:11
+Messages:
+2->1 MsgVote Term:2 Log:1/11
+INFO 2 received MsgVoteResp from 2 at term 2
+INFO 2 has received 1 MsgVoteResp votes and 0 vote rejections
+
+deliver-msgs 1
+----
+2->1 MsgVote Term:2 Log:1/11
+INFO 1 [term: 1] received a MsgVote message with higher term from 2 [term: 2]
+INFO 1 became follower at term 2
+INFO 1 [logterm: 1, index: 12, vote: 0] rejected MsgVote from 2 [logterm: 1, index: 11] at term 2
+
+stabilize
+----
+> 1 handling Ready
+  Ready MustSync=true:
+  Lead:0 State:StateFollower
+  HardState Term:2 Commit:11
+  Entries:
+  1/12 EntryNormal "foo"
+  Messages:
+  1->2 MsgApp Term:1 Log:1/11 Commit:11 Entries:[1/12 EntryNormal "foo"]
+  1->2 MsgVoteResp Term:2 Log:0/0 Rejected (Hint: 0)
+  INFO 1 [term: 2] ignored a MsgAppResp message with lower term from 1 [term: 1]
+> 2 receiving messages
+  1->2 MsgApp Term:1 Log:1/11 Commit:11 Entries:[1/12 EntryNormal "foo"]
+  INFO 2 [term: 2] ignored a MsgApp message with lower term from 1 [term: 1]
+  1->2 MsgVoteResp Term:2 Log:0/0 Rejected (Hint: 0)
+  INFO 2 received MsgVoteResp rejection from 1 at term 2
+  INFO 2 has received 1 MsgVoteResp votes and 1 vote rejections
+  INFO 2 became follower at term 2
+> 2 handling Ready
+  Ready MustSync=false:
+  Lead:0 State:StateFollower
+
+raft-state
+----
+1: StateFollower (Voter) Term:2 Lead:0
+2: StateFollower (Voter) Term:2 Lead:0
+
+raft-log 1
+----
+1/11 EntryNormal ""
+1/12 EntryNormal "foo"
+
+raft-log 2
+----
+1/11 EntryNormal ""
+
+# tick both nodes 9 times, it will trigger both to campaign, but
+# we will let node 2 try first. It will lose the vote due to log
+# being lag behind.
+tick 2 9
+----
+INFO 2 is starting a new election at term 2
+INFO 2 became candidate at term 3
+INFO 2 [logterm: 1, index: 11] sent MsgVote request to 1 at term 3
+
+tick 1 9
+----
+INFO 1 is starting a new election at term 2
+INFO 1 became candidate at term 3
+INFO 1 [logterm: 1, index: 12] sent MsgVote request to 2 at term 3
+
+# let node 2 try first
+process-ready 2
+----
+Ready MustSync=true:
+Lead:0 State:StateCandidate
+HardState Term:3 Vote:2 Commit:11
+Messages:
+2->1 MsgVote Term:3 Log:1/11
+INFO 2 received MsgVoteResp from 2 at term 3
+INFO 2 has received 1 MsgVoteResp votes and 0 vote rejections
+
+deliver-msgs 1
+----
+2->1 MsgVote Term:3 Log:1/11
+INFO 1 [logterm: 1, index: 12, vote: 1] rejected MsgVote from 2 [logterm: 1, index: 11] at term 3
+
+stabilize
+----
+> 1 handling Ready
+  Ready MustSync=true:
+  Lead:0 State:StateCandidate
+  HardState Term:3 Vote:1 Commit:11
+  Messages:
+  1->2 MsgVote Term:3 Log:1/12
+  1->2 MsgVoteResp Term:3 Log:0/0 Rejected (Hint: 0)
+  INFO 1 received MsgVoteResp from 1 at term 3
+  INFO 1 has received 1 MsgVoteResp votes and 0 vote rejections
+> 2 receiving messages
+  1->2 MsgVote Term:3 Log:1/12
+  INFO 2 [logterm: 1, index: 11, vote: 2] rejected MsgVote from 1 [logterm: 1, index: 12] at term 3
+  1->2 MsgVoteResp Term:3 Log:0/0 Rejected (Hint: 0)
+  INFO 2 received MsgVoteResp rejection from 1 at term 3
+  INFO 2 has received 1 MsgVoteResp votes and 1 vote rejections
+  INFO 2 became follower at term 3
+> 2 handling Ready
+  Ready MustSync=false:
+  Lead:0 State:StateFollower
+  Messages:
+  2->1 MsgVoteResp Term:3 Log:0/0 Rejected (Hint: 0)
+> 1 receiving messages
+  2->1 MsgVoteResp Term:3 Log:0/0 Rejected (Hint: 0)
+  INFO 1 received MsgVoteResp rejection from 2 at term 3
+  INFO 1 has received 1 MsgVoteResp votes and 1 vote rejections
+  INFO 1 became follower at term 3
+> 1 handling Ready
+  Ready MustSync=false:
+  Lead:0 State:StateFollower
+
+raft-state
+----
+1: StateFollower (Voter) Term:3 Lead:0
+2: StateFollower (Voter) Term:3 Lead:0
+
+raft-log 1
+----
+1/11 EntryNormal ""
+1/12 EntryNormal "foo"
+
+raft-log 2
+----
+1/11 EntryNormal ""
