@@ -128,21 +128,21 @@ func TestProgressResumeByHeartbeatResp(t *testing.T) {
 	r.becomeCandidate()
 	r.becomeLeader()
 
-	r.trk.Progress[2].MsgAppFlowPaused = true
+	r.trk.Progress[2].PauseMsgAppProbes(true)
 
 	r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgBeat})
-	if !r.trk.Progress[2].MsgAppFlowPaused {
-		t.Errorf("paused = %v, want true", r.trk.Progress[2].MsgAppFlowPaused)
+	if !r.trk.Progress[2].MsgAppProbesPaused {
+		t.Errorf("paused = %v, want true", r.trk.Progress[2].MsgAppProbesPaused)
 	}
 
 	r.trk.Progress[2].BecomeReplicate()
-	if r.trk.Progress[2].MsgAppFlowPaused {
-		t.Errorf("paused = %v, want false", r.trk.Progress[2].MsgAppFlowPaused)
+	if r.trk.Progress[2].MsgAppProbesPaused {
+		t.Errorf("paused = %v, want false", r.trk.Progress[2].MsgAppProbesPaused)
 	}
-	r.trk.Progress[2].MsgAppFlowPaused = true
+	r.trk.Progress[2].PauseMsgAppProbes(true)
 	r.Step(pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeatResp})
-	if r.trk.Progress[2].MsgAppFlowPaused {
-		t.Errorf("paused = %v, want false", r.trk.Progress[2].MsgAppFlowPaused)
+	if !r.trk.Progress[2].MsgAppProbesPaused {
+		t.Errorf("paused = %v, want true", r.trk.Progress[2].MsgAppProbesPaused)
 	}
 }
 
@@ -2764,7 +2764,8 @@ func TestSendAppendForProgressProbe(t *testing.T) {
 	r.becomeCandidate()
 	r.becomeLeader()
 	r.readMessages()
-	r.trk.Progress[2].BecomeProbe()
+	pr2 := r.trk.Progress[2]
+	pr2.BecomeProbe()
 
 	// each round is a heartbeat
 	for i := 0; i < 3; i++ {
@@ -2773,7 +2774,7 @@ func TestSendAppendForProgressProbe(t *testing.T) {
 			// loop. After that, the follower is paused until a heartbeat response is
 			// received.
 			mustAppendEntry(r, pb.Entry{Data: []byte("somedata")})
-			r.sendAppend(2)
+			r.maybeSendAppend(2, pr2)
 			msg := r.readMessages()
 			if len(msg) != 1 {
 				t.Errorf("len(msg) = %d, want %d", len(msg), 1)
@@ -2783,12 +2784,12 @@ func TestSendAppendForProgressProbe(t *testing.T) {
 			}
 		}
 
-		if !r.trk.Progress[2].MsgAppFlowPaused {
-			t.Errorf("paused = %v, want true", r.trk.Progress[2].MsgAppFlowPaused)
+		if !r.trk.Progress[2].MsgAppProbesPaused {
+			t.Errorf("paused = %v, want true", r.trk.Progress[2].MsgAppProbesPaused)
 		}
 		for j := 0; j < 10; j++ {
 			mustAppendEntry(r, pb.Entry{Data: []byte("somedata")})
-			r.sendAppend(2)
+			r.maybeSendAppend(2, pr2)
 			if l := len(r.readMessages()); l != 0 {
 				t.Errorf("len(msg) = %d, want %d", l, 0)
 			}
@@ -2798,8 +2799,8 @@ func TestSendAppendForProgressProbe(t *testing.T) {
 		for j := 0; j < r.heartbeatTimeout; j++ {
 			r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgBeat})
 		}
-		if !r.trk.Progress[2].MsgAppFlowPaused {
-			t.Errorf("paused = %v, want true", r.trk.Progress[2].MsgAppFlowPaused)
+		if !r.trk.Progress[2].MsgAppProbesPaused {
+			t.Errorf("paused = %v, want true", r.trk.Progress[2].MsgAppProbesPaused)
 		}
 
 		// consume the heartbeat
@@ -2821,8 +2822,8 @@ func TestSendAppendForProgressProbe(t *testing.T) {
 	if msg[0].Index != 0 {
 		t.Errorf("index = %d, want %d", msg[0].Index, 0)
 	}
-	if !r.trk.Progress[2].MsgAppFlowPaused {
-		t.Errorf("paused = %v, want true", r.trk.Progress[2].MsgAppFlowPaused)
+	if !r.trk.Progress[2].MsgAppProbesPaused {
+		t.Errorf("paused = %v, want true", r.trk.Progress[2].MsgAppProbesPaused)
 	}
 }
 
@@ -2831,11 +2832,12 @@ func TestSendAppendForProgressReplicate(t *testing.T) {
 	r.becomeCandidate()
 	r.becomeLeader()
 	r.readMessages()
-	r.trk.Progress[2].BecomeReplicate()
+	pr2 := r.trk.Progress[2]
+	pr2.BecomeReplicate()
 
 	for i := 0; i < 10; i++ {
 		mustAppendEntry(r, pb.Entry{Data: []byte("somedata")})
-		r.sendAppend(2)
+		r.maybeSendAppend(2, pr2)
 		msgs := r.readMessages()
 		if len(msgs) != 1 {
 			t.Errorf("len(msg) = %d, want %d", len(msgs), 1)
@@ -2848,11 +2850,12 @@ func TestSendAppendForProgressSnapshot(t *testing.T) {
 	r.becomeCandidate()
 	r.becomeLeader()
 	r.readMessages()
-	r.trk.Progress[2].BecomeSnapshot(10)
+	pr2 := r.trk.Progress[2]
+	pr2.BecomeSnapshot(10)
 
 	for i := 0; i < 10; i++ {
 		mustAppendEntry(r, pb.Entry{Data: []byte("somedata")})
-		r.sendAppend(2)
+		r.maybeSendAppend(2, pr2)
 		msgs := r.readMessages()
 		if len(msgs) != 0 {
 			t.Errorf("len(msg) = %d, want %d", len(msgs), 0)
@@ -4671,16 +4674,17 @@ func TestLogReplicationWithReorderedMessage(t *testing.T) {
 	r1.becomeCandidate()
 	r1.becomeLeader()
 	r1.readMessages()
-	r1.trk.Progress[2].BecomeReplicate()
+	pr2 := r1.trk.Progress[2]
+	pr2.BecomeReplicate()
 
 	r2 := newTestRaft(2, 10, 1, newTestMemoryStorage(withPeers(1, 2)))
 
 	// r1 sends 2 MsgApp messages to r2.
 	mustAppendEntry(r1, pb.Entry{Data: []byte("somedata")})
-	r1.sendAppend(2)
+	r1.maybeSendAppend(2, pr2)
 	req1 := expectOneMessage(t, r1)
 	mustAppendEntry(r1, pb.Entry{Data: []byte("somedata")})
-	r1.sendAppend(2)
+	r1.maybeSendAppend(2, pr2)
 	req2 := expectOneMessage(t, r1)
 
 	// r2 receives the second MsgApp first due to reordering.

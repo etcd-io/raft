@@ -513,18 +513,6 @@ stabilize 1 2
   2->1 MsgAppResp Term:8 Log:0/21
 > 1 receiving messages
   2->1 MsgAppResp Term:8 Log:0/21
-> 1 handling Ready
-  Ready MustSync=false:
-  Messages:
-  1->2 MsgApp Term:8 Log:8/21 Commit:18
-> 2 receiving messages
-  1->2 MsgApp Term:8 Log:8/21 Commit:18
-> 2 handling Ready
-  Ready MustSync=false:
-  Messages:
-  2->1 MsgAppResp Term:8 Log:0/21
-> 1 receiving messages
-  2->1 MsgAppResp Term:8 Log:0/21
 
 stabilize 1 3
 ----
