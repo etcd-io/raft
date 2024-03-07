@@ -193,7 +193,7 @@ stabilize
   Entries:
   3/12 EntryNormal ""
   Messages:
-  1->2 MsgAppResp Term:3 Log:0/12
+  1->2 MsgAppResp Term:3 Log:0/12 Commit:11
 > 3 handling Ready
   Ready MustSync=true:
   Lead:2 State:StateFollower
@@ -201,10 +201,10 @@ stabilize
   Entries:
   3/12 EntryNormal ""
   Messages:
-  3->2 MsgAppResp Term:3 Log:0/12
+  3->2 MsgAppResp Term:3 Log:0/12 Commit:11
 > 2 receiving messages
-  1->2 MsgAppResp Term:3 Log:0/12
-  3->2 MsgAppResp Term:3 Log:0/12
+  1->2 MsgAppResp Term:3 Log:0/12 Commit:11
+  3->2 MsgAppResp Term:3 Log:0/12 Commit:11
 > 2 handling Ready
   Ready MustSync=false:
   HardState Term:3 Vote:2 Commit:12
@@ -223,14 +223,14 @@ stabilize
   CommittedEntries:
   3/12 EntryNormal ""
   Messages:
-  1->2 MsgAppResp Term:3 Log:0/12
+  1->2 MsgAppResp Term:3 Log:0/12 Commit:12
 > 3 handling Ready
   Ready MustSync=false:
   HardState Term:3 Commit:12
   CommittedEntries:
   3/12 EntryNormal ""
   Messages:
-  3->2 MsgAppResp Term:3 Log:0/12
+  3->2 MsgAppResp Term:3 Log:0/12 Commit:12
 > 2 receiving messages
-  1->2 MsgAppResp Term:3 Log:0/12
-  3->2 MsgAppResp Term:3 Log:0/12
+  1->2 MsgAppResp Term:3 Log:0/12 Commit:12
+  3->2 MsgAppResp Term:3 Log:0/12 Commit:12

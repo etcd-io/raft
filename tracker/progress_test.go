@@ -24,8 +24,9 @@ func TestProgressString(t *testing.T) {
 	ins := NewInflights(1, 0)
 	ins.Add(123, 1)
 	pr := &Progress{
-		Match:            1,
-		Next:             2,
+		Match:            2,
+		Commit:           1,
+		Next:             3,
 		State:            StateSnapshot,
 		PendingSnapshot:  123,
 		RecentActive:     false,
@@ -33,7 +34,7 @@ func TestProgressString(t *testing.T) {
 		IsLearner:        true,
 		Inflights:        ins,
 	}
-	const exp = `StateSnapshot match=1 next=2 learner paused pendingSnap=123 inactive inflight=1[full]`
+	const exp = `StateSnapshot match=2 commit=1 next=3 learner paused pendingSnap=123 inactive inflight=1[full]`
 	assert.Equal(t, exp, pr.String())
 }
 

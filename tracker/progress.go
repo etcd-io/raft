@@ -30,12 +30,30 @@ import (
 type Progress struct {
 	// Match is the index up to which the follower's log is known to match the
 	// leader's.
+	//
+	// Match does not regress.
 	Match uint64
 	// Next is the log index of the next entry to send to this follower. All
 	// entries with indices in (Match, Next) interval are already in flight.
 	//
 	// Invariant: 0 <= Match < Next.
+	// NB: it follows that Next >= 1.
+	//
+	// In StateSnapshot, Next == PendingSnapshot + 1.
 	Next uint64
+
+	// Commit is the known commit index of the follower's log.
+	//
+	// Invariant: Commit <= Match.
+	// Invariant: Commit <= leader's commit index.
+	// Commit does not regress.
+	Commit uint64
+	// sentCommit is the highest commit index in flight to the follower.
+	//
+	// Invariant: sentCommit >= Commit.
+	//
+	// In StateSnapshot, sentCommit == PendingSnapshot == Next-1.
+	sentCommit uint64
 
 	// State defines how the leader should interact with the follower.
 	//
@@ -128,6 +146,7 @@ func (pr *Progress) BecomeProbe() {
 		pr.ResetState(StateProbe)
 		pr.Next = pr.Match + 1
 	}
+	pr.sentCommit = min(pr.sentCommit, pr.Next-1)
 }
 
 // BecomeReplicate transitions into StateReplicate, resetting Next to Match+1.
@@ -141,14 +160,16 @@ func (pr *Progress) BecomeReplicate() {
 func (pr *Progress) BecomeSnapshot(snapshoti uint64) {
 	pr.ResetState(StateSnapshot)
 	pr.PendingSnapshot = snapshoti
+	pr.Next = snapshoti + 1
+	pr.sentCommit = snapshoti
 }
 
-// UpdateOnEntriesSend updates the progress on the given number of consecutive
-// entries being sent in a MsgApp, with the given total bytes size, appended at
-// log indices >= pr.Next.
+// SentEntries updates the progress on the given number of consecutive entries
+// being sent in a MsgApp, with the given total bytes size, appended at log
+// indices >= pr.Next.
 //
 // Must be used with StateProbe or StateReplicate.
-func (pr *Progress) UpdateOnEntriesSend(entries int, bytes uint64) {
+func (pr *Progress) SentEntries(entries int, bytes uint64) {
 	switch pr.State {
 	case StateReplicate:
 		if entries > 0 {
@@ -168,6 +189,26 @@ func (pr *Progress) UpdateOnEntriesSend(entries int, bytes uint64) {
 	default:
 		panic(fmt.Sprintf("sending append in unhandled state %s", pr.State))
 	}
+}
+
+// CanBumpCommit returns true if sending the given commit index can potentially
+// advance the follower's commit index.
+func (pr *Progress) CanBumpCommit(index uint64) bool {
+	// Sending the given commit index may bump the follower's commit index up to
+	// Next-1 in normal operation, or higher in some rare cases. Allow sending a
+	// commit index eagerly only if we haven't already sent one that bumps the
+	// follower's commit all the way to Next-1.
+	return index > pr.sentCommit && pr.sentCommit < pr.Next-1
+}
+
+// SentCommit updates the sentCommit.
+func (pr *Progress) SentCommit(commit uint64) {
+	pr.sentCommit = commit
+}
+
+// UpdateCommit moves the known commit index for this follower forward.
+func (pr *Progress) UpdateCommit(index uint64) {
+	pr.Commit = max(pr.Commit, min(index, pr.Match))
 }
 
 // MaybeUpdate is called when an MsgAppResp arrives from the follower, with the
@@ -205,6 +246,8 @@ func (pr *Progress) MaybeDecrTo(rejected, matchHint uint64) bool {
 		//
 		// TODO(tbg): why not use matchHint if it's larger?
 		pr.Next = pr.Match + 1
+		// Regress the sentCommit since it unlikely has been applied.
+		pr.sentCommit = min(pr.sentCommit, pr.Next-1)
 		return true
 	}
 
@@ -216,6 +259,8 @@ func (pr *Progress) MaybeDecrTo(rejected, matchHint uint64) bool {
 	}
 
 	pr.Next = max(min(rejected, matchHint+1), pr.Match+1)
+	// Regress the sentCommit since it unlikely has been applied.
+	pr.sentCommit = min(pr.sentCommit, pr.Next-1)
 	pr.MsgAppFlowPaused = false
 	return true
 }
@@ -241,7 +286,7 @@ func (pr *Progress) IsPaused() bool {
 
 func (pr *Progress) String() string {
 	var buf strings.Builder
-	fmt.Fprintf(&buf, "%s match=%d next=%d", pr.State, pr.Match, pr.Next)
+	fmt.Fprintf(&buf, "%s match=%d commit=%d next=%d", pr.State, pr.Match, pr.Commit, pr.Next)
 	if pr.IsLearner {
 		fmt.Fprint(&buf, " learner")
 	}

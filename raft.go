@@ -599,6 +599,10 @@ func (r *raft) sendAppend(to uint64) {
 // argument controls whether messages with no entries will be sent
 // ("empty" messages are useful to convey updated Commit indexes, but
 // are undesirable when we're sending multiple messages in a batch).
+//
+// TODO(pav-kv): make invocation of maybeSendAppend stateless. The Progress
+// struct contains all the state necessary for deciding whether to send a
+// message.
 func (r *raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 	pr := r.trk.Progress[to]
 	if pr.IsPaused() {
@@ -640,7 +644,8 @@ func (r *raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 		Entries: ents,
 		Commit:  r.raftLog.committed,
 	})
-	pr.UpdateOnEntriesSend(len(ents), uint64(payloadsSize(ents)))
+	pr.SentEntries(len(ents), uint64(payloadsSize(ents)))
+	pr.SentCommit(r.raftLog.committed)
 	return true
 }
 
@@ -675,21 +680,21 @@ func (r *raft) maybeSendSnapshot(to uint64, pr *tracker.Progress) bool {
 
 // sendHeartbeat sends a heartbeat RPC to the given peer.
 func (r *raft) sendHeartbeat(to uint64, ctx []byte) {
+	pr := r.trk.Progress[to]
 	// Attach the commit as min(to.matched, r.committed).
 	// When the leader sends out heartbeat message,
 	// the receiver(follower) might not be matched with the leader
 	// or it might not have all the committed entries.
 	// The leader MUST NOT forward the follower's commit to
 	// an unmatched index.
-	commit := min(r.trk.Progress[to].Match, r.raftLog.committed)
-	m := pb.Message{
+	commit := min(pr.Match, r.raftLog.committed)
+	r.send(pb.Message{
 		To:      to,
 		Type:    pb.MsgHeartbeat,
 		Commit:  commit,
 		Context: ctx,
-	}
-
-	r.send(m)
+	})
+	pr.SentCommit(commit)
 }
 
 // bcastAppend sends RPC, with entries to all peers that are not up-to-date
@@ -822,7 +827,7 @@ func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 	//  if r.maybeCommit() {
 	//  	r.bcastAppend()
 	//  }
-	r.send(pb.Message{To: r.id, Type: pb.MsgAppResp, Index: li})
+	r.send(pb.Message{To: r.id, Type: pb.MsgAppResp, Index: li, Commit: r.raftLog.committed})
 	return true
 }
 
@@ -1480,7 +1485,6 @@ func stepLeader(r *raft, m pb.Message) error {
 				r.sendAppend(m.From)
 			}
 		} else {
-			oldPaused := pr.IsPaused()
 			// We want to update our tracking if the response updates our
 			// matched index or if the response can move a probing peer back
 			// into StateReplicate (see heartbeat_rep_recovers_from_probing.txt
@@ -1489,7 +1493,9 @@ func stepLeader(r *raft, m pb.Message) error {
 			// equals pr.Match we know we don't m.Index+1 in our log, so moving
 			// back to replicating state is not useful; besides pr.PendingSnapshot
 			// would prevent it.
-			if pr.MaybeUpdate(m.Index) || (pr.Match == m.Index && pr.State == tracker.StateProbe) {
+			updated := pr.MaybeUpdate(m.Index)
+			pr.UpdateCommit(m.Commit)
+			if updated || (pr.Match == m.Index && pr.State == tracker.StateProbe) {
 				switch {
 				case pr.State == tracker.StateProbe:
 					pr.BecomeReplicate()
@@ -1517,9 +1523,11 @@ func stepLeader(r *raft, m pb.Message) error {
 					// to respond to pending read index requests
 					releasePendingReadIndexMessages(r)
 					r.bcastAppend()
-				} else if oldPaused {
-					// If we were paused before, this node may be missing the
-					// latest commit index, so send it.
+				} else if r.id != m.From && pr.CanBumpCommit(r.raftLog.committed) {
+					// This node may be missing the latest commit index, so send it.
+					// NB: this is not strictly necessary because the periodic heartbeat
+					// messages deliver commit indices too. However, a message sent now
+					// may arrive earlier than the next heartbeat fires.
 					r.sendAppend(m.From)
 				}
 				// We've updated flow control information above, which may
@@ -1759,12 +1767,12 @@ func (r *raft) handleAppendEntries(m pb.Message) {
 	// message, and validate it before taking any action (e.g. bumping term).
 	a := logSliceFromMsgApp(&m)
 
-	if a.prev.index < r.raftLog.committed {
-		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: r.raftLog.committed})
+	if commit := r.raftLog.committed; a.prev.index < commit {
+		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: r.raftLog.committed, Commit: commit})
 		return
 	}
 	if mlastIndex, ok := r.raftLog.maybeAppend(a, m.Commit); ok {
-		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: mlastIndex})
+		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: mlastIndex, Commit: r.raftLog.committed})
 		return
 	}
 	r.logger.Debugf("%x [logterm: %d, index: %d] rejected MsgApp [logterm: %d, index: %d] from %x",

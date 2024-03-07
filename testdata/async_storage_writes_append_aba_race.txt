@@ -43,7 +43,7 @@ Messages:
 2->6 MsgApp Term:1 Log:1/11 Commit:11 Entries:[1/12 EntryNormal "init_prop"]
 2->7 MsgApp Term:1 Log:1/11 Commit:11 Entries:[1/12 EntryNormal "init_prop"]
 2->AppendThread MsgStorageAppend Term:0 Log:0/0 Entries:[1/12 EntryNormal "init_prop"] Responses:[
-  2->2 MsgAppResp Term:1 Log:0/12
+  2->2 MsgAppResp Term:1 Log:0/12 Commit:11
   AppendThread->2 MsgStorageAppendResp Term:1 Log:1/12
 ]
 
@@ -65,7 +65,7 @@ Entries:
 1/12 EntryNormal "init_prop"
 Messages:
 1->AppendThread MsgStorageAppend Term:0 Log:0/0 Entries:[1/12 EntryNormal "init_prop"] Responses:[
-  1->2 MsgAppResp Term:1 Log:0/12
+  1->2 MsgAppResp Term:1 Log:0/12 Commit:11
   AppendThread->1 MsgStorageAppendResp Term:1 Log:1/12
 ]
 
@@ -198,7 +198,7 @@ Messages:
 3->6 MsgApp Term:2 Log:1/11 Commit:11 Entries:[2/12 EntryNormal ""]
 3->7 MsgApp Term:2 Log:1/11 Commit:11 Entries:[2/12 EntryNormal ""]
 3->AppendThread MsgStorageAppend Term:0 Log:0/0 Entries:[2/12 EntryNormal ""] Responses:[
-  3->3 MsgAppResp Term:2 Log:0/12
+  3->3 MsgAppResp Term:2 Log:0/12 Commit:11
   AppendThread->3 MsgStorageAppendResp Term:2 Log:2/12
 ]
 
@@ -229,7 +229,7 @@ Entries:
 Messages:
 1->AppendThread MsgStorageAppend Term:2 Log:0/0 Commit:11 Entries:[2/12 EntryNormal ""] Responses:[
   1->3 MsgVoteResp Term:2 Log:0/0 Rejected (Hint: 0)
-  1->3 MsgAppResp Term:2 Log:0/12
+  1->3 MsgAppResp Term:2 Log:0/12 Commit:11
   AppendThread->1 MsgStorageAppendResp Term:2 Log:2/12
 ]
 
@@ -355,7 +355,7 @@ Messages:
 4->6 MsgApp Term:3 Log:1/11 Commit:11 Entries:[3/12 EntryNormal ""]
 4->7 MsgApp Term:3 Log:1/11 Commit:11 Entries:[3/12 EntryNormal ""]
 4->AppendThread MsgStorageAppend Term:0 Log:0/0 Entries:[3/12 EntryNormal ""] Responses:[
-  4->4 MsgAppResp Term:3 Log:0/12
+  4->4 MsgAppResp Term:3 Log:0/12 Commit:11
   AppendThread->4 MsgStorageAppendResp Term:3 Log:3/12
 ]
 
@@ -425,7 +425,7 @@ Entries:
 3/12 EntryNormal ""
 Messages:
 1->AppendThread MsgStorageAppend Term:0 Log:0/0 Entries:[3/12 EntryNormal ""] Responses:[
-  1->4 MsgAppResp Term:3 Log:0/12
+  1->4 MsgAppResp Term:3 Log:0/12 Commit:11
   AppendThread->1 MsgStorageAppendResp Term:3 Log:3/12
 ]
 
@@ -442,7 +442,7 @@ process-append-thread 1
 Processing:
 1->AppendThread MsgStorageAppend Term:0 Log:0/0 Entries:[1/12 EntryNormal "init_prop"]
 Responses:
-1->2 MsgAppResp Term:1 Log:0/12
+1->2 MsgAppResp Term:1 Log:0/12 Commit:11
 AppendThread->1 MsgStorageAppendResp Term:1 Log:1/12
 
 raft-log 1
@@ -469,7 +469,7 @@ Processing:
 1->AppendThread MsgStorageAppend Term:2 Log:0/0 Commit:11 Entries:[2/12 EntryNormal ""]
 Responses:
 1->3 MsgVoteResp Term:2 Log:0/0 Rejected (Hint: 0)
-1->3 MsgAppResp Term:2 Log:0/12
+1->3 MsgAppResp Term:2 Log:0/12 Commit:11
 AppendThread->1 MsgStorageAppendResp Term:2 Log:2/12
 
 raft-log 1
@@ -504,7 +504,7 @@ process-append-thread 1
 Processing:
 1->AppendThread MsgStorageAppend Term:0 Log:0/0 Entries:[3/12 EntryNormal ""]
 Responses:
-1->4 MsgAppResp Term:3 Log:0/12
+1->4 MsgAppResp Term:3 Log:0/12 Commit:11
 AppendThread->1 MsgStorageAppendResp Term:3 Log:3/12
 
 raft-log 1
