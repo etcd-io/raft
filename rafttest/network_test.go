@@ -52,11 +52,11 @@ func TestNetworkDrop(t *testing.T) {
 
 func TestNetworkDelay(t *testing.T) {
 	sent := 1000
-	delay := time.Millisecond
+	d := time.Millisecond
 	delayrate := 0.1
 	nt := newRaftNetwork(1, 2)
 
-	nt.delay(1, 2, delay, delayrate)
+	nt.delay(1, 2, delay{d, delayrate})
 	var total time.Duration
 	for i := 0; i < sent; i++ {
 		s := time.Now()
@@ -64,7 +64,7 @@ func TestNetworkDelay(t *testing.T) {
 		total += time.Since(s)
 	}
 
-	w := time.Duration(float64(sent)*delayrate/2) * delay
+	w := time.Duration(float64(sent)*delayrate/2) * d
 	// there is some overhead in the send call since it generates random numbers.
 	if total < w {
 		t.Errorf("total = %v, want > %v", total, w)
