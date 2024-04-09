@@ -18,16 +18,11 @@ import (
 	"math/bits"
 	"testing"
 	"unsafe"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestProtoMemorySizes(t *testing.T) {
-	assert := func(size, exp uintptr, name string) {
-		t.Helper()
-		if size != exp {
-			t.Errorf("expected size of %s proto to be %d bytes, found %d bytes", name, exp, size)
-		}
-	}
-
 	if64Bit := func(yes, no uintptr) uintptr {
 		if bits.UintSize == 64 {
 			return yes
@@ -36,29 +31,29 @@ func TestProtoMemorySizes(t *testing.T) {
 	}
 
 	var e Entry
-	assert(unsafe.Sizeof(e), if64Bit(48, 32), "Entry")
+	assert.Equal(t, if64Bit(48, 32), unsafe.Sizeof(e), "Entry size check")
 
 	var sm SnapshotMetadata
-	assert(unsafe.Sizeof(sm), if64Bit(120, 68), "SnapshotMetadata")
+	assert.Equal(t, if64Bit(120, 68), unsafe.Sizeof(sm), "SnapshotMetadata size check")
 
 	var s Snapshot
-	assert(unsafe.Sizeof(s), if64Bit(144, 80), "Snapshot")
+	assert.Equal(t, if64Bit(144, 80), unsafe.Sizeof(s), "Snapshot size check")
 
 	var m Message
-	assert(unsafe.Sizeof(m), if64Bit(160, 112), "Message")
+	assert.Equal(t, if64Bit(160, 112), unsafe.Sizeof(m), "Message size check")
 
 	var hs HardState
-	assert(unsafe.Sizeof(hs), 24, "HardState")
+	assert.Equal(t, uintptr(24), unsafe.Sizeof(hs), "HardState size check")
 
 	var cs ConfState
-	assert(unsafe.Sizeof(cs), if64Bit(104, 52), "ConfState")
+	assert.Equal(t, if64Bit(104, 52), unsafe.Sizeof(cs), "ConfState size check")
 
 	var cc ConfChange
-	assert(unsafe.Sizeof(cc), if64Bit(48, 32), "ConfChange")
+	assert.Equal(t, if64Bit(48, 32), unsafe.Sizeof(cc), "ConfChange size check")
 
 	var ccs ConfChangeSingle
-	assert(unsafe.Sizeof(ccs), if64Bit(16, 12), "ConfChangeSingle")
+	assert.Equal(t, if64Bit(16, 12), unsafe.Sizeof(ccs), "ConfChangeSingle size check")
 
 	var ccv2 ConfChangeV2
-	assert(unsafe.Sizeof(ccv2), if64Bit(56, 28), "ConfChangeV2")
+	assert.Equal(t, if64Bit(56, 28), unsafe.Sizeof(ccv2), "ConfChangeV2 size check")
 }
