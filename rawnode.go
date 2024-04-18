@@ -438,6 +438,8 @@ func (rn *RawNode) acceptReady(rd Ready) {
 		index := ents[len(ents)-1].Index
 		rn.raft.raftLog.acceptApplying(index, entsSize(ents), rn.applyUnstableEntries())
 	}
+
+	traceReady(rn.raft)
 }
 
 // applyUnstableEntries returns whether entries are allowed to be applied once

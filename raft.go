@@ -283,6 +283,9 @@ type Config struct {
 	// This behavior will become unconditional in the future. See:
 	// https://github.com/etcd-io/raft/issues/83
 	StepDownOnRemoval bool
+
+	// raft state tracer
+	TraceLogger TraceLogger
 }
 
 func (c *Config) validate() error {
@@ -427,6 +430,8 @@ type raft struct {
 	// current term. Those will be handled as fast as first log is committed in
 	// current term.
 	pendingReadIndexMessages []pb.Message
+
+	traceLogger TraceLogger
 }
 
 func newRaft(c *Config) *raft {
@@ -456,7 +461,10 @@ func newRaft(c *Config) *raft {
 		disableProposalForwarding:   c.DisableProposalForwarding,
 		disableConfChangeValidation: c.DisableConfChangeValidation,
 		stepDownOnRemoval:           c.StepDownOnRemoval,
+		traceLogger:                 c.TraceLogger,
 	}
+
+	traceInitState(r)
 
 	lastID := r.raftLog.lastEntryID()
 	cfg, trk, err := confchange.Restore(confchange.Changer{
@@ -580,11 +588,13 @@ func (r *raft) send(m pb.Message) {
 		// we err on the side of safety and omit a `&& !m.Reject` condition
 		// above.
 		r.msgsAfterAppend = append(r.msgsAfterAppend, m)
+		traceSendMessage(r, &m)
 	} else {
 		if m.To == r.id {
 			r.logger.Panicf("message should not be self-addressed when sending %s", m.Type)
 		}
 		r.msgs = append(r.msgs, m)
+		traceSendMessage(r, &m)
 	}
 }
 
@@ -766,6 +776,8 @@ func (r *raft) appliedSnap(snap *pb.Snapshot) {
 // index changed (in which case the caller should call r.bcastAppend). This can
 // only be called in StateLeader.
 func (r *raft) maybeCommit() bool {
+	defer traceCommit(r)
+
 	return r.raftLog.maybeCommit(entryID{term: r.Term, index: r.trk.Committed()})
 }
 
@@ -815,6 +827,9 @@ func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 		// Drop the proposal.
 		return false
 	}
+
+	traceReplicate(r, es...)
+
 	// use latest "last" index after truncate/append
 	li = r.raftLog.append(es...)
 	// The leader needs to self-ack the entries just appended once they have
@@ -880,6 +895,8 @@ func (r *raft) becomeFollower(term uint64, lead uint64) {
 	r.lead = lead
 	r.state = StateFollower
 	r.logger.Infof("%x became follower at term %d", r.id, r.Term)
+
+	traceBecomeFollower(r)
 }
 
 func (r *raft) becomeCandidate() {
@@ -893,6 +910,8 @@ func (r *raft) becomeCandidate() {
 	r.Vote = r.id
 	r.state = StateCandidate
 	r.logger.Infof("%x became candidate at term %d", r.id, r.Term)
+
+	traceBecomeCandidate(r)
 }
 
 func (r *raft) becomePreCandidate() {
@@ -938,6 +957,7 @@ func (r *raft) becomeLeader() {
 	// could be expensive.
 	r.pendingConfIndex = r.raftLog.lastIndex()
 
+	traceBecomeLeader(r)
 	emptyEnt := pb.Entry{Data: nil}
 	if !r.appendEntry(emptyEnt) {
 		// This won't happen because we just called reset() above.
@@ -1063,6 +1083,8 @@ func (r *raft) poll(id uint64, t pb.MessageType, v bool) (granted int, rejected 
 }
 
 func (r *raft) Step(m pb.Message) error {
+	traceReceiveMessage(r, &m)
+
 	// Handle the message term, which may result in our stepping down to a follower.
 	switch {
 	case m.Term == 0:
@@ -1311,6 +1333,7 @@ func stepLeader(r *raft, m pb.Message) error {
 					m.Entries[i] = pb.Entry{Type: pb.EntryNormal}
 				} else {
 					r.pendingConfIndex = r.raftLog.lastIndex() + uint64(i) + 1
+					traceChangeConfEvent(cc, r)
 				}
 			}
 		}
@@ -1950,6 +1973,8 @@ func (r *raft) applyConfChange(cc pb.ConfChangeV2) pb.ConfState {
 //
 // The inputs usually result from restoring a ConfState or applying a ConfChange.
 func (r *raft) switchToConfig(cfg tracker.Config, trk tracker.ProgressMap) pb.ConfState {
+	traceConfChangeEvent(cfg, r)
+
 	r.trk.Config = cfg
 	r.trk.Progress = trk
 
