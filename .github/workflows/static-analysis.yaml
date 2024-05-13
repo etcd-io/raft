@@ -11,7 +11,7 @@ jobs:
         with:
           go-version: ${{ steps.goversion.outputs.goversion }}
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v5
+        uses: golangci/golangci-lint-action@v6
         with:
           version: v1.55.2
       - name: protoc
