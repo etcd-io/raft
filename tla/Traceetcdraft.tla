@@ -45,7 +45,7 @@ OriginTraceLog ==
     SelectSeq(ndJsonDeserialize(JsonFile), LAMBDA l: "tag" \in DOMAIN l /\ l.tag = "trace")
 
 TraceLog ==
-    TLCEval(IF "MAX_TRACE" \in DOMAIN IOEnv THEN SubSeq(OriginTraceLog, 1, atoi(IOEnv.MAX_TRACE)) ELSE OriginTraceLog)
+    TLCEval(IF "MAX_TRACE" \in DOMAIN IOEnv THEN SubSeq(OriginTraceLog, 1, Min({Len(OriginTraceLog), atoi(IOEnv.MAX_TRACE)})) ELSE OriginTraceLog)
 
 TraceServer == TLCEval(FoldSeq(
     LAMBDA x, y: y \cup IF  /\ x.event.name = "ChangeConf" 
@@ -54,35 +54,27 @@ TraceServer == TLCEval(FoldSeq(
                             THEN {x.event.nid, x.event.prop.cc.changes[1].nid} 
                             ELSE {x.event.nid},
     {}, TraceLog))
-        
-BootstrapLogIndicesForServer(i) ==
-    LET 
-        FirstBootstrapLogIndex == SelectInSeq(TraceLog, LAMBDA x: x.event.nid = i /\ x.event.name \in {"InitState", "BecomeFollower", "ApplyConfChange"})
-        FirstNonBootstrapLogIndex == SelectInSeq(TraceLog, LAMBDA x: x.event.nid = i /\ x.event.name \notin {"InitState", "BecomeFollower", "ApplyConfChange"})
-        LastBootstrapLogIndexUpperBound == IF FirstNonBootstrapLogIndex = 0 THEN Len(TraceLog) ELSE FirstNonBootstrapLogIndex-1
-    IN 
-        { k \in FirstBootstrapLogIndex..LastBootstrapLogIndexUpperBound: TraceLog[k].event.nid = i }
-            
-BootstrapLogIndices == UNION { BootstrapLogIndicesForServer(i): i \in Server }
 
-LastBootstrapLog == [ i \in Server |-> TraceLog[Max(BootstrapLogIndicesForServer(i))] ]
-
-BootstrappedConfig(i) == 
-    IF LastBootstrapLog[i].event.name = "ApplyConfChange" THEN 
-        ToSet(LastBootstrapLog[i].event.prop.cc.newconf)
-    ELSE 
-        ToSet(LastBootstrapLog[i].event.conf[1])
-
-TraceInitServer == BootstrappedConfig(TraceLog[1].event.nid)
+BootstrapIndex == [ i \in Server |-> SelectInSeq(TraceLog, LAMBDA  x: x.event.nid = i /\ x.event.name = "Bootstrap") ]
+TraceInitServer == { i \in Server : BootstrapIndex[i] > 0 }
 ASSUME TraceInitServer \subseteq TraceServer   
+BootstrapEntries(i) == FoldSeq(
+    LAMBDA x, y: Append(y, [ term |-> 1, 
+                             type |-> "ConfigEntry", 
+                             value |-> [ newconf |-> ToSet(TraceLog[x].event.prop.cc.newconf), learners |-> {}] ]),
+    <<>>, 
+    SetToSortSeq({j \in DOMAIN TraceLog : /\ j < BootstrapIndex[i] 
+                                          /\ TraceLog[j].event.nid = i 
+                                          /\ TraceLog[j].event.name = "ApplyConfChange"}, <) ) 
 
-TraceInitServerVars == /\ currentTerm = [i \in Server |-> LastBootstrapLog[i].event.state.term]
-                       /\ state = [i \in Server |-> LastBootstrapLog[i].event.role]
-                       /\ votedFor = [i \in Server |-> LastBootstrapLog[i].event.state.vote]
-TraceInitLogVars    == /\ log          = [i \in Server |-> [j \in 1..LastBootstrapLog[i].event.log |-> [ term |-> 1, type |-> "ConfigEntry", value |-> [newconf |-> BootstrappedConfig(i), learners |-> {}]]]]
-                       /\ commitIndex  = [i \in Server |-> LastBootstrapLog[i].event.state.commit]
+TraceInitServerVars == /\ currentTerm = [i \in Server |-> IF i \in InitServer THEN 1 ELSE 0]
+                       /\ state = [i \in Server |-> Follower]
+                       /\ votedFor = [i \in Server |-> Nil]
+TraceInitLogVars    == /\ log          = [i \in Server |-> BootstrapEntries(i)]
+                       /\ commitIndex  = [i \in Server |-> Len(log[i])]
+                       /\ applied      = [i \in Server |-> 0]
 TraceInitConfigVars == 
-    /\ config = [i \in Server |-> [ jointConfig |-> <<BootstrappedConfig(i), {}>>, learners |-> {}] ]
+    /\ config = [i \in Server |-> [ jointConfig |-> <<{}, {}>>, learners |-> {}] ]
     /\ reconfigCount = 0 
                         
 
@@ -107,7 +99,6 @@ VARIABLE pl
 TraceInit ==
     /\ l = 1
     /\ pl = 0
-    /\ logline = TraceLog[l]
     /\ Init
 
 StepToNextTrace == 
@@ -385,13 +376,19 @@ StepDownToFollowerIfLogged(i) ==
 
 \* skip unused logs
 SkipUnusedLogline ==
-    /\ \/ /\ LoglineIsEvent("SendAppendEntriesResponse")
-          /\ logline.event.msg.from # logline.event.msg.to
-       \/ /\ LoglineIsEvent("SendRequestVoteResponse")
-          /\ logline.event.msg.from # logline.event.msg.to
-       \/ LoglineIsBecomeFollowerInUpdateTermOrReturnToFollower
-       \/ LoglineIsEvent("ReduceNextIndex") \* shall not be necessary when this is removed from raft
-    /\ UNCHANGED <<vars>>
+    \/ /\ LoglineIsEvent("InitState")
+       /\ \/ logline.event.state.term = 0
+          \/ l < BootstrapIndex[logline.event.nid] 
+    \/ LoglineIsEvent("Bootstrap")
+    \/ /\ LoglineIsEvent("BecomeFollower")
+       /\ \/ logline.event.state.term = 0
+          \/ l < BootstrapIndex[logline.event.nid]
+    \/ /\ LoglineIsEvent("SendAppendEntriesResponse")
+       /\ logline.event.msg.from # logline.event.msg.to
+    \/ /\ LoglineIsEvent("SendRequestVoteResponse")
+       /\ logline.event.msg.from # logline.event.msg.to
+    \/ LoglineIsBecomeFollowerInUpdateTermOrReturnToFollower
+    \/ LoglineIsEvent("ReduceNextIndex") \* shall not be necessary when this is removed from raft
 
 TraceNextNonReceiveActions ==
     /\ \/ /\ LoglineIsEvents({"SendRequestVoteRequest", "SendRequestVoteResponse"}) 
@@ -426,7 +423,6 @@ TraceNextNonReceiveActions ==
           /\ \E i \in Server: RestartIfLogged(i)
        \/ /\ LoglineIsEvent("BecomeFollower")
           /\ \E i \in Server: StepDownToFollowerIfLogged(i)
-       \/ SkipUnusedLogline
     /\ StepToNextTrace
     
 TraceNextReceiveActions ==
@@ -436,11 +432,11 @@ TraceNextReceiveActions ==
         /\ StepToNextTraceIfMessageIsProcessed(m)
 
 TraceNext ==
-    \/ /\ l \in BootstrapLogIndices
-       /\ UNCHANGED <<vars>>
+    \/ /\ SkipUnusedLogline
        /\ StepToNextTrace
-    \/ /\ l \notin BootstrapLogIndices
-       /\ \/ TraceNextNonReceiveActions
+       /\ UNCHANGED <<vars>>
+    \/ /\ ~SkipUnusedLogline
+       /\ \/ TraceNextNonReceiveActions 
           \/ TraceNextReceiveActions
     
 TraceSpec ==

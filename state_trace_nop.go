@@ -29,6 +29,8 @@ type TracingEvent struct{}
 
 func traceInitState(*raft) {}
 
+func traceBootstrap(*raft) {}
+
 func traceReady(*raft) {}
 
 func traceCommit(*raft) {}
