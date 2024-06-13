@@ -103,7 +103,11 @@ VARIABLE
 VARIABLE 
     \* @type: Int -> Int;
     commitIndex
-logVars == <<log, commitIndex>>
+\* The index of the latest applied entry. For now we only applied records for
+\* configuration changes.
+VARIABLE  
+    applied
+logVars == <<log, commitIndex, applied>>
 
 \* The following variables are used only on candidates:
 \* The set of servers from which the candidate has received a RequestVote
@@ -232,7 +236,8 @@ PersistState(i) ==
         votedFor |-> votedFor[i],
         log |-> Len(log[i]),
         commitIndex |-> commitIndex[i],
-        config |-> config[i]
+        config |-> config[i],
+        applied |-> applied[i]
     ]]
 
 ----
@@ -248,6 +253,7 @@ InitLeaderVars == /\ matchIndex = [i \in Server |-> [j \in Server |-> 0]]
                   /\ pendingConfChangeIndex = [i \in Server |-> 0]
 InitLogVars == /\ log          = [i \in Server |-> <<>>]
                /\ commitIndex  = [i \in Server |-> 0]
+               /\ applied     = [i \in Server |-> 0]
 InitConfigVars == /\ config = [i \in Server |-> [ jointConfig |-> <<InitServer, {}>>, learners |-> {}]]
                   /\ reconfigCount = 0 
 InitDurableState == 
@@ -255,6 +261,7 @@ InitDurableState ==
         currentTerm |-> currentTerm[i],
         votedFor |-> votedFor[i],
         log |-> Len(log[i]),
+        applied |-> 0,
         commitIndex |-> commitIndex[i],
         config |-> config[i]
     ]]
@@ -282,6 +289,7 @@ Restart(i) ==
     /\ pendingMessages' = ClearPendingMessages(i)
     /\ currentTerm' = [currentTerm EXCEPT ![i] = durableState[i].currentTerm]
     /\ commitIndex' = [commitIndex EXCEPT ![i] = durableState[i].commitIndex]
+    /\ applied' = [applied EXCEPT ![i] = durableState[i].applied]
     /\ votedFor' = [votedFor EXCEPT ![i] = durableState[i].votedFor]
     /\ log' = [log EXCEPT ![i] = SubSeq(@, 1, durableState[i].log)]
     /\ config' = [config EXCEPT ![i] = durableState[i].config]
@@ -393,7 +401,7 @@ Replicate(i, v, t) ==
 \* @type: (Int, Int) => Bool;
 ClientRequest(i, v) ==
     /\ Replicate(i, [val |-> v], ValueEntry)
-    /\ UNCHANGED <<messageVars, serverVars, candidateVars, leaderVars, commitIndex, configVars, durableState>>
+    /\ UNCHANGED <<messageVars, serverVars, candidateVars, leaderVars, commitIndex, applied, configVars, durableState>>
 
 \* Leader i advances its commitIndex.
 \* This is done as a separate step from handling AppendEntries responses,
@@ -419,7 +427,7 @@ AdvanceCommitIndex(i) ==
                   commitIndex[i]
        IN
         /\ CommitTo(i, newCommitIndex)
-    /\ UNCHANGED <<messageVars, serverVars, candidateVars, leaderVars, log, configVars, durableState>>
+    /\ UNCHANGED <<messageVars, serverVars, candidateVars, leaderVars, log, applied, configVars, durableState>>
 
     
 \* Leader i adds a new server j or promote learner j
@@ -433,7 +441,7 @@ AddNewServer(i, j) ==
        ELSE 
             /\ Replicate(i, <<>>, ValueEntry)
             /\ UNCHANGED <<pendingConfChangeIndex>>
-    /\ UNCHANGED <<messageVars, serverVars, candidateVars, matchIndex, commitIndex, configVars, durableState>>
+    /\ UNCHANGED <<messageVars, serverVars, candidateVars, matchIndex, commitIndex, applied, configVars, durableState>>
 
 \* Leader i adds a leaner j to the cluster.
 AddLearner(i, j) ==
@@ -446,7 +454,7 @@ AddLearner(i, j) ==
        ELSE 
             /\ Replicate(i, <<>>, ValueEntry)
             /\ UNCHANGED <<pendingConfChangeIndex>>
-    /\ UNCHANGED <<messageVars, serverVars, candidateVars, matchIndex, commitIndex, configVars, durableState>>
+    /\ UNCHANGED <<messageVars, serverVars, candidateVars, matchIndex, commitIndex, applied, configVars, durableState>>
 
 \* Leader i removes a server j (possibly itself) from the cluster.
 DeleteServer(i, j) ==
@@ -459,20 +467,21 @@ DeleteServer(i, j) ==
        ELSE 
             /\ Replicate(i, <<>>, ValueEntry)
             /\ UNCHANGED <<pendingConfChangeIndex>>
-    /\ UNCHANGED <<messageVars, serverVars, candidateVars, matchIndex, commitIndex, configVars, durableState>>
+    /\ UNCHANGED <<messageVars, serverVars, candidateVars, matchIndex, commitIndex, applied, configVars, durableState>>
 
 ApplySimpleConfChange(i) ==
     /\ ~IsJointConfig(i)
-    /\ LET k == SelectLastInSubSeq(log[i], 1, commitIndex[i], LAMBDA x: x.type = ConfigEntry)
+    /\ LET k == SelectInSubSeq(log[i], applied[i]+1, commitIndex[i], LAMBDA x: x.type = ConfigEntry)
        IN 
             /\ k > 0
             /\ k <= commitIndex[i]
             /\ config' = ApplyConfigUpdate(i, k)
+            /\ applied' = [applied EXCEPT ![i] = k]
             /\ IF state[i] = Leader /\ pendingConfChangeIndex[i] >= k THEN 
                 /\ reconfigCount' = reconfigCount + 1
                 /\ pendingConfChangeIndex' = [pendingConfChangeIndex EXCEPT ![i] = 0]
                ELSE UNCHANGED <<reconfigCount, pendingConfChangeIndex>>
-            /\ UNCHANGED <<messageVars, serverVars, candidateVars, matchIndex, logVars, durableState>>
+            /\ UNCHANGED <<messageVars, serverVars, candidateVars, matchIndex, log, commitIndex, durableState>>
     
 Ready(i) ==
     /\ PersistState(i)
@@ -488,7 +497,6 @@ BecomeFollowerOfTerm(i, t) ==
             UNCHANGED <<votedFor>>
 
 StepDownToFollower(i) ==
-    /\ state[i] \in {Leader, Candidate}
     /\ BecomeFollowerOfTerm(i, currentTerm[i])
     /\ UNCHANGED <<messageVars, candidateVars, leaderVars, logVars, configVars, durableState>>
 
@@ -581,7 +589,7 @@ AppendEntriesAlreadyDone(i, j, index, m) ==
                 msource         |-> i,
                 mdest           |-> j],
                 m)
-    /\ UNCHANGED <<serverVars, log, configVars, durableState>>
+    /\ UNCHANGED <<serverVars, log, applied, configVars, durableState>>
 
 \* @type: (Int, Int, AEREQT) => Bool;
 ConflictAppendEntriesRequest(i, index, m) ==
@@ -589,7 +597,7 @@ ConflictAppendEntriesRequest(i, index, m) ==
     /\ index > commitIndex[i]
     /\ ~HasNoConflict(i, index, m.mentries)
     /\ log' = [log EXCEPT ![i] = SubSeq(@, 1, Len(@) - 1)]
-    /\ UNCHANGED <<messageVars, serverVars, commitIndex, durableState>>
+    /\ UNCHANGED <<messageVars, serverVars, commitIndex, applied, durableState>>
 
 \* @type: (Int, AEREQT) => Bool;
 NoConflictAppendEntriesRequest(i, index, m) ==
@@ -597,7 +605,7 @@ NoConflictAppendEntriesRequest(i, index, m) ==
     /\ index > commitIndex[i]
     /\ HasNoConflict(i, index, m.mentries)
     /\ log' = [log EXCEPT ![i] = @ \o SubSeq(m.mentries, Len(@)-index+2, Len(m.mentries))]
-    /\ UNCHANGED <<messageVars, serverVars, commitIndex, durableState>>
+    /\ UNCHANGED <<messageVars, serverVars, commitIndex, applied, durableState>>
 
 \* @type: (Int, Int, Bool, AEREQT) => Bool;
 AcceptAppendEntriesRequest(i, j, logOk, m) ==
@@ -872,6 +880,11 @@ LeaderCompletenessInv ==
 CommittedIsDurableInv ==
     \A i \in Server :
         state[i] = Leader => commitIndex[i] <= durableState[i].log
+
+\* Applied entry must be committed
+AppliedIsCommittedInv ==
+    \A i \in Server :
+        applied[i] <= commitIndex[i]
 
 -----
 
