@@ -23,6 +23,10 @@ verify-mod-tidy:
 verify-genproto:
 	PASSES="genproto" ./scripts/test.sh
 
+.PHONY: trace-validation
+trace-validation:
+	PASSES="trace-validation" ./scripts/test.sh
+
 .PHONY: test
 test:
 	PASSES="unit" ./scripts/test.sh $(GO_TEST_FLAGS)

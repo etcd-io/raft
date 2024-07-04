@@ -76,5 +76,7 @@ func (rn *RawNode) Bootstrap(peers []Peer) error {
 	for _, peer := range peers {
 		rn.raft.applyConfChange(pb.ConfChange{NodeID: peer.ID, Type: pb.ConfChangeAddNode}.AsV2())
 	}
+
+	traceBootstrap(rn.raft)
 	return nil
 }

@@ -15,6 +15,7 @@
 package rafttest
 
 import (
+	"sort"
 	"testing"
 	"time"
 
@@ -28,21 +29,25 @@ func TestNetworkDrop(t *testing.T) {
 	sent := 1000
 	droprate := 0.1
 	nt := newRaftNetwork(1, 2)
+
 	nt.drop(1, 2, droprate)
-	for i := 0; i < sent; i++ {
-		nt.send(raftpb.Message{From: 1, To: 2})
-	}
+
+	go func() {
+		for i := 0; i < sent; i++ {
+			nt.send(raftpb.Message{From: 1, To: 2})
+		}
+
+		time.Sleep(time.Millisecond * 10)
+		nt.stop()
+	}()
 
 	c := nt.recvFrom(2)
 
 	received := 0
-	done := false
-	for !done {
-		select {
-		case <-c:
+	ok := true
+	for ok {
+		if _, ok = <-c; ok {
 			received++
-		default:
-			done = true
 		}
 	}
 
@@ -53,19 +58,70 @@ func TestNetworkDrop(t *testing.T) {
 
 func TestNetworkDelay(t *testing.T) {
 	sent := 1000
-	delay := time.Millisecond
+	d := time.Millisecond
 	delayrate := 0.1
 	nt := newRaftNetwork(1, 2)
 
-	nt.delay(1, 2, delay, delayrate)
-	var total time.Duration
-	for i := 0; i < sent; i++ {
-		s := time.Now()
-		nt.send(raftpb.Message{From: 1, To: 2})
-		total += time.Since(s)
+	nt.delay(1, 2, delay{d, delayrate, true})
+
+	go func() {
+		for i := 0; i < sent; i++ {
+			nt.send(raftpb.Message{From: 1, To: 2})
+		}
+
+		time.Sleep(time.Millisecond * 10)
+		nt.stop()
+	}()
+
+	c := nt.recvFrom(2)
+	s := time.Now()
+
+	ok := true
+	for ok {
+		_, ok = <-c
 	}
 
-	w := time.Duration(float64(sent)*delayrate/2) * delay
+	total := time.Since(s)
+
+	w := time.Duration(float64(sent)*delayrate/2) * d
 	// there is some overhead in the send call since it generates random numbers.
 	assert.GreaterOrEqual(t, total, w)
+}
+
+func TestMessageReordering(t *testing.T) {
+	n := 1000
+	d := time.Millisecond * 100
+	delayrate := 0.1
+	nt := newRaftNetwork(1, 2)
+
+	nt.delay(1, 2, delay{d, delayrate, false})
+
+	sent := []int{}
+	go func() {
+		for i := 0; i < n; i++ {
+			nt.send(raftpb.Message{From: 1, To: 2, Index: uint64(i)})
+			sent = append(sent, i)
+		}
+
+		// wait some time to send all messages.
+		// Ideally we only see at most d delay with some extra time on internal loop.
+		time.Sleep(d + time.Millisecond*10)
+		nt.stop()
+	}()
+
+	c := nt.recvFrom(2)
+
+	received := []int{}
+	ok := true
+	var m raftpb.Message
+	for ok {
+		if m, ok = <-c; ok {
+			received = append(received, int(m.Index))
+		}
+	}
+
+	assert.NotEqual(t, sent, received, "received messages shall be reordered")
+
+	sort.Ints(received)
+	assert.Equal(t, sent, received, "all messages shall be received")
 }

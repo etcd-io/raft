@@ -3,8 +3,8 @@
 WORKDIR="$(mktemp -d)"
 TOOLDIR="${WORKDIR}/tool"
 STATEDIR="${WORKDIR}/state"
-FAILFAST=false
 PARALLEL=$(nproc)
+SIMULATE=false
 
 function show_usage {
     echo "usage: validate-model.sh -s <spec> -c <config>">&2
@@ -22,16 +22,23 @@ function validate {
     local config=${2}
     local tooldir=${3}
     local statedir=${4}
+    local sim=${5:-false}
 
     set -o pipefail
-    java -XX:+UseParallelGC -cp ${tooldir}/tla2tools.jar:${tooldir}/CommunityModules-deps.jar tlc2.TLC -config "${config}" "${spec}" -lncheck final -metadir "${statedir}" -fpmem 0.9
+    if [ "$sim" ]; then
+        java -XX:+UseParallelGC -cp ${tooldir}/tla2tools.jar:${tooldir}/CommunityModules-deps.jar tlc2.TLC -config "${config}" "${spec}" -lncheck final -metadir "${statedir}" -fpmem 0.9
+    else
+        java -XX:+UseParallelGC -cp ${tooldir}/tla2tools.jar:${tooldir}/CommunityModules-deps.jar tlc2.TLC -config "${config}" "${spec}" -lncheck final -metadir "${statedir}" -fpmem 0.9 -simulate
+    fi
+    
 }
 
-while getopts :hs:c:p: flag
+while getopts :hms:c: flag
 do
     case "${flag}" in
         s) SPEC=${OPTARG};;
         c) CONFIG=${OPTARG};;
+        m) SIMULATE=true;;
         h|*) show_usage; exit 1;; 
     esac
 done
@@ -47,5 +54,5 @@ echo "config: ${CONFIG}"
 
 install_tlaplus
 
-validate $SPEC $CONFIG $TOOLDIR $STATEDIR
+validate $SPEC $CONFIG $TOOLDIR $STATEDIR $SIMULATE
 
