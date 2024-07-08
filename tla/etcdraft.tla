@@ -32,27 +32,19 @@ CONSTANT ValueEntry, ConfigEntry
 
 \* Server states.
 CONSTANTS 
-    \* @type: Str;
     Follower,
-    \* @type: Str;
     Candidate,
-    \* @type: Str;
     Leader
 
 \* A reserved value.
 CONSTANTS 
-    \* @type: Int;
     Nil
 
 \* Message types:
 CONSTANTS 
-    \* @type: Str;
     RequestVoteRequest,
-    \* @type: Str;
     RequestVoteResponse,
-    \* @type: Str;
     AppendEntriesRequest,
-    \* @type: Str;
     AppendEntriesResponse
 
 
@@ -62,14 +54,6 @@ CONSTANTS
 \* A bag of records representing requests and responses sent from one server
 \* to another. We differentiate between the message types to support Apalache.
 VARIABLE
-    \* @typeAlias: ENTRY = [term: Int, value: Int];
-    \* @typeAlias: LOGT = Seq(ENTRY);
-    \* @typeAlias: RVREQT = [mtype: Str, mterm: Int, mlastLogTerm: Int, mlastLogIndex: Int, msource: Int, mdest: Int];
-    \* @typeAlias: RVRESPT = [mtype: Str, mterm: Int, mvoteGranted: Bool, msource: Int, mdest: Int ];
-    \* @typeAlias: AEREQT = [mtype: Str, mterm: Int, mprevLogIndex: Int, mprevLogTerm: Int, mentries: LOGT, mcommitIndex: Int, msource: Int, mdest: Int ];
-    \* @typeAlias: AERESPT = [mtype: Str, mterm: Int, msuccess: Bool, mmatchIndex: Int, msource: Int, mdest: Int ];
-    \* @typeAlias: MSG = [ wrapped: Bool, mtype: Str, mterm: Int, msource: Int, mdest: Int, RVReq: RVREQT, RVResp: RVRESPT, AEReq: AEREQT, AEResp: AERESPT ];
-    \* @type: MSG -> Int;
     messages
 VARIABLE 
     pendingMessages
@@ -80,16 +64,13 @@ messageVars == <<messages, pendingMessages>>
 
 \* The server's term number.
 VARIABLE 
-    \* @type: Int -> Int;
     currentTerm
 \* The server's state (Follower, Candidate, or Leader).
 VARIABLE 
-    \* @type: Int -> Str;
     state
 \* The candidate the server voted for in its current term, or
 \* Nil if it hasn't voted for any.
 VARIABLE 
-    \* @type: Int -> Int;
     votedFor
 serverVars == <<currentTerm, state, votedFor>>
 
@@ -97,12 +78,11 @@ serverVars == <<currentTerm, state, votedFor>>
 \* log entry. Unfortunately, the Sequence module defines Head(s) as the entry
 \* with index 1, so be careful not to use that!
 VARIABLE 
-    \* @type: Int -> [ entries: LOGT, len: Int ];
     log
 \* The index of the latest entry in the log the state machine may apply.
 VARIABLE 
-    \* @type: Int -> Int;
     commitIndex
+\* The index of the latest entry in the log the state machine has applied.
 VARIABLE  
     applied
 logVars == <<log, commitIndex, applied>>
@@ -111,36 +91,37 @@ logVars == <<log, commitIndex, applied>>
 \* The set of servers from which the candidate has received a RequestVote
 \* response in its currentTerm.
 VARIABLE 
-    \* @type: Int -> Set(Int);
     votesResponded
 \* The set of servers from which the candidate has received a vote in its
 \* currentTerm.
 VARIABLE 
-    \* @type: Int -> Set(Int);
     votesGranted
-\* @type: Seq(Int -> Set(Int));
 candidateVars == <<votesResponded, votesGranted>>
 
 \* The following variables are used only on leaders:
 \* The latest entry that each follower has acknowledged is the same as the
 \* leader's. This is used to calculate commitIndex on the leader.
 VARIABLE 
-    \* @type: Int -> (Int -> Int);
     matchIndex
+\* The upper bound index of the latest appended configuration change entry that
+\* has not been applied to the leader. 0 means all configuration change entries
+\* have been applied in the leader.
 VARIABLE
     pendingConfChangeIndex
 leaderVars == <<matchIndex, pendingConfChangeIndex>>
 
-\* @type: Int -> [jointConfig: Seq(Set(int)), learners: Set(int)]
+\* Current configurations of each node.
 VARIABLE 
     config
+\* The upper bound index of the latest applied configuration change entry in each node.
 VARIABLE 
     appliedConfChange
-
 configVars == <<config, appliedConfChange>>
 
+\* States that are persisted in durable storage.
 VARIABLE 
     durableState
+\* The ready states to be processed in each node in ready phase.
 VARIABLE  
     ready
 readyVars == <<durableState, ready>>
@@ -160,72 +141,77 @@ vars == <<messageVars, serverVars, candidateVars, leaderVars, logVars, configVar
 Quorum(c) == {i \in SUBSET(c) : Cardinality(i) * 2 > Cardinality(c)}
 
 \* The term of the last entry in a log, or 0 if the log is empty.
-\* @type: LOGT => Int;
 LastTerm(xlog) == IF xlog = <<>> THEN 0 ELSE xlog[Len(xlog)].term
 
 \* Helper for Send and Reply. Given a message m and bag of messages, return a
 \* new bag of messages with one more m in it.
-\* @type: (MSG, MSG -> Int) => MSG -> Int;
 WithMessage(m, msgs) == msgs (+) SetToBag({m})
 
 \* Helper for Discard and Reply. Given a message m and bag of messages, return
 \* a new bag of messages with one less m in it.
-\* @type: (MSG, MSG -> Int) => MSG -> Int;
 WithoutMessage(m, msgs) == msgs (-) SetToBag({m})
 
 \* Add a message to the bag of pendingMessages.
 SendDirect(m) == 
     pendingMessages' = WithMessage(m, pendingMessages)
 
-\* All pending messages sent from node i
+\* All pending messages sent from node i.
 PendingMessages(i) ==
     [ m \in { mm \in DOMAIN pendingMessages : mm.msource = i } |-> pendingMessages[m] ]
 
-\* Remove all messages in pendingMessages that were sent from node i
+\* Remove all messages in pendingMessages that were sent from node i.
 ClearPendingMessages(i) ==
     pendingMessages (-) PendingMessages(i)
 
-\* Remove a message from the bag of messages. Used when a server is done
+\* Remove a message from the bag of messages. Used when a server is done.
 DiscardDirect(m) ==
     messages' = WithoutMessage(m, messages)
 
-\* Combination of Send and Discard
+\* Combination of Send and Discard.
 ReplyDirect(response, request) ==
     /\ pendingMessages' = WithMessage(response, pendingMessages)
     /\ messages' = WithoutMessage(request, messages)
 
-\* Default: change when needed
+\* Default: change when needed.
  Send(m) == SendDirect(m)
  Reply(response, request) == ReplyDirect(response, request) 
  Discard(m) == DiscardDirect(m)
      
 MaxOrZero(s) == IF s = {} THEN 0 ELSE Max(s)
 
+\* Get joint configuration of node i.
 GetJointConfig(i) == 
     config[i].jointConfig
 
+\* Get incoming configuration of node i.
 GetConfig(i) == 
     GetJointConfig(i)[1]
 
+\* Get outgoing configuration of node i.
 GetOutgoingConfig(i) ==
     GetJointConfig(i)[2]
 
+\* Check if current configuration of node i is a joint configuration (has outgoing configuration).
 IsJointConfig(i) ==
     /\ GetJointConfig(i)[2] # {}
 
+\* Get learners in current configuration of node i.
 GetLearners(i) ==
     config[i].learners
 
+\* Compute effective configuration change for configuraiton change entry in index k of log in node i.
 ConfFromLog(i, k) ==
     [jointConfig |-> << log[i][k].value.newconf, {} >>, learners |-> log[i][k].value.learners]
 
-\* Apply conf change log entry to configuration
+\* Apply conf change log entry to configuration.
 ApplyConfigUpdate(i, k) ==
     config' = [config EXCEPT ![i]= ConfFromLog(i, k)]
 
+\* Try to commit entries up to index c in log of node i.
 CommitTo(i, c) ==
     commitIndex' = [commitIndex EXCEPT ![i] = Max({@, c})]
 
+\* Set of all leaders at this moment.
 CurrentLeaders == {i \in Server : state[i] = Leader}
 
 ----
@@ -294,9 +280,14 @@ SpecActions == {
     "DeleteServer"
 }
 
+\* Default implementation of IsEnabled which controls if the action is enabled or not.
 IsEnabled(action, args) == action \in SpecActions
+\* Default implementation of PostAction which is called after the action.
 PostAction(action, args) == TRUE
 
+\* This is a wrapper of top level actions in the spec which allows injecting of custom
+\* IsEnabled to constrain the action and custom PostAction to process necessary operations
+\* after the action (validation for example).
 SpecAction(action, args, op(_)) == 
     /\ IsEnabled(action, args)
     /\ op(action)
@@ -304,7 +295,6 @@ SpecAction(action, args, op(_)) ==
 
 \* Server i restarts from stable storage.
 \* It loses everything but its currentTerm, commitIndex, votedFor, log, and config in durable state.
-\* @type: Int => Bool;
 Restart(i) == SpecAction("Restart", <<i>>, LAMBDA act:
     /\ state'          = [state EXCEPT ![i] = Follower]
     /\ votesResponded' = [votesResponded EXCEPT ![i] = {}]
@@ -324,7 +314,6 @@ Restart(i) == SpecAction("Restart", <<i>>, LAMBDA act:
 )
 
 \* Server i times out and starts a new election.
-\* @type: Int => Bool;
 Timeout(i) == SpecAction("Timeout", <<i>>, LAMBDA act:
     /\ ~InReadyPhase(i)
     /\ state[i] \in {Follower, Candidate}
@@ -338,7 +327,6 @@ Timeout(i) == SpecAction("Timeout", <<i>>, LAMBDA act:
 )
 
 \* Candidate i sends j a RequestVote request.
-\* @type: (Int, Int) => Bool;
 RequestVote(i, j) == SpecAction("RequestVote", <<i, j>>, LAMBDA act:
     /\ state[i] = Candidate
     /\ j \in ((GetConfig(i) \union GetLearners(i)) \ votesResponded[i])
@@ -359,7 +347,6 @@ RequestVote(i, j) == SpecAction("RequestVote", <<i, j>>, LAMBDA act:
 
 \* Leader i sends j an AppendEntries request containing entries in [b,e) range.
 \* N.B. range is right open
-\* @type: (Int, Int, <<Int, Int>>, Int) => Bool;
 AppendEntriesInRangeToPeer(subtype, i, j, range) ==
     /\ i /= j
     /\ range[1] <= range[2]
@@ -388,7 +375,7 @@ AppendEntriesInRangeToPeer(subtype, i, j, range) ==
                     mdest          |-> j])
           /\ UNCHANGED <<messages, serverVars, candidateVars, leaderVars, logVars, configVars, readyVars>> 
 
-\* etcd leader sends MsgAppResp to itself immediately after appending log entry 
+\* etcd leader sends MsgAppResp to itself immediately after appending log entry.
 AppendEntriesToSelf(i) == SpecAction("AppendEntriesToSelf", <<i>>, LAMBDA act:
     /\ state[i] = Leader
     /\ Send([mtype           |-> AppendEntriesResponse,
@@ -401,21 +388,23 @@ AppendEntriesToSelf(i) == SpecAction("AppendEntriesToSelf", <<i>>, LAMBDA act:
     /\ UNCHANGED <<messages, serverVars, candidateVars, leaderVars, logVars, configVars, readyVars>>
 )
 
+\* Leader i replicates its entries in range to peer j.
 AppendEntries(i, j, range) == SpecAction("AppendEntries", <<i, j, range>>, LAMBDA act:
     AppendEntriesInRangeToPeer("app", i, j, range)
 )
 
+\* Leader i sends heartbeat to peer j.
 Heartbeat(i, j) == SpecAction("Heartbeat", <<i, j>>, LAMBDA act:
-    \* heartbeat is equivalent to an append-entry request with 0 entry index 1
+    \* heartbeat is equivalent to an append-entry request with 0 entry index 1.
     AppendEntriesInRangeToPeer("heartbeat", i, j, <<1,1>>)
 )
 
+\* Leader i sends snapshot to peer j.
 SendSnapshot(i, j, index) == SpecAction("SendSnapshot", <<i, j, index>>, LAMBDA act:
     AppendEntriesInRangeToPeer("snapshot", i, j, <<1,index+1>>)
 )
  
 \* Candidate i transitions to leader.
-\* @type: Int => Bool;
 BecomeLeader(i) == SpecAction("BecomeLeader", <<i>>, LAMBDA act:
     /\ ~InReadyPhase(i)
     /\ state[i] = Candidate
@@ -425,7 +414,8 @@ BecomeLeader(i) == SpecAction("BecomeLeader", <<i>>, LAMBDA act:
                          [j \in Server |-> IF j = i THEN Len(log[i]) ELSE 0]]
     /\ UNCHANGED <<messageVars, currentTerm, votedFor, pendingConfChangeIndex, candidateVars, logVars, configVars, readyVars>>
 )
-    
+
+\* Leader i appends one entry of type t and value v to its log.
 Replicate(i, v, t) == 
     /\ t \in {ValueEntry, ConfigEntry}
     /\ state[i] = Leader
@@ -436,7 +426,6 @@ Replicate(i, v, t) ==
        IN  /\ log' = [log EXCEPT ![i] = newLog]
 
 \* Leader i receives a client request to add v to the log.
-\* @type: (Int, Int) => Bool;
 ClientRequest(i, v) == SpecAction("ClientRequest", <<i, v>>, LAMBDA act:
     /\ Replicate(i, [val |-> v], ValueEntry)
     /\ UNCHANGED <<messageVars, serverVars, candidateVars, leaderVars, commitIndex, applied, configVars, readyVars>>
@@ -446,7 +435,6 @@ ClientRequest(i, v) == SpecAction("ClientRequest", <<i, v>>, LAMBDA act:
 \* This is done as a separate step from handling AppendEntries responses,
 \* in part to minimize atomic regions, and in part so that leaders of
 \* single-server clusters are able to mark entries committed.
-\* @type: Int => Bool;
 AdvanceCommitIndex(i) == SpecAction("AdvanceCommitIndex", <<i>>, LAMBDA act:
     /\ state[i] = Leader
     /\ LET \* The set of servers that agree up through index.
@@ -469,7 +457,7 @@ AdvanceCommitIndex(i) == SpecAction("AdvanceCommitIndex", <<i>>, LAMBDA act:
     /\ UNCHANGED <<messageVars, serverVars, candidateVars, leaderVars, log, applied, configVars, readyVars>>
 )
     
-\* Leader i adds a new server j or promote learner j
+\* Leader i adds a new server j or promote learner j.
 AddNewServer(i, j) == SpecAction("AddNewServer", <<i, j>>, LAMBDA act:
     /\ state[i] = Leader
     /\ j \notin GetConfig(i)
@@ -511,6 +499,7 @@ DeleteServer(i, j) == SpecAction("DeleteServer", <<i, j>>, LAMBDA act:
     /\ UNCHANGED <<messageVars, serverVars, candidateVars, matchIndex, commitIndex, applied, configVars, readyVars>>
 )
 
+\* Get current ready data in node i.
 ReadyData(i) ==
     [
         msgs        |-> PendingMessages(i),
@@ -522,6 +511,7 @@ ReadyData(i) ==
         config      |-> config[i]
     ]
 
+\* Node i enters ready phase.
 Ready(i) == SpecAction("Ready", <<i>>, LAMBDA act:
     /\ ~InReadyPhase(i)
     /\ ready' = [ready EXCEPT ![i] = ReadyData(i)]
@@ -529,6 +519,7 @@ Ready(i) == SpecAction("Ready", <<i>>, LAMBDA act:
     /\ UNCHANGED <<messages, serverVars, candidateVars, leaderVars, logVars, configVars, durableState>>
 )
 
+\* Get states to be persisted from ready data.
 DurableStateFromReady(rd) ==
     [
         currentTerm |-> rd.currentTerm,
@@ -538,6 +529,8 @@ DurableStateFromReady(rd) ==
         config      |-> rd.config,
         applied     |-> rd.applied
     ]
+
+\* Node i persists states to durable storage.
 PersistState(i) == SpecAction("PersistState", <<i>>, LAMBDA act:
     /\ InReadyPhase(i)
     /\ durableState[i] /= DurableStateFromReady(ready[i])
@@ -545,15 +538,18 @@ PersistState(i) == SpecAction("PersistState", <<i>>, LAMBDA act:
     /\ UNCHANGED <<messageVars, serverVars, candidateVars, leaderVars, logVars, configVars, ready>>
 )
 
+\* Get the index of the first unapplied configuration change entry in log of node i.
 UnappliedConfChange(i) == 
     SelectInSubSeq(log[i], Max({applied[i], appliedConfChange[i]})+1, ready[i].commitIndex, LAMBDA x: x.type = ConfigEntry)
 
+\* Check if node i has unapplied configuration change entry in its log.
 HasUnappliedConfChange(i) ==
     LET k == UnappliedConfChange(i) 
     IN 
         /\ k > 0
         /\ config[i] /= ConfFromLog(i, k)
 
+\* Node i applies one unapplied configuration change entry in its log.
 ApplyConfChange(i) == SpecAction("ApplyConfChange", <<i>>, LAMBDA act:
     /\ InReadyPhase(i)
     /\ ~IsJointConfig(i)
@@ -569,6 +565,7 @@ ApplyConfChange(i) == SpecAction("ApplyConfChange", <<i>>, LAMBDA act:
             /\ UNCHANGED <<messageVars, serverVars, candidateVars, matchIndex, logVars, readyVars>>
 )
 
+\* Node i sends pending messages to its peers.
 SendMessages(i) == SpecAction("SendMessages", <<i>>, LAMBDA act:
     /\ InReadyPhase(i)
     /\ ready[i].msgs /= EmptyBag
@@ -577,6 +574,7 @@ SendMessages(i) == SpecAction("SendMessages", <<i>>, LAMBDA act:
     /\ UNCHANGED <<pendingMessages, serverVars, candidateVars, leaderVars, logVars, configVars, durableState>>
 )
 
+\* Node i exits ready phase.
 Advance(i) == SpecAction("Advance", <<i>>, LAMBDA act:
     /\ InReadyPhase(i)
     /\ ready[i].msgs = EmptyBag     \* all pending messages in ready are sent out
@@ -586,6 +584,7 @@ Advance(i) == SpecAction("Advance", <<i>>, LAMBDA act:
     /\ UNCHANGED <<messageVars, serverVars, candidateVars, leaderVars, log, commitIndex, configVars, durableState>>
 )
 
+\* Node i becomes follower of term t.
 BecomeFollowerOfTerm(i, t) ==
     /\ currentTerm'    = [currentTerm EXCEPT ![i] = t]
     /\ state'          = [state       EXCEPT ![i] = Follower]
@@ -594,6 +593,7 @@ BecomeFollowerOfTerm(i, t) ==
        ELSE 
             UNCHANGED <<votedFor>>
 
+\* Node i steps down to follower of current term.
 StepDownToFollower(i) == SpecAction("StepDownToFollower", <<i>>, LAMBDA act:
     /\ BecomeFollowerOfTerm(i, currentTerm[i])
     /\ UNCHANGED <<messageVars, candidateVars, leaderVars, logVars, configVars, readyVars>>
@@ -605,7 +605,6 @@ StepDownToFollower(i) == SpecAction("StepDownToFollower", <<i>>, LAMBDA act:
 
 \* Server i receives a RequestVote request from server j with
 \* m.mterm <= currentTerm[i].
-\* @type: (Int, Int, RVREQT) => Bool;
 HandleRequestVoteRequest(i, j, m) ==
     LET logOk == \/ m.mlastLogTerm > LastTerm(log[i])
                  \/ /\ m.mlastLogTerm = LastTerm(log[i])
@@ -626,7 +625,6 @@ HandleRequestVoteRequest(i, j, m) ==
 
 \* Server i receives a RequestVote response from server j with
 \* m.mterm = currentTerm[i].
-\* @type: (Int, Int, RVRESPT) => Bool;
 HandleRequestVoteResponse(i, j, m) ==
     \* This tallies votes even when the current state is not Candidate, but
     \* they won't be looked at, so it doesn't matter.
@@ -641,7 +639,7 @@ HandleRequestVoteResponse(i, j, m) ==
     /\ Discard(m)
     /\ UNCHANGED <<pendingMessages, serverVars, votedFor, leaderVars, logVars, configVars, readyVars>>
 
-\* @type: (Int, Int, AEREQT, Bool) => Bool;
+\* Server i rejects the AppendEntriesRequest message m from node j and replies a AppendEntriesResponse message.
 RejectAppendEntriesRequest(i, j, m, logOk) ==
     /\ \/ m.mterm < currentTerm[i]
        \/ /\ m.mterm = currentTerm[i]
@@ -657,18 +655,21 @@ RejectAppendEntriesRequest(i, j, m, logOk) ==
               m)
     /\ UNCHANGED <<serverVars, logVars, configVars, readyVars>>
 
-\* @type: (Int, MSG) => Bool;
+\* Candidate i steps down to follower of same term due to receiving AppendEntriesRequest messages of 
+\* other leader in current term.
 ReturnToFollowerState(i, m) ==
     /\ m.mterm = currentTerm[i]
     /\ state[i] = Candidate
     /\ state' = [state EXCEPT ![i] = Follower]
     /\ UNCHANGED <<messageVars, currentTerm, votedFor, logVars, configVars, readyVars>> 
 
+\* Check if the entries received by node i do not conflict with its own entries starting from index.
 HasNoConflict(i, index, ents) ==
     /\ index <= Len(log[i]) + 1
     /\ \A k \in 1..Len(ents): index + k - 1 <= Len(log[i]) => log[i][index+k-1].term = ents[k].term
 
-\* @type: (Int, Int, Int, AEREQT) => Bool;
+\* All entries in message m sent from node j has been replicated into log of node i. Node i will sends
+\* succeess AppendEntriesResponse message to acknowledge this.
 AppendEntriesAlreadyDone(i, j, index, m) ==
     /\ \/ index <= commitIndex[i]
        \/ /\ index > commitIndex[i]
@@ -690,7 +691,7 @@ AppendEntriesAlreadyDone(i, j, index, m) ==
                 m)
     /\ UNCHANGED <<serverVars, log, applied, configVars, readyVars>>
 
-\* @type: (Int, Int, AEREQT) => Bool;
+\* Entries in message m conflicts with entries in log of node i starting from index.
 ConflictAppendEntriesRequest(i, index, m) ==
     /\ m.mentries /= << >>
     /\ index > commitIndex[i]
@@ -698,7 +699,7 @@ ConflictAppendEntriesRequest(i, index, m) ==
     /\ log' = [log EXCEPT ![i] = SubSeq(@, 1, Len(@) - 1)]
     /\ UNCHANGED <<messageVars, serverVars, commitIndex, applied, readyVars>>
 
-\* @type: (Int, AEREQT) => Bool;
+\* Entries in message m do not conflict with entries in log of node i starting from index.
 NoConflictAppendEntriesRequest(i, index, m) ==
     /\ m.mentries /= << >>
     /\ index > commitIndex[i]
@@ -706,7 +707,8 @@ NoConflictAppendEntriesRequest(i, index, m) ==
     /\ log' = [log EXCEPT ![i] = @ \o SubSeq(m.mentries, Len(@)-index+2, Len(m.mentries))]
     /\ UNCHANGED <<messageVars, serverVars, commitIndex, applied, readyVars>>
 
-\* @type: (Int, Int, Bool, AEREQT) => Bool;
+\* Node i accepts message m sent from node j. logOK indicates if the index of term of 
+\* the previous log for inserting matches that in node j.
 AcceptAppendEntriesRequest(i, j, logOk, m) ==
     \* accept request
     /\ m.mterm = currentTerm[i]
@@ -721,7 +723,6 @@ AcceptAppendEntriesRequest(i, j, logOk, m) ==
 \* m.mterm <= currentTerm[i]. This just handles m.entries of length 0 or 1, but
 \* implementations could safely accept more by treating them the same as
 \* multiple independent requests of 1 entry.
-\* @type: (Int, Int, AEREQT) => Bool;
 HandleAppendEntriesRequest(i, j, m) ==
     LET logOk == \/ m.mprevLogIndex = 0
                  \/ /\ m.mprevLogIndex > 0
@@ -736,7 +737,6 @@ HandleAppendEntriesRequest(i, j, m) ==
 
 \* Server i receives an AppendEntries response from server j with
 \* m.mterm = currentTerm[i].
-\* @type: (Int, Int, AERESPT) => Bool;
 HandleAppendEntriesResponse(i, j, m) ==
     /\ m.mterm = currentTerm[i]
     /\ \/ /\ m.msuccess \* successful
@@ -748,7 +748,6 @@ HandleAppendEntriesResponse(i, j, m) ==
     /\ UNCHANGED <<pendingMessages, serverVars, candidateVars, logVars, configVars, readyVars>>
 
 \* Any RPC with a newer term causes the recipient to advance its term first.
-\* @type: (Int, Int, MSG) => Bool;
 UpdateTerm(i, j, m) ==
     /\ m.mterm > currentTerm[i]
     /\ BecomeFollowerOfTerm(i, m.mterm)
@@ -756,7 +755,6 @@ UpdateTerm(i, j, m) ==
     /\ UNCHANGED <<messageVars, candidateVars, leaderVars, logVars, configVars, readyVars>>
 
 \* Responses with stale terms are ignored.
-\* @type: (Int, Int, MSG) => Bool;
 DropStaleResponse(i, j, m) ==
     /\ m.mterm < currentTerm[i]
     /\ Discard(m)
@@ -781,6 +779,7 @@ ReceiveDirect(m) ==
             /\  \/ DropStaleResponse(i, j, m)
                 \/ HandleAppendEntriesResponse(i, j, m)
 
+\* Receive message m.
 Receive(m) == SpecAction("Receive", <<m>>, LAMBDA act:
     ReceiveDirect(m)
 )
@@ -795,7 +794,6 @@ NextAppendEntriesResponse == \E m \in DOMAIN messages : m.mtype = AppendEntriesR
 \* Network state transitions
 
 \* The network duplicates a message
-\* @type: MSG => Bool;
 DuplicateMessage(m) == SpecAction("DuplicateMessage", <<m>>, LAMBDA act:
     /\ m \in DOMAIN messages
     /\ messages' = WithMessage(m, messages)
@@ -803,7 +801,6 @@ DuplicateMessage(m) == SpecAction("DuplicateMessage", <<m>>, LAMBDA act:
 )
 
 \* The network drops a message
-\* @type: MSG => Bool;
 DropMessage(m) == SpecAction("DropMessage", <<m>>, LAMBDA act:
     \* Do not drop loopback messages
     \* /\ m.msource /= m.mdest
@@ -879,7 +876,6 @@ Committed(i) == SubSeq(log[i],1,commitIndex[i])
 
 \* The current term of any server is at least the term
 \* of any message sent by that server
-\* @type: MSG => Bool;
 MessageTermsLtCurrentTerm(m) ==
     m.mterm <= currentTerm[m.msource]
 
