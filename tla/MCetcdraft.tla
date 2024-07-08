@@ -14,7 +14,7 @@
 \* limitations under the License.
 \*
 
-EXTENDS etcdraft
+EXTENDS etcdraft_control
 
 CONSTANTS s1,s2,s3,s4,s5
 
@@ -34,7 +34,7 @@ ASSUME RequestLimit \in Nat
 CONSTANT MaxStepDownToFollower
 ASSUME MaxStepDownToFollower \in Nat
 
-etcd == INSTANCE etcdraft
+etcd_control == INSTANCE etcdraft_control
 
 VARIABLE  restartCount
 VARIABLE  stepDownCount
@@ -105,7 +105,7 @@ MCIsEnabled(action, args) ==
                 \/ rd.msgs /= EmptyBag
                 \/ DurableStateFromReady(rd) /= durableState[args[1]]
       [] action = "StepDownToFollower" -> stepDownCount < MaxStepDownToFollower
-      [] OTHER -> etcd!IsEnabled(action, args)
+      [] OTHER -> etcd_control!IsEnabled(action, args)
 
 MCPostAction(action, args) ==
     CASE action = "Restart" -> 
@@ -130,7 +130,7 @@ MCInit ==
     /\ Init
     /\ InitConstraintVars
 
-MCSpec == MCInit /\ [][Next]_mcVars
+MCSpec == MCInit /\ [][Controlled_Next]_mcVars
 
 ----
 ===================================

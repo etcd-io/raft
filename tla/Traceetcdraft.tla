@@ -14,7 +14,7 @@
 \* limitations under the License.
 \*
 
-EXTENDS etcdraft, Json, IOUtils, Sequences, TLC
+EXTENDS etcdraft_control, Json, IOUtils, Sequences, TLC
 
 \* raft.pb.go enum MessageType
 RaftMsgType ==
@@ -365,7 +365,7 @@ SkipUnusedAction == SpecAction("Unused", <<>>, LAMBDA act:
 )
 
 TraceNext ==
-    \/ Next
+    \/ Controlled_Next
     \/ SkipUnusedAction      
 
 TraceSpec == TraceInit /\ [][TraceNext]_mcVars

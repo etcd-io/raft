@@ -110,7 +110,7 @@ func runWithRandomFaults(clusterSize int, tl raft.TraceLogger, pReconf float64, 
 				return
 			case <-timer.C:
 				fi++
-				faults[fi%len(faults)](cluster)
+				cluster.faultc <- faults[fi%len(faults)]
 			default:
 			}
 
