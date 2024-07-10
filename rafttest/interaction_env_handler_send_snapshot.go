@@ -24,8 +24,8 @@ import (
 	"go.etcd.io/raft/v3/raftpb"
 )
 
-func (env *InteractionEnv) handleSendSnapshot(t *testing.T, d datadriven.TestData) error {
-	idxs := nodeIdxs(t, d)
+func (env *InteractionEnv) handleSendSnapshot(t *testing.T, args []datadriven.CmdArg) error {
+	idxs := nodeIdxs(t, args)
 	require.Len(t, idxs, 2)
 	return env.SendSnapshot(idxs[0], idxs[1])
 }
