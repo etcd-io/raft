@@ -1,5 +1,5 @@
 name: Workflow Test Template
-on: 
+on:
   workflow_call:
     inputs:
       runs-on:
@@ -15,6 +15,8 @@ permissions: read-all
 jobs:
   run:
     runs-on: ${{ inputs.runs-on }}
+    # this is to prevent arm64 jobs from running at forked projects
+    if: inputs.arch != 'arm64' || github.repository == 'etcd-io/raft'
     strategy:
       fail-fast: false
       matrix:
@@ -26,7 +28,7 @@ jobs:
       - uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.0.2
         with:
           go-version: ${{ steps.goversion.outputs.goversion }}
-      - env: 
+      - env:
           TARGET: ${{ matrix.target }}
         run: |
           go clean -testcache
