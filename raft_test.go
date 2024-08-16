@@ -1073,7 +1073,7 @@ func TestPastElectionTimeout(t *testing.T) {
 // from old term and does not pass it to the actual stepX function.
 func TestStepIgnoreOldTermMsg(t *testing.T) {
 	called := false
-	fakeStep := func(r *raft, m pb.Message) error {
+	fakeStep := func(_ *raft, _ pb.Message) error {
 		called = true
 		return nil
 	}

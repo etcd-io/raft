@@ -129,7 +129,7 @@ func TestNodeStepUnblock(t *testing.T) {
 // TestNodePropose ensures that node.Propose sends the given proposal to the underlying raft.
 func TestNodePropose(t *testing.T) {
 	var msgs []raftpb.Message
-	appendStep := func(r *raft, m raftpb.Message) error {
+	appendStep := func(_ *raft, m raftpb.Message) error {
 		t.Log(DescribeMessage(m, nil))
 		if m.Type == raftpb.MsgAppResp {
 			return nil // injected by (*raft).advance
@@ -240,7 +240,7 @@ func TestNodeReadIndexToOldLeader(t *testing.T) {
 // to the underlying raft.
 func TestNodeProposeConfig(t *testing.T) {
 	var msgs []raftpb.Message
-	appendStep := func(r *raft, m raftpb.Message) error {
+	appendStep := func(_ *raft, m raftpb.Message) error {
 		if m.Type == raftpb.MsgAppResp {
 			return nil // injected by (*raft).advance
 		}
@@ -386,7 +386,7 @@ func TestBlockProposal(t *testing.T) {
 func TestNodeProposeWaitDropped(t *testing.T) {
 	var msgs []raftpb.Message
 	droppingMsg := []byte("test_dropping")
-	dropStep := func(r *raft, m raftpb.Message) error {
+	dropStep := func(_ *raft, m raftpb.Message) error {
 		if m.Type == raftpb.MsgProp && strings.Contains(m.String(), string(droppingMsg)) {
 			t.Logf("dropping message: %v", m.String())
 			return ErrProposalDropped
