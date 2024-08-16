@@ -2015,7 +2015,7 @@ func (r *raft) switchToConfig(cfg tracker.Config, trk tracker.ProgressMap) pb.Co
 		// Otherwise, still probe the newly added replicas; there's no reason to
 		// let them wait out a heartbeat interval (or the next incoming
 		// proposal).
-		r.trk.Visit(func(id uint64, pr *tracker.Progress) {
+		r.trk.Visit(func(id uint64, _ *tracker.Progress) {
 			if id == r.id {
 				return
 			}
