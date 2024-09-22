@@ -17,6 +17,9 @@ package raft
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	pb "go.etcd.io/raft/v3/raftpb"
 )
 
@@ -40,12 +43,10 @@ func TestSendingSnapshotSetPendingSnapshot(t *testing.T) {
 
 	// force set the next of node 2, so that
 	// node 2 needs a snapshot
-	sm.prs.Progress[2].Next = sm.raftLog.firstIndex()
+	sm.trk.Progress[2].Next = sm.raftLog.firstIndex()
 
-	sm.Step(pb.Message{From: 2, To: 1, Type: pb.MsgAppResp, Index: sm.prs.Progress[2].Next - 1, Reject: true})
-	if sm.prs.Progress[2].PendingSnapshot != 11 {
-		t.Fatalf("PendingSnapshot = %d, want 11", sm.prs.Progress[2].PendingSnapshot)
-	}
+	sm.Step(pb.Message{From: 2, To: 1, Type: pb.MsgAppResp, Index: sm.trk.Progress[2].Next - 1, Reject: true})
+	require.Equal(t, uint64(11), sm.trk.Progress[2].PendingSnapshot)
 }
 
 func TestPendingSnapshotPauseReplication(t *testing.T) {
@@ -56,13 +57,11 @@ func TestPendingSnapshotPauseReplication(t *testing.T) {
 	sm.becomeCandidate()
 	sm.becomeLeader()
 
-	sm.prs.Progress[2].BecomeSnapshot(11)
+	sm.trk.Progress[2].BecomeSnapshot(11)
 
 	sm.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Data: []byte("somedata")}}})
 	msgs := sm.readMessages()
-	if len(msgs) != 0 {
-		t.Fatalf("len(msgs) = %d, want 0", len(msgs))
-	}
+	require.Empty(t, msgs)
 }
 
 func TestSnapshotFailure(t *testing.T) {
@@ -73,19 +72,13 @@ func TestSnapshotFailure(t *testing.T) {
 	sm.becomeCandidate()
 	sm.becomeLeader()
 
-	sm.prs.Progress[2].Next = 1
-	sm.prs.Progress[2].BecomeSnapshot(11)
+	sm.trk.Progress[2].Next = 1
+	sm.trk.Progress[2].BecomeSnapshot(11)
 
 	sm.Step(pb.Message{From: 2, To: 1, Type: pb.MsgSnapStatus, Reject: true})
-	if sm.prs.Progress[2].PendingSnapshot != 0 {
-		t.Fatalf("PendingSnapshot = %d, want 0", sm.prs.Progress[2].PendingSnapshot)
-	}
-	if sm.prs.Progress[2].Next != 1 {
-		t.Fatalf("Next = %d, want 1", sm.prs.Progress[2].Next)
-	}
-	if !sm.prs.Progress[2].MsgAppFlowPaused {
-		t.Errorf("MsgAppFlowPaused = %v, want true", sm.prs.Progress[2].MsgAppFlowPaused)
-	}
+	require.Zero(t, sm.trk.Progress[2].PendingSnapshot)
+	require.Equal(t, uint64(1), sm.trk.Progress[2].Next)
+	assert.True(t, sm.trk.Progress[2].MsgAppFlowPaused)
 }
 
 func TestSnapshotSucceed(t *testing.T) {
@@ -96,19 +89,13 @@ func TestSnapshotSucceed(t *testing.T) {
 	sm.becomeCandidate()
 	sm.becomeLeader()
 
-	sm.prs.Progress[2].Next = 1
-	sm.prs.Progress[2].BecomeSnapshot(11)
+	sm.trk.Progress[2].Next = 1
+	sm.trk.Progress[2].BecomeSnapshot(11)
 
 	sm.Step(pb.Message{From: 2, To: 1, Type: pb.MsgSnapStatus, Reject: false})
-	if sm.prs.Progress[2].PendingSnapshot != 0 {
-		t.Fatalf("PendingSnapshot = %d, want 0", sm.prs.Progress[2].PendingSnapshot)
-	}
-	if sm.prs.Progress[2].Next != 12 {
-		t.Fatalf("Next = %d, want 12", sm.prs.Progress[2].Next)
-	}
-	if !sm.prs.Progress[2].MsgAppFlowPaused {
-		t.Errorf("MsgAppFlowPaused = %v, want true", sm.prs.Progress[2].MsgAppFlowPaused)
-	}
+	require.Zero(t, sm.trk.Progress[2].PendingSnapshot)
+	require.Equal(t, uint64(12), sm.trk.Progress[2].Next)
+	assert.True(t, sm.trk.Progress[2].MsgAppFlowPaused)
 }
 
 func TestSnapshotAbort(t *testing.T) {
@@ -119,23 +106,17 @@ func TestSnapshotAbort(t *testing.T) {
 	sm.becomeCandidate()
 	sm.becomeLeader()
 
-	sm.prs.Progress[2].Next = 1
-	sm.prs.Progress[2].BecomeSnapshot(11)
+	sm.trk.Progress[2].Next = 1
+	sm.trk.Progress[2].BecomeSnapshot(11)
 
 	// A successful msgAppResp that has a higher/equal index than the
 	// pending snapshot should abort the pending snapshot.
 	sm.Step(pb.Message{From: 2, To: 1, Type: pb.MsgAppResp, Index: 11})
-	if sm.prs.Progress[2].PendingSnapshot != 0 {
-		t.Fatalf("PendingSnapshot = %d, want 0", sm.prs.Progress[2].PendingSnapshot)
-	}
+	require.Zero(t, sm.trk.Progress[2].PendingSnapshot)
 	// The follower entered StateReplicate and the leader send an append
 	// and optimistically updated the progress (so we see 13 instead of 12).
 	// There is something to append because the leader appended an empty entry
 	// to the log at index 12 when it assumed leadership.
-	if sm.prs.Progress[2].Next != 13 {
-		t.Fatalf("Next = %d, want 13", sm.prs.Progress[2].Next)
-	}
-	if n := sm.prs.Progress[2].Inflights.Count(); n != 1 {
-		t.Fatalf("expected an inflight message, got %d", n)
-	}
+	require.Equal(t, uint64(13), sm.trk.Progress[2].Next)
+	require.Equal(t, 1, sm.trk.Progress[2].Inflights.Count())
 }

@@ -16,6 +16,8 @@ package raftpb
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestConfState_Equivalent(t *testing.T) {
@@ -50,9 +52,7 @@ func TestConfState_Equivalent(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run("", func(t *testing.T) {
-			if err := tc.cs.Equivalent(tc.cs2); (err == nil) != tc.ok {
-				t.Fatalf("wanted error: %t, got:\n%s", tc.ok, err)
-			}
+			require.Equal(t, tc.ok, tc.cs.Equivalent(tc.cs2) == nil)
 		})
 	}
 }

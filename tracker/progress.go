@@ -28,7 +28,26 @@ import (
 // strewn around `*raft.raft`. Additionally, some fields are only used when in a
 // certain State. All of this isn't ideal.
 type Progress struct {
-	Match, Next uint64
+	// Match is the index up to which the follower's log is known to match the
+	// leader's.
+	Match uint64
+	// Next is the log index of the next entry to send to this follower. All
+	// entries with indices in (Match, Next) interval are already in flight.
+	//
+	// Invariant: 0 <= Match < Next.
+	// NB: it follows that Next >= 1.
+	//
+	// In StateSnapshot, Next == PendingSnapshot + 1.
+	Next uint64
+
+	// sentCommit is the highest commit index in flight to the follower.
+	//
+	// Generally, it is monotonic, but con regress in some cases, e.g. when
+	// converting to `StateProbe` or when receiving a rejection from a follower.
+	//
+	// In StateSnapshot, sentCommit == PendingSnapshot == Next-1.
+	sentCommit uint64
+
 	// State defines how the leader should interact with the follower.
 	//
 	// When in StateProbe, leader sends at most one replication message
@@ -42,11 +61,27 @@ type Progress struct {
 	// before and stops sending any replication message.
 	State StateType
 
-	// PendingSnapshot is used in StateSnapshot.
-	// If there is a pending snapshot, the pendingSnapshot will be set to the
-	// index of the snapshot. If pendingSnapshot is set, the replication process of
-	// this Progress will be paused. raft will not resend snapshot until the pending one
-	// is reported to be failed.
+	// PendingSnapshot is used in StateSnapshot and tracks the last index of the
+	// leader at the time at which it realized a snapshot was necessary. This
+	// matches the index in the MsgSnap message emitted from raft.
+	//
+	// While there is a pending snapshot, replication to the follower is paused.
+	// The follower will transition back to StateReplicate if the leader
+	// receives an MsgAppResp from it that reconnects the follower to the
+	// leader's log (such an MsgAppResp is emitted when the follower applies a
+	// snapshot). It may be surprising that PendingSnapshot is not taken into
+	// account here, but consider that complex systems may delegate the sending
+	// of snapshots to alternative datasources (i.e. not the leader). In such
+	// setups, it is difficult to manufacture a snapshot at a particular index
+	// requested by raft and the actual index may be ahead or behind. This
+	// should be okay, as long as the snapshot allows replication to resume.
+	//
+	// The follower will transition to StateProbe if ReportSnapshot is called on
+	// the leader; if SnapshotFinish is passed then PendingSnapshot becomes the
+	// basis for the next attempt to append. In practice, the first mechanism is
+	// the one that is relevant in most cases. However, if this MsgAppResp is
+	// lost (fallible network) then the second mechanism ensures that in this
+	// case the follower does not erroneously remain in StateSnapshot.
 	PendingSnapshot uint64
 
 	// RecentActive is true if the progress is recently active. Receiving any messages
@@ -90,20 +125,6 @@ func (pr *Progress) ResetState(state StateType) {
 	pr.Inflights.reset()
 }
 
-func max(a, b uint64) uint64 {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func min(a, b uint64) uint64 {
-	if a > b {
-		return b
-	}
-	return a
-}
-
 // BecomeProbe transitions into StateProbe. Next is reset to Match+1 or,
 // optionally and if larger, the index of the pending snapshot.
 func (pr *Progress) BecomeProbe() {
@@ -118,6 +139,7 @@ func (pr *Progress) BecomeProbe() {
 		pr.ResetState(StateProbe)
 		pr.Next = pr.Match + 1
 	}
+	pr.sentCommit = min(pr.sentCommit, pr.Next-1)
 }
 
 // BecomeReplicate transitions into StateReplicate, resetting Next to Match+1.
@@ -131,18 +153,21 @@ func (pr *Progress) BecomeReplicate() {
 func (pr *Progress) BecomeSnapshot(snapshoti uint64) {
 	pr.ResetState(StateSnapshot)
 	pr.PendingSnapshot = snapshoti
+	pr.Next = snapshoti + 1
+	pr.sentCommit = snapshoti
 }
 
-// UpdateOnEntriesSend updates the progress on the given number of consecutive
-// entries being sent in a MsgApp, with the given total bytes size, appended at
-// and after the given log index.
-func (pr *Progress) UpdateOnEntriesSend(entries int, bytes, nextIndex uint64) error {
+// SentEntries updates the progress on the given number of consecutive entries
+// being sent in a MsgApp, with the given total bytes size, appended at log
+// indices >= pr.Next.
+//
+// Must be used with StateProbe or StateReplicate.
+func (pr *Progress) SentEntries(entries int, bytes uint64) {
 	switch pr.State {
 	case StateReplicate:
 		if entries > 0 {
-			last := nextIndex + uint64(entries) - 1
-			pr.OptimisticUpdate(last)
-			pr.Inflights.Add(last, bytes)
+			pr.Next += uint64(entries)
+			pr.Inflights.Add(pr.Next-1, bytes)
 		}
 		// If this message overflows the in-flights tracker, or it was already full,
 		// consider this message being a probe, so that the flow is paused.
@@ -155,28 +180,37 @@ func (pr *Progress) UpdateOnEntriesSend(entries int, bytes, nextIndex uint64) er
 			pr.MsgAppFlowPaused = true
 		}
 	default:
-		return fmt.Errorf("sending append in unhandled state %s", pr.State)
+		panic(fmt.Sprintf("sending append in unhandled state %s", pr.State))
 	}
-	return nil
+}
+
+// CanBumpCommit returns true if sending the given commit index can potentially
+// advance the follower's commit index.
+func (pr *Progress) CanBumpCommit(index uint64) bool {
+	// Sending the given commit index may bump the follower's commit index up to
+	// Next-1 in normal operation, or higher in some rare cases. Allow sending a
+	// commit index eagerly only if we haven't already sent one that bumps the
+	// follower's commit all the way to Next-1.
+	return index > pr.sentCommit && pr.sentCommit < pr.Next-1
+}
+
+// SentCommit updates the sentCommit.
+func (pr *Progress) SentCommit(commit uint64) {
+	pr.sentCommit = commit
 }
 
 // MaybeUpdate is called when an MsgAppResp arrives from the follower, with the
 // index acked by it. The method returns false if the given n index comes from
 // an outdated message. Otherwise it updates the progress and returns true.
 func (pr *Progress) MaybeUpdate(n uint64) bool {
-	var updated bool
-	if pr.Match < n {
-		pr.Match = n
-		updated = true
-		pr.MsgAppFlowPaused = false
+	if n <= pr.Match {
+		return false
 	}
-	pr.Next = max(pr.Next, n+1)
-	return updated
+	pr.Match = n
+	pr.Next = max(pr.Next, n+1) // invariant: Match < Next
+	pr.MsgAppFlowPaused = false
+	return true
 }
-
-// OptimisticUpdate signals that appends all the way up to and including index n
-// are in-flight. As a result, Next is increased to n+1.
-func (pr *Progress) OptimisticUpdate(n uint64) { pr.Next = n + 1 }
 
 // MaybeDecrTo adjusts the Progress to the receipt of a MsgApp rejection. The
 // arguments are the index of the append message rejected by the follower, and
@@ -200,16 +234,21 @@ func (pr *Progress) MaybeDecrTo(rejected, matchHint uint64) bool {
 		//
 		// TODO(tbg): why not use matchHint if it's larger?
 		pr.Next = pr.Match + 1
+		// Regress the sentCommit since it unlikely has been applied.
+		pr.sentCommit = min(pr.sentCommit, pr.Next-1)
 		return true
 	}
 
 	// The rejection must be stale if "rejected" does not match next - 1. This
 	// is because non-replicating followers are probed one entry at a time.
+	// The check is a best effort assuming message reordering is rare.
 	if pr.Next-1 != rejected {
 		return false
 	}
 
-	pr.Next = max(min(rejected, matchHint+1), 1)
+	pr.Next = max(min(rejected, matchHint+1), pr.Match+1)
+	// Regress the sentCommit since it unlikely has been applied.
+	pr.sentCommit = min(pr.sentCommit, pr.Next-1)
 	pr.MsgAppFlowPaused = false
 	return true
 }

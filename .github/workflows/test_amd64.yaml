@@ -1,0 +1,26 @@
+name: Test AMD64
+permissions: read-all
+on: [push, pull_request]
+jobs: 
+  test-linux-amd64:
+    uses: ./.github/workflows/test_template.yaml
+    with:
+      targets: "['linux-amd64-unit-4-cpu-race']"
+  test-linux-386:
+    uses: ./.github/workflows/test_template.yaml
+    with:
+      targets: "['linux-386-unit-1-cpu']"
+
+  coverage:
+    needs:
+      - test-linux-amd64
+      - test-linux-386
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+      - id: goversion
+        run: echo "goversion=$(cat .go-version)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.0.2
+        with:
+          go-version: ${{ steps.goversion.outputs.goversion }}
+      - run: make test

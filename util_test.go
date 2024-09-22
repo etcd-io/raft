@@ -20,6 +20,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	pb "go.etcd.io/raft/v3/raftpb"
@@ -137,9 +138,7 @@ func TestIsResponseMsg(t *testing.T) {
 
 	for i, tt := range tests {
 		got := IsResponseMsg(tt.msgt)
-		if got != tt.isResponse {
-			t.Errorf("#%d: got %v, want %v", i, got, tt.isResponse)
-		}
+		assert.Equal(t, tt.isResponse, got, "#%d", i)
 	}
 }
 
