@@ -17,7 +17,6 @@ package tracker
 import (
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 
 	"go.etcd.io/raft/v3/quorum"
@@ -225,7 +224,7 @@ func (p *ProgressTracker) VoterNodes() []uint64 {
 	for id := range m {
 		nodes = append(nodes, id)
 	}
-	sort.Slice(nodes, func(i, j int) bool { return nodes[i] < nodes[j] })
+	slices.Sort(nodes)
 	return nodes
 }
 
@@ -238,7 +237,7 @@ func (p *ProgressTracker) LearnerNodes() []uint64 {
 	for id := range p.Learners {
 		nodes = append(nodes, id)
 	}
-	sort.Slice(nodes, func(i, j int) bool { return nodes[i] < nodes[j] })
+	slices.Sort(nodes)
 	return nodes
 }
 

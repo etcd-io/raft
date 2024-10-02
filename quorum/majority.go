@@ -15,10 +15,10 @@
 package quorum
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"slices"
-	"sort"
 	"strings"
 )
 
@@ -30,7 +30,7 @@ func (c MajorityConfig) String() string {
 	for id := range c {
 		sl = append(sl, id)
 	}
-	sort.Slice(sl, func(i, j int) bool { return sl[i] < sl[j] })
+	slices.Sort(sl)
 	var buf strings.Builder
 	buf.WriteByte('(')
 	for i := range sl {
@@ -68,11 +68,11 @@ func (c MajorityConfig) Describe(l AckedIndexer) string {
 	}
 
 	// Sort by index
-	sort.Slice(info, func(i, j int) bool {
-		if info[i].idx == info[j].idx {
-			return info[i].id < info[j].id
+	slices.SortFunc(info, func(a, b tup) int {
+		if n := cmp.Compare(a.idx, b.idx); n != 0 {
+			return n
 		}
-		return info[i].idx < info[j].idx
+		return cmp.Compare(a.id, b.id)
 	})
 
 	// Populate .bar.
@@ -83,8 +83,8 @@ func (c MajorityConfig) Describe(l AckedIndexer) string {
 	}
 
 	// Sort by ID.
-	sort.Slice(info, func(i, j int) bool {
-		return info[i].id < info[j].id
+	slices.SortFunc(info, func(a, b tup) int {
+		return cmp.Compare(a.id, b.id)
 	})
 
 	var buf strings.Builder
@@ -109,7 +109,7 @@ func (c MajorityConfig) Slice() []uint64 {
 	for id := range c {
 		sl = append(sl, id)
 	}
-	sort.Slice(sl, func(i, j int) bool { return sl[i] < sl[j] })
+	slices.Sort(sl)
 	return sl
 }
 
