@@ -17,7 +17,7 @@ package confchange
 import (
 	"math/rand"
 	"reflect"
-	"sort"
+	"slices"
 	"testing"
 	"testing/quick"
 
@@ -104,7 +104,7 @@ func TestRestore(t *testing.T) {
 			cs.VotersOutgoing,
 			cs.LearnersNext,
 		} {
-			sort.Slice(sl, func(i, j int) bool { return sl[i] < sl[j] })
+			slices.Sort(sl)
 		}
 
 		cs2 := chg.Tracker.ConfState()

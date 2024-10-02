@@ -16,7 +16,7 @@ package tracker
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -305,9 +305,7 @@ func (m ProgressMap) String() string {
 	for k := range m {
 		ids = append(ids, k)
 	}
-	sort.Slice(ids, func(i, j int) bool {
-		return ids[i] < ids[j]
-	})
+	slices.Sort(ids)
 	var buf strings.Builder
 	for _, id := range ids {
 		fmt.Fprintf(&buf, "%d: %s\n", id, m[id])

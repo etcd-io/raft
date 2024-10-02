@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 
@@ -1047,7 +1047,7 @@ func (r *raft) campaign(t CampaignType) {
 		for id := range idMap {
 			ids = append(ids, id)
 		}
-		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+		slices.Sort(ids)
 	}
 	for _, id := range ids {
 		if id == r.id {

@@ -17,7 +17,7 @@ package raftpb
 import (
 	"fmt"
 	"reflect"
-	"sort"
+	"slices"
 )
 
 // Equivalent returns a nil error if the inputs describe the same configuration.
@@ -27,7 +27,7 @@ func (cs ConfState) Equivalent(cs2 ConfState) error {
 	orig1, orig2 := cs1, cs2
 	s := func(sl *[]uint64) {
 		*sl = append([]uint64(nil), *sl...)
-		sort.Slice(*sl, func(i, j int) bool { return (*sl)[i] < (*sl)[j] })
+		slices.Sort(*sl)
 	}
 
 	for _, cs := range []*ConfState{&cs1, &cs2} {
