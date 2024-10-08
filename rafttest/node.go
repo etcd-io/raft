@@ -25,6 +25,14 @@ import (
 	"go.etcd.io/raft/v3/raftpb"
 )
 
+type nodeConfig struct {
+	id           uint64
+	peers        []raft.Peer
+	iface        iface
+	traceLogger  raft.TraceLogger
+	tickInterval time.Duration
+}
+
 type node struct {
 	raft.Node
 	id     uint64
@@ -37,35 +45,64 @@ type node struct {
 
 	mu    sync.Mutex // guards state
 	state raftpb.HardState
+
+	applyc  chan []raftpb.Entry
+	applied uint64
+
+	traceLogger  raft.TraceLogger
+	stopped      bool
+	tickInterval time.Duration
 }
 
 func startNode(id uint64, peers []raft.Peer, iface iface) *node {
+	return startNodeWithConfig(nodeConfig{
+		id:    id,
+		peers: peers,
+		iface: iface,
+	})
+}
+
+func startNodeWithConfig(nc nodeConfig) *node {
 	st := raft.NewMemoryStorage()
 	c := &raft.Config{
-		ID:                        id,
+		ID:                        nc.id,
 		ElectionTick:              10,
 		HeartbeatTick:             1,
 		Storage:                   st,
 		MaxSizePerMsg:             1024 * 1024,
 		MaxInflightMsgs:           256,
 		MaxUncommittedEntriesSize: 1 << 30,
+		TraceLogger:               nc.traceLogger,
 	}
-	rn := raft.StartNode(c, peers)
+	var rn raft.Node
+	if len(nc.peers) == 0 {
+		rn = raft.RestartNode(c)
+	} else {
+		rn = raft.StartNode(c, nc.peers)
+	}
 	n := &node{
-		Node:    rn,
-		id:      id,
-		storage: st,
-		iface:   iface,
-		pausec:  make(chan bool),
+		Node:         rn,
+		id:           nc.id,
+		storage:      st,
+		iface:        nc.iface,
+		pausec:       make(chan bool),
+		applyc:       make(chan []raftpb.Entry),
+		applied:      0,
+		traceLogger:  nc.traceLogger,
+		tickInterval: nc.tickInterval,
 	}
 	n.start()
 	return n
 }
 
 func (n *node) start() {
+	n.applied = n.Node.Status().Commit
 	n.stopc = make(chan struct{})
-	ticker := time.NewTicker(5 * time.Millisecond).C
-
+	tickInterval := n.tickInterval
+	if tickInterval == 0 {
+		tickInterval = 5 * time.Millisecond
+	}
+	ticker := time.NewTicker(tickInterval).C
 	go func() {
 		for {
 			select {
@@ -80,6 +117,28 @@ func (n *node) start() {
 				}
 				n.storage.Append(rd.Entries)
 				time.Sleep(time.Millisecond)
+
+				for _, e := range rd.CommittedEntries {
+					if e.Index <= n.applied {
+						continue
+					}
+					switch e.Type {
+					case raftpb.EntryConfChange:
+						var cc raftpb.ConfChange
+						if err := cc.Unmarshal(e.Data); err != nil {
+							panic(err)
+						}
+						n.ApplyConfChange(cc)
+						n.applied++
+					case raftpb.EntryConfChangeV2:
+						var cc raftpb.ConfChangeV2
+						if err := cc.Unmarshal(e.Data); err != nil {
+							panic(err)
+						}
+						n.ApplyConfChange(cc)
+						n.applied++
+					}
+				}
 
 				// simulate async send, more like real world...
 				for _, m := range rd.Messages {
@@ -114,6 +173,7 @@ func (n *node) start() {
 			}
 		}
 	}()
+	n.stopped = false
 }
 
 // stop stops the node. stop a stopped node might panic.
@@ -121,9 +181,18 @@ func (n *node) start() {
 // All stable MUST be unchanged.
 func (n *node) stop() {
 	n.iface.disconnect()
+	select {
+	case _, ok := <-n.stopc:
+		if !ok {
+			// stop a stopped node
+			return
+		}
+	default:
+	}
 	n.stopc <- struct{}{}
 	// wait for the shutdown
 	<-n.stopc
+	n.stopped = true
 }
 
 // restart restarts the node. restart a started node
@@ -139,6 +208,8 @@ func (n *node) restart() {
 		MaxSizePerMsg:             1024 * 1024,
 		MaxInflightMsgs:           256,
 		MaxUncommittedEntriesSize: 1 << 30,
+		TraceLogger:               n.traceLogger,
+		Applied:                   n.applied,
 	}
 	n.Node = raft.RestartNode(c)
 	n.start()

@@ -119,6 +119,25 @@ function mod_tidy_pass {
   mod_tidy_for_module
 }
 
+################# TLA+ TRACE VALIDATION ########################################
+
+function trace-validation_pass {
+  if ! type -p java > /dev/null 2>&1; then
+    echo "java is not installed"
+    return 255
+  fi
+
+  if ! type -p xargs > /dev/null 2>&1; then
+    echo "xargs is not installed"
+    return 255
+  fi
+  
+  if [ -z "${WORKING_DIR}" ]; then
+    WORKING_DIR=$(mktemp -d)
+  fi
+  GOLANG_TEST_SHORT=true WORKING_DIR=${WORKING_DIR} go test -race -short -timeout="${TIMEOUT:-30m}" -tags with_tla -run ^TestTraceValidationWithRandomFaults$ go.etcd.io/raft/v3/rafttest
+}
+
 ################# REGULAR TESTS ################################################
 
 # run_unit_tests [pkgs] runs unit tests for a current module and givesn set of [pkgs]
