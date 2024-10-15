@@ -1,25 +1,15 @@
 #!/usr/bin/env bash
 
-WORKDIR="$(mktemp -d)"
-TOOLDIR="${WORKDIR}/tool"
-STATEDIR="${WORKDIR}/state"
-WORKDIR="$(mktemp -d)"
-TOOLDIR="${WORKDIR}/tool"
-STATEDIR="${WORKDIR}/state"
-FAILFAST=false
-PARALLEL=$(nproc)
-
 function show_usage {
-    echo "usage: validate.sh [-p <parallel>] -s <spec> -c <config> <trace files>">&2
+    echo "usage: validate.sh [-p <parallel>] [-w <workdir>] -s <spec> -c <config> <trace files>">&2
 }
 
 function install_tlaplus {
     echo -n "Downloading TLA+ tools ... "
-    wget -qN https://nightly.tlapl.us/dist/tla2tools.jar -P ${TOOLDIR}
-    wget -qN https://github.com/tlaplus/CommunityModules/releases/latest/download/CommunityModules-deps.jar -P ${TOOLDIR}
+    wget -qN https://nightly.tlapl.us/dist/tla2tools.jar -P ${WORKDIR}/tool
+    wget -qN https://github.com/tlaplus/CommunityModules/releases/latest/download/CommunityModules-deps.jar -P ${WORKDIR}/tool
     echo "done."
 }
-PARALLEL=$(nproc)
 
 function preprocess_log {
     local trace=${1}
@@ -51,21 +41,13 @@ function validate {
     local trace=${2}
     local spec=${3}
     local config=${4}
-    local tooldir=${5}
-    local statedir=${6}
-    local name=$(basename $trace .ndjson)
-    local id=${1}
-    local trace=${2}
-    local spec=${3}
-    local config=${4}
-    local tooldir=${5}
-    local statedir=${6}
-    local name=$(basename $trace .ndjson)
+    local workdir=${5}
+    local log="${workdir}/$(basename $trace .ndjson).log"
 
     preprocess_log $trace
 
     set -o pipefail
-    env JSON="${trace}" java -XX:+UseParallelGC -cp ${tooldir}/tla2tools.jar:${tooldir}/CommunityModules-deps.jar tlc2.TLC -config "${config}" "${spec}" -lncheck final -metadir "${statedir}" -fpmem 0.9  | sed -nuE "s/<<\"Progress %:\", ([0-9]+)>>$/${id} \1/p"
+    env JSON="${trace}" java -XX:+UseParallelGC -Dtlc2.tool.impl.Tool.cdot=true -cp ${workdir}/tool/tla2tools.jar:${workdir}/tool/CommunityModules-deps.jar tlc2.TLC -config "${config}" "${spec}" -lncheck final -metadir "${workdir}/states" -fpmem 0.8 | tee ${log} | sed -nuE "s/<<\"Progress %:\", ([0-9]+)>>$/${id} \1/p"
 
     if [ "$?" -ne 0 ]; then
         echo ${id} -1
@@ -110,14 +92,15 @@ function show_progress {
     fi
 }
 
-while getopts :hs:c:p: flag
+PARALLEL=$(nproc)
+
+while getopts :hs:c:p:w: flag
 do
     case "${flag}" in
         s) SPEC=${OPTARG};;
         c) CONFIG=${OPTARG};;
         p) PARALLEL=${OPTARG};;
-        h|*) show_usage; exit 1;; 
-        p) PARALLEL=${OPTARG};;
+        w) WORKDIR=${OPTARG};;
         h|*) show_usage; exit 1;; 
     esac
 done
@@ -134,16 +117,13 @@ then
     exit 1
 fi
 
-echo "spec: ${SPEC}"
-echo "config: ${CONFIG}"
-if [ ! "$SPEC" ] || [ ! "$CONFIG" ] || [ ! "$trace_files" ] 
-then
-    show_usage
-    exit 1
+if [ ! "${WORKDIR}" ]; then
+    WORKDIR=$(mktemp -d)
 fi
 
 echo "spec: ${SPEC}"
 echo "config: ${CONFIG}"
+echo "working dir: ${WORKDIR}"
 
 install_tlaplus
 
@@ -174,7 +154,7 @@ done < \
     progress[$i]=0
     echo $i ${trace_files[$i]}
 done | \
-xargs -I{} -P ${PARALLEL} bash -c 'validate $@' _ {} $SPEC $CONFIG $TOOLDIR $STATEDIR)
+xargs -I{} -P ${PARALLEL} bash -c 'validate $@' _ {} $SPEC $CONFIG $WORKDIR)
 
 
 passed=0
