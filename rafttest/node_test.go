@@ -27,6 +27,7 @@ import (
 func TestBasicProgress(t *testing.T) {
 	peers := []raft.Peer{{ID: 1, Context: nil}, {ID: 2, Context: nil}, {ID: 3, Context: nil}, {ID: 4, Context: nil}, {ID: 5, Context: nil}}
 	nt := newRaftNetwork(1, 2, 3, 4, 5)
+	defer nt.stop()
 
 	nodes := make([]*node, 0)
 
@@ -51,6 +52,7 @@ func TestBasicProgress(t *testing.T) {
 func TestRestart(t *testing.T) {
 	peers := []raft.Peer{{ID: 1, Context: nil}, {ID: 2, Context: nil}, {ID: 3, Context: nil}, {ID: 4, Context: nil}, {ID: 5, Context: nil}}
 	nt := newRaftNetwork(1, 2, 3, 4, 5)
+	defer nt.stop()
 
 	nodes := make([]*node, 0)
 
@@ -89,6 +91,7 @@ func TestRestart(t *testing.T) {
 func TestPause(t *testing.T) {
 	peers := []raft.Peer{{ID: 1, Context: nil}, {ID: 2, Context: nil}, {ID: 3, Context: nil}, {ID: 4, Context: nil}, {ID: 5, Context: nil}}
 	nt := newRaftNetwork(1, 2, 3, 4, 5)
+	defer nt.stop()
 
 	nodes := make([]*node, 0)
 
