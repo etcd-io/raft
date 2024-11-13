@@ -67,9 +67,9 @@ To start a three-node cluster
     MaxSizePerMsg:   4096,
     MaxInflightMsgs: 256,
   }
-  // Set peer list to the other nodes in the cluster.
-  // Note that they need to be started separately as well.
-  n := raft.StartNode(c, []raft.Peer{{ID: 0x02}, {ID: 0x03}})
+  // Set peer list to all nodes in the cluster.
+  // Note that they need to be started separately.
+  n := raft.StartNode(c, []raft.Peer{{ID: 0x01}, {ID: 0x02}, {ID: 0x03}})
 ```
 
 Start a single node cluster, like so:
