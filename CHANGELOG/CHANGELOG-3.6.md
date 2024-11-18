@@ -2,6 +2,22 @@ Note that we start to track changes starting from v3.6.
 
 <hr>
 
+## v3.6.0-beta.0(tbd)
+
+### Changelog since v3.6.0-alpha.0
+- [Minor refactoring `raft.maybeSendAppend`](https://github.com/etcd-io/raft/pull/136)
+- [Add entryID and logSlice types](https://github.com/etcd-io/raft/pull/145)
+- [Fix next index might be smaller than match index](https://github.com/etcd-io/raft/pull/149)
+- [Minor refactoring raftLog initialization](https://github.com/etcd-io/raft/pull/151)
+- [cleanup Match, Next and MaybeUpdate](https://github.com/etcd-io/raft/pull/165)
+- [tracker: track in-flight commit index](https://github.com/etcd-io/raft/pull/171)
+- [Replace sort.Slice with slices.Sort, slices.SortFunc](https://github.com/etcd-io/raft/pull/221)
+
+### Others
+- [Introduce TLA+ trace validation](https://github.com/etcd-io/raft/pull/113)
+
+<hr>
+
 ## v3.6.0-alpha.0(2024-01-12)
 
 ### Features
