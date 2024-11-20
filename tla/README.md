@@ -83,6 +83,17 @@ By default validate.sh uses all CPU cores to validate the traces. You can also s
 
 Validating all traces in a file may take a long time. You can specify `MAX_TRACE` environment variable to limit the validation only on top `MAX_TRACE` traces in each file.
 
+## Trace Validation Test
+A special unit test TestTraceValidationWithRandomFaults is used to perform trace validation on traces from mock clusters running with random faults injected. You can use the command below to run the test.
+```console
+make trace-validation
+```
+
+By default, the trace validation test utilizes 2/3 of the available CPU cores on your system. It generates an equal number of trace sets within a temporary folder, which serves as the working directory. To customize these settings, you can leverage the following environment variables:
+* `WORKING_DIR`: This variable allows you to specify a custom working directory for the generated trace sets.
+* `TRACE_COUNT`: This variable lets you define the desired number of trace sets to be generated.
+* `PARALLEL`: This variable enables you to control the maximum number of trace validation jobs that run concurrently. This can be helpful for reducing system pressure by limiting CPU usage or for faster execution by utilizing more cores.
+
 ## Known Issues
 1. **Partially persisted log**. 
 etcdraft assumes atomic persisiting of states in Read action. This, however, may not apply in real-world application. For example, etcd may persist a prefix log when it crashes in the middle of saving data to disks. 
