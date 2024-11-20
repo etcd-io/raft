@@ -2,7 +2,7 @@ Note that we start to track changes starting from v3.6.
 
 <hr>
 
-## v3.6.0-beta.0(tbd)
+## v3.6.0-beta.0(2024-11-20)
 
 ### Changelog since v3.6.0-alpha.0
 - [Minor refactoring `raft.maybeSendAppend`](https://github.com/etcd-io/raft/pull/136)
