@@ -24,8 +24,8 @@ import (
 	"go.etcd.io/raft/v3/raftpb"
 )
 
-func (env *InteractionEnv) handleProcessApplyThread(t *testing.T, d datadriven.TestData) error {
-	idxs := nodeIdxs(t, d)
+func (env *InteractionEnv) handleProcessApplyThread(t *testing.T, args []datadriven.CmdArg) error {
+	idxs := nodeIdxs(t, args)
 	for _, idx := range idxs {
 		var err error
 		if len(idxs) > 1 {
