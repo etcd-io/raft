@@ -228,8 +228,10 @@ type Node interface {
 	// ReportUnreachable reports the given node is not reachable for the last send.
 	ReportUnreachable(id uint64)
 	// ReportSnapshot reports the status of the sent snapshot. The id is the raft ID of the follower
-	// who is meant to receive the snapshot, and the status is SnapshotFinish or SnapshotFailure.
-	// Calling ReportSnapshot with SnapshotFinish is a no-op. But, any failure in applying a
+	// who is meant to receive the snapshot, the status is SnapshotFinish or SnapshotFailure,
+	// and appliedSnapshotIndex represents the index of the snapshot that was successfully applied
+	// on the follower (only used when status is SnapshotFinish).
+	// Calling ReportSnapshot with SnapshotFinish updates the follower's progress. Any failure in applying a
 	// snapshot (for e.g., while streaming it from leader to follower), should be reported to the
 	// leader with SnapshotFailure. When leader sends a snapshot to a follower, it pauses any raft
 	// log probes until the follower can apply the snapshot and advance its state. If the follower
@@ -237,7 +239,7 @@ type Node interface {
 	// updates from the leader. Therefore, it is crucial that the application ensures that any
 	// failure in snapshot sending is caught and reported back to the leader; so it can resume raft
 	// log probing in the follower.
-	ReportSnapshot(id uint64, status SnapshotStatus)
+	ReportSnapshot(id uint64, status SnapshotStatus, appliedSnapshotIndex uint64)
 	// Stop performs any necessary termination of the Node.
 	Stop()
 }
@@ -583,11 +585,16 @@ func (n *node) ReportUnreachable(id uint64) {
 	}
 }
 
-func (n *node) ReportSnapshot(id uint64, status SnapshotStatus) {
+func (n *node) ReportSnapshot(id uint64, status SnapshotStatus, appliedSnapshotIndex uint64) {
 	rej := status == SnapshotFailure
 
 	select {
-	case n.recvc <- pb.Message{Type: pb.MsgSnapStatus, From: id, Reject: rej}:
+	case n.recvc <- pb.Message{
+		Type:                 pb.MsgSnapStatus,
+		From:                 id,
+		Reject:               rej,
+		AppliedSnapshotIndex: appliedSnapshotIndex,
+	}:
 	case <-n.done:
 	}
 }
