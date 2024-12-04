@@ -135,6 +135,13 @@ func (env *InteractionEnv) Handle(t *testing.T, d datadriven.TestData) string {
 		//
 		// tick-heartbeat 3
 		err = env.handleTickHeartbeat(t, d)
+	case "tick":
+		// Tick a specified interval on the given node.
+		//
+		// Example:
+		//
+		// tick 3 5
+		err = env.handleTick(t, d)
 	case "transfer-leadership":
 		// Transfer the Raft leader.
 		//
