@@ -263,10 +263,9 @@ func (ms *MemoryStorage) Compact(compactIndex uint64) error {
 	// NB: allocate a new slice instead of reusing the old ms.ents. Entries in
 	// ms.ents are immutable, and can be referenced from outside MemoryStorage
 	// through slices returned by ms.Entries().
-	ents := make([]pb.Entry, 1, uint64(len(ms.ents))-i)
-	ents[0].Index = ms.ents[i].Index
-	ents[0].Term = ms.ents[i].Term
-	ents = append(ents, ms.ents[i+1:]...)
+	remainingCount := len(ms.ents) - int(i)
+	ents := make([]pb.Entry, remainingCount)
+	copy(ents, ms.ents[i:])
 	ms.ents = ents
 	return nil
 }
