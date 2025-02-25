@@ -24,8 +24,8 @@ import (
 	"go.etcd.io/raft/v3"
 )
 
-func (env *InteractionEnv) handleRaftLog(t *testing.T, d datadriven.TestData) error {
-	idx := firstAsNodeIdx(t, d)
+func (env *InteractionEnv) handleRaftLog(t *testing.T, args []datadriven.CmdArg) error {
+	idx := firstAsNodeIdx(t, args)
 	return env.RaftLog(idx)
 }
 
