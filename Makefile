@@ -13,7 +13,7 @@ verify-dep:
 
 .PHONY: verify-lint
 verify-lint:
-	golangci-lint run
+	go tool golangci-lint run
 
 .PHONY: verify-mod-tidy
 verify-mod-tidy:
