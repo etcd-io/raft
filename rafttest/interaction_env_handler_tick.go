@@ -15,6 +15,7 @@
 package rafttest
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/cockroachdb/datadriven"
@@ -28,6 +29,21 @@ func (env *InteractionEnv) handleTickElection(t *testing.T, d datadriven.TestDat
 func (env *InteractionEnv) handleTickHeartbeat(t *testing.T, d datadriven.TestData) error {
 	idx := firstAsNodeIdx(t, d)
 	return env.Tick(idx, env.Nodes[idx].Config.HeartbeatTick)
+}
+
+func (env *InteractionEnv) handleTick(t *testing.T, d datadriven.TestData) error {
+	idx := firstAsNodeIdx(t, d)
+
+	if len(d.CmdArgs) != 2 || len(d.CmdArgs[1].Vals) > 0 {
+		t.Fatalf("expected exactly one key with no vals: %+v", d.CmdArgs[1:])
+	}
+
+	n, err := strconv.Atoi(d.CmdArgs[1].Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return env.Tick(idx, n)
 }
 
 // Tick the node at the given index the given number of times.
