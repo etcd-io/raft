@@ -22,20 +22,14 @@
 package tools
 
 import (
-	_ "github.com/alexkohler/nakedret"
 	_ "github.com/chzchzchz/goword"
 	_ "github.com/coreos/license-bill-of-materials"
 	_ "github.com/google/addlicense"
-	_ "github.com/gordonklaus/ineffassign"
 	_ "github.com/gyuho/gocovmerge"
 	_ "github.com/hexfusion/schwag"
-	_ "github.com/mdempsky/unconvert"
-	_ "github.com/mgechev/revive"
 	_ "github.com/mikefarah/yq/v4"
 	_ "go.etcd.io/gofail"
 	_ "go.etcd.io/protodoc"
 	_ "gotest.tools/gotestsum"
 	_ "gotest.tools/v3"
-	_ "honnef.co/go/tools/cmd/staticcheck"
-	_ "mvdan.cc/unparam"
 )
