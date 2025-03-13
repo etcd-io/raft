@@ -105,6 +105,8 @@ message Message {
 	// to respond and who to respond to when the work associated with a message
 	// is complete. Populated for MsgStorageAppend and MsgStorageApply messages.
 	repeated Message     responses   = 14 [(gogoproto.nullable) = false];
+  // applied_snapshot_index is used for MsgSnapStatus to report back the applied snapshot index.
+  optional uint64      applied_snapshot_index = 15 [(gogoproto.nullable) = false];
 }
 
 message HardState {
