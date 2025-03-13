@@ -1,16 +1,13 @@
-run:
-  timeout: 30m
-  skip-files:
-    - "^zz_generated.*"
-
 issues:
-  max-same-issues: 0
+  exclude-files:
+    - "^zz_generated.*"
   # Excluding configuration per-path, per-linter, per-text and per-source
   exclude-rules:
     # exclude ineffassing linter for generated files for conversion
     - path: conversion\.go
       linters:
         - ineffassign
+  max-same-issues: 0
 
 linters:
   disable-all: true
@@ -20,6 +17,7 @@ linters:
   # - deadcode
   # - structcheck
   # - varcheck
+    - gofmt
     - goimports
     - ineffassign
     - revive
@@ -39,3 +37,6 @@ linters-settings: # please keep this alphabetized
   stylecheck:
     checks:
       - "ST1019"  # Importing the same package multiple times.
+
+run:
+  timeout: 30m
