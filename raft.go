@@ -660,10 +660,12 @@ func (r *raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 			Type:  ent.Type,
 		}
 
+		fmt.Println("pre encode ", ent.Data)
 		// Encode (and potentially allocate new) data.
 		// If EncodeData always returns a new slice when changes are needed,
 		// we’re guaranteed not to mutate the storage-backed ent.Data.
 		entryCopy.Data = r.followerCache[to].EncodeData(ent.Data)
+		fmt.Println("post encode ", ent.Data)
 
 		// Now append the newly formed pb.Entry to our outbound slice.
 		entriesForFollower = append(entriesForFollower, entryCopy)
