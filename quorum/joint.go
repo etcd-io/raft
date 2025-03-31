@@ -16,24 +16,31 @@ package quorum
 
 // JointConfig is a configuration of two groups of (possibly overlapping)
 // majority configurations. Decisions require the support of both majorities.
-type JointConfig [2]MajorityConfig
+type JointConfig struct {
+	Incoming MajorityConfig
+	Outgoing MajorityConfig
+}
 
 func (c JointConfig) String() string {
-	if len(c[1]) > 0 {
-		return c[0].String() + "&&" + c[1].String()
+	if len(c.Outgoing) > 0 {
+		return c.Outgoing.String() + "&&" + c.Outgoing.String()
 	}
-	return c[0].String()
+	return c.Incoming.String()
 }
 
 // IDs returns a newly initialized map representing the set of voters present
 // in the joint configuration.
 func (c JointConfig) IDs() map[uint64]struct{} {
 	m := map[uint64]struct{}{}
-	for _, cc := range c {
-		for id := range cc {
-			m[id] = struct{}{}
-		}
+
+	for id := range c.Incoming {
+		m[id] = struct{}{}
 	}
+
+	for id := range c.Outgoing {
+		m[id] = struct{}{}
+	}
+
 	return m
 }
 
@@ -47,8 +54,8 @@ func (c JointConfig) Describe(l AckedIndexer) string {
 // quorum. An index is jointly committed if it is committed in both constituent
 // majorities.
 func (c JointConfig) CommittedIndex(l AckedIndexer) Index {
-	idx0 := c[0].CommittedIndex(l)
-	idx1 := c[1].CommittedIndex(l)
+	idx0 := c.Incoming.CommittedIndex(l)
+	idx1 := c.Outgoing.CommittedIndex(l)
 	if idx0 < idx1 {
 		return idx0
 	}
@@ -59,8 +66,8 @@ func (c JointConfig) CommittedIndex(l AckedIndexer) Index {
 // a result indicating whether the vote is pending, lost, or won. A joint quorum
 // requires both majority quorums to vote in favor.
 func (c JointConfig) VoteResult(votes map[uint64]bool) VoteResult {
-	r1 := c[0].VoteResult(votes)
-	r2 := c[1].VoteResult(votes)
+	r1 := c.Incoming.VoteResult(votes)
+	r2 := c.Outgoing.VoteResult(votes)
 
 	if r1 == r2 {
 		// If they agree, return the agreed state.
