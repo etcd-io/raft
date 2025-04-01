@@ -156,7 +156,6 @@ func (c MajorityConfig) CommittedIndex(l AckedIndexer) Index {
 	// quorum. In other words, from the end of the slice, move n/2+1 to the
 	// left (accounting for zero-indexing).
 	pos := n - (n/2 + 1)
-
 	return Index(srt[pos])
 }
 

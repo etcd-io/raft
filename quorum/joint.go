@@ -23,7 +23,7 @@ type JointConfig struct {
 
 func (c JointConfig) String() string {
 	if len(c.Outgoing) > 0 {
-		return c.Outgoing.String() + "&&" + c.Outgoing.String()
+		return c.Incoming.String() + "&&" + c.Outgoing.String()
 	}
 	return c.Incoming.String()
 }
