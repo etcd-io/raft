@@ -79,7 +79,7 @@ func (c Changer) EnterJoint(autoLeave bool, ccs ...pb.ConfChangeSingle) (tracker
 
 // LeaveJoint transitions out of a joint configuration. It is an error to call
 // this method if the configuration is not joint, i.e. if the outgoing majority
-// config Voters[1] is empty.
+// config Voters.Outgoing is empty.
 //
 // The outgoing majority config of the joint configuration will be removed,
 // that is, the incoming config is promoted as the sole decision maker. In the
@@ -121,7 +121,7 @@ func (c Changer) LeaveJoint() (tracker.Config, tracker.ProgressMap, error) {
 }
 
 // Simple carries out a series of configuration changes that (in aggregate)
-// mutates the incoming majority config Voters[0] by at most one. This method
+// mutates the incoming majority config Voters.Incomming by at most one. This method
 // will return an error if that is not the case, if the resulting quorum is
 // zero, or if the configuration is in a joint state (i.e. if there is an
 // outgoing configuration).
@@ -145,7 +145,7 @@ func (c Changer) Simple(ccs ...pb.ConfChangeSingle) (tracker.Config, tracker.Pro
 }
 
 // apply a change to the configuration. By convention, changes to voters are
-// always made to the incoming majority config Voters[0]. Voters[1] is either
+// always made to the incoming majority config Voters.Incoming. Voters.Outgoing is either
 // empty or preserves the outgoing majority configuration while in a joint state.
 func (c Changer) apply(cfg *tracker.Config, trk tracker.ProgressMap, ccs ...pb.ConfChangeSingle) error {
 	for _, cc := range ccs {
@@ -296,7 +296,7 @@ func checkInvariants(cfg tracker.Config, trk tracker.ProgressMap) error {
 	// to a conflicting voter in the outgoing config.
 	for id := range cfg.LearnersNext {
 		if _, ok := cfg.Voters.Outgoing[id]; !ok {
-			return fmt.Errorf("%d is in LearnersNext, but not Voters[1]", id)
+			return fmt.Errorf("%d is in LearnersNext, but not Voters.Outgoing", id)
 		}
 		if trk[id].IsLearner {
 			return fmt.Errorf("%d is in LearnersNext, but is already marked as learner", id)
@@ -305,10 +305,10 @@ func checkInvariants(cfg tracker.Config, trk tracker.ProgressMap) error {
 	// Conversely Learners and Voters doesn't intersect at all.
 	for id := range cfg.Learners {
 		if _, ok := cfg.Voters.Outgoing[id]; ok {
-			return fmt.Errorf("%d is in Learners and Voters[1]", id)
+			return fmt.Errorf("%d is in Learners and Voters.Outgoing", id)
 		}
 		if _, ok := cfg.Voters.Incoming[id]; ok {
-			return fmt.Errorf("%d is in Learners and Voters[0]", id)
+			return fmt.Errorf("%d is in Learners and Voters.Incomming", id)
 		}
 		if !trk[id].IsLearner {
 			return fmt.Errorf("%d is in Learners, but is not marked as learner", id)
@@ -318,7 +318,7 @@ func checkInvariants(cfg tracker.Config, trk tracker.ProgressMap) error {
 	if !joint(cfg) {
 		// We enforce that empty maps are nil instead of zero.
 		if cfg.Voters.Outgoing != nil {
-			return fmt.Errorf("cfg.Voters[1] must be nil when not joint")
+			return fmt.Errorf("cfg.Voters.Outgoing must be nil when not joint")
 		}
 		if cfg.LearnersNext != nil {
 			return fmt.Errorf("cfg.LearnersNext must be nil when not joint")
