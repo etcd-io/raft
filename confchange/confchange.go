@@ -121,7 +121,7 @@ func (c Changer) LeaveJoint() (tracker.Config, tracker.ProgressMap, error) {
 }
 
 // Simple carries out a series of configuration changes that (in aggregate)
-// mutates the incoming majority config Voters.Incomming by at most one. This method
+// mutates the incoming majority config Voters.Incoming by at most one. This method
 // will return an error if that is not the case, if the resulting quorum is
 // zero, or if the configuration is in a joint state (i.e. if there is an
 // outgoing configuration).
@@ -308,7 +308,7 @@ func checkInvariants(cfg tracker.Config, trk tracker.ProgressMap) error {
 			return fmt.Errorf("%d is in Learners and Voters.Outgoing", id)
 		}
 		if _, ok := cfg.Voters.Incoming[id]; ok {
-			return fmt.Errorf("%d is in Learners and Voters.Incomming", id)
+			return fmt.Errorf("%d is in Learners and Voters.Incoming", id)
 		}
 		if !trk[id].IsLearner {
 			return fmt.Errorf("%d is in Learners, but is not marked as learner", id)
