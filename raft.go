@@ -1835,7 +1835,13 @@ func (r *raft) handleAppendEntries(m pb.Message) {
 	// Decode each entry so that if the leader sent an integer reference,
 	// we restore the original key bytes.
 	for i, ent := range m.Entries {
+		if m.Entries[i].Index%100000 == 0 {
+			fmt.Println("size of received", m.Size())
+		}
 		m.Entries[i] = r.uniCache.DecodeEntry(ent)
+		if m.Entries[i].Index%100000 == 0 {
+			fmt.Println("size of decoded", m.Size())
+		}
 	}
 
 	// TODO(pav-kv): construct logSlice up the stack next to receiving the
