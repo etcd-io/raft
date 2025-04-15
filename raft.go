@@ -432,9 +432,8 @@ type raft struct {
 	// current term.
 	pendingReadIndexMessages []pb.Message
 
-	traceLogger   TraceLogger
-	uniCache      unicache.UniCache
-	followerCache map[uint64]unicache.UniCache
+	traceLogger TraceLogger
+	uniCache    unicache.UniCache
 }
 
 func newRaft(c *Config) *raft {
@@ -650,7 +649,7 @@ func (r *raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 		return r.maybeSendSnapshot(to, pr)
 	}
 
-	var entriesForFollower []pb.Entry
+	entriesForFollower := make([]pb.Entry, 0, len(ents))
 	for _, ent := range ents {
 		// Shallow-copy the struct fields, reusing the original ones.
 		// No separate allocation for Data yet.
@@ -663,13 +662,12 @@ func (r *raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 		// Encode (and potentially allocate new) data.
 		// If EncodeData always returns a new slice when changes are needed,
 		// we’re guaranteed not to mutate the storage-backed ent.Data.
-		entryCopy.Data = r.followerCache[to].EncodeData(ent.Data)
+		entryCopy.Data = r.uniCache.EncodeData(ent.Data, &pr.NextCacheId)
 
 		// Now append the newly formed pb.Entry to our outbound slice.
 		entriesForFollower = append(entriesForFollower, entryCopy)
 	}
 
-	// TODO: UniCache: Encode entries before send?
 	// Send the actual MsgApp otherwise, and update the progress accordingly.
 	r.send(pb.Message{
 		To:      to,
@@ -679,7 +677,7 @@ func (r *raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 		Entries: entriesForFollower,
 		Commit:  r.raftLog.committed,
 	})
-	pr.SentEntries(len(ents), uint64(payloadsSize(ents)))
+	pr.SentEntries(len(ents), uint64(payloadsSize(entriesForFollower)))
 	pr.SentCommit(r.raftLog.committed)
 	return true
 }
@@ -822,10 +820,11 @@ func (r *raft) reset(term uint64) {
 	r.trk.ResetVotes()
 	r.trk.Visit(func(id uint64, pr *tracker.Progress) {
 		*pr = tracker.Progress{
-			Match:     0,
-			Next:      r.raftLog.lastIndex() + 1,
-			Inflights: tracker.NewInflights(r.trk.MaxInflight, r.trk.MaxInflightBytes),
-			IsLearner: pr.IsLearner,
+			Match:       0,
+			Next:        r.raftLog.lastIndex() + 1,
+			Inflights:   tracker.NewInflights(r.trk.MaxInflight, r.trk.MaxInflightBytes),
+			IsLearner:   pr.IsLearner,
+			NextCacheId: r.uniCache.GetNextId(),
 		}
 		if id == r.id {
 			pr.Match = r.raftLog.lastIndex()
@@ -967,16 +966,6 @@ func (r *raft) becomeLeader() {
 	r.lead = r.id
 	r.state = StateLeader
 
-	// Initialize follower caches for per-follower encoding state.
-	// This map is keyed by follower ID. We assume that r.trk.Progress holds all
-	// nodes in the configuration (including the leader). We only need caches for followers.
-	r.followerCache = make(map[uint64]unicache.UniCache)
-	for id := range r.trk.Progress {
-		if id != r.id {
-			r.followerCache[id] = unicache.NewUniCache()
-		}
-	}
-
 	// Followers enter replicate mode when they've been successfully probed
 	// (perhaps after having received a snapshot as a result). The leader is
 	// trivially in this state. Note that r.reset() has initialized this
@@ -1001,8 +990,7 @@ func (r *raft) becomeLeader() {
 		r.logger.Panic("empty entry was dropped")
 	}
 
-	r.logger.Infof("Running jedeland10/raft")
-	r.logger.Infof("unicache raft impl")
+	//r.logger.Infof("Running jedeland10/raft")
 
 	// The payloadSize of an empty entry is 0 (see TestPayloadSizeOfEmptyEntry),
 	// so the preceding log append does not count against the uncommitted log
@@ -1832,16 +1820,11 @@ func logSliceFromMsgApp(m *pb.Message) logSlice {
 // Also, if log is not matching leaders, check if we have
 // appended entries that were never committed(?)
 func (r *raft) handleAppendEntries(m pb.Message) {
-	// Decode each entry so that if the leader sent an integer reference,
-	// we restore the original key bytes.
+
 	for i, ent := range m.Entries {
-		if m.Entries[i].Index%100000 == 0 {
-			fmt.Println("size of received", m.Size())
-		}
-		m.Entries[i] = r.uniCache.DecodeEntry(ent)
-		if m.Entries[i].Index%100000 == 0 {
-			fmt.Println("size of decoded", m.Size())
-		}
+		fmt.Println("size of received message: ", m.Size())
+		m.Entries[i], _ = r.uniCache.DecodeEntry(ent)
+		fmt.Println("size of decoded message: ", m.Size())
 	}
 
 	// TODO(pav-kv): construct logSlice up the stack next to receiving the
@@ -1853,7 +1836,6 @@ func (r *raft) handleAppendEntries(m pb.Message) {
 		return
 	}
 	if mlastIndex, ok := r.raftLog.maybeAppend(a, m.Commit); ok {
-		//r.logger.Info(r.id, " appended ", m.Entries)
 		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: mlastIndex})
 		return
 	}

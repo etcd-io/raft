@@ -1,6 +1,7 @@
 package unicache
 
 import (
+	"container/list"
 	"errors"
 	"fmt"
 
@@ -8,53 +9,40 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
-// cachedFieldNumber is the protobuf field number that we want to cache.
-// (Change this if your application uses a different field number.)
 const cachedFieldNumber = 1
 
-// UniCache is the interface that every Raft instance will implement.
+const maxCacheSize = 10000
+
 type UniCache interface {
-	// NewUniCache creates a new cache instance.
 	NewUniCache() UniCache
-
-	EncodeData(data []byte) []byte
-
-	// EncodeEntry processes a Raft log entry: it looks for the cached field in the
-	// entry’s Data and, if the field has been seen before, replaces its full value
-	// with a small integer reference.
-	EncodeEntry(entry pb.Entry) pb.Entry
-
-	// DecodeEntry undoes the encoding: if the entry’s Data contains an integer
-	// reference instead of a full key, it looks up the original bytes and restores them.
-	DecodeEntry(entry pb.Entry) pb.Entry
+	EncodeData(data []byte, nextId *uint32) []byte
+	EncodeEntry(entry pb.Entry, nextId *uint32) pb.Entry
+	DecodeEntry(entry pb.Entry) (pb.Entry, bool)
+	GetNextId() uint32
 }
 
-// uniCache is a concrete implementation of the UniCache interface.
-// It maintains two maps: one from int -> []byte and a reverse map from key (as string) -> int.
+type cacheEntry struct {
+	id  uint32
+	key []byte
+}
+
 type uniCache struct {
-	cache        map[uint32][]byte // id -> key bytes
-	reverseCache map[string]uint32 // key string -> id
-	nextID       uint32            // next id to assign
+	cache        map[uint32][]byte
+	reverseCache map[string]uint32
+	lruList      *list.List
+	lruMap       map[uint32]*list.Element
+	nextID       uint32
+	capacity     int
 }
 
-// cloneEntry creates a deep copy of the pb.Entry.
-func CloneEntry(ent pb.Entry) pb.Entry {
-	newData := make([]byte, len(ent.Data))
-	copy(newData, ent.Data)
-	return pb.Entry{
-		Term:  ent.Term,
-		Index: ent.Index,
-		Type:  ent.Type,
-		Data:  newData,
-	}
-}
-
-// NewUniCache creates a new uniCache instance.
 func NewUniCache() UniCache {
 	return &uniCache{
 		cache:        make(map[uint32][]byte),
 		reverseCache: make(map[string]uint32),
+		lruList:      list.New(),
+		lruMap:       make(map[uint32]*list.Element),
 		nextID:       1,
+		capacity:     maxCacheSize,
 	}
 }
 
@@ -63,159 +51,155 @@ func (uc *uniCache) NewUniCache() UniCache {
 	return NewUniCache()
 }
 
-func (uc *uniCache) EncodeData(data []byte) []byte {
+func (uc *uniCache) updateLRU(id uint32) {
+	if elem, ok := uc.lruMap[id]; ok {
+		uc.lruList.MoveToFront(elem)
+	}
+}
+
+func (uc *uniCache) addToLRU(id uint32, key []byte) {
+	entry := cacheEntry{id: id, key: key}
+	elem := uc.lruList.PushFront(entry)
+	uc.lruMap[id] = elem
+
+	if uc.lruList.Len() > uc.capacity {
+		uc.evictLRU()
+	}
+}
+
+func (uc *uniCache) evictLRU() {
+	elem := uc.lruList.Back()
+	if elem == nil {
+		return
+	}
+	entry := elem.Value.(cacheEntry)
+
+	delete(uc.cache, entry.id)
+	delete(uc.reverseCache, string(entry.key))
+	delete(uc.lruMap, entry.id)
+	uc.lruList.Remove(elem)
+}
+
+func (uc *uniCache) GetNextId() uint32 {
+	return uc.nextID
+}
+
+func (uc *uniCache) EncodeData(data []byte, nextId *uint32) []byte {
 	if len(data) == 0 {
 		return data
 	}
-
-	// 2) Extract the keyBytes
+	// Extract the keyBytes: bytes representing the field to be encoded.
 	keyBytes, _, err := GetProtoFieldAndWireType(data, cachedFieldNumber)
 	if err != nil {
 		return data
 	}
 
-	// 3) Check if key is cached
-	if id, ok := uc.reverseCache[string(keyBytes)]; ok {
+	keyStr := string(keyBytes)
+	id, ok := uc.reverseCache[keyStr]
+
+	if ok && id < *nextId {
+		uc.updateLRU(id)
+
 		encodedID := protowire.AppendVarint(nil, uint64(id))
 		newData, err := ReplaceProtoField(data, cachedFieldNumber, encodedID, protowire.VarintType)
 		if err != nil {
 			return data
 		}
-		data = newData
-	} else {
-		// Cache miss -> store key
-		newID := uc.nextID
-		uc.nextID++
-		uc.cache[newID] = keyBytes
-		uc.reverseCache[string(keyBytes)] = newID
+		return newData
 	}
+
+	newID := *nextId
+	if _, exists := uc.lruMap[newID]; exists {
+		uc.updateLRU(newID)
+	} else {
+		uc.addToLRU(newID, keyBytes)
+	}
+
+	uc.cache[newID] = keyBytes
+	uc.reverseCache[keyStr] = newID
+	(*nextId)++
 	return data
 }
 
-// EncodeEntry looks for the cached field inside entry.Data.
-// If the key is already known, it replaces the field value with a varint id.
-// Otherwise it adds the key to the cache and leaves the entry unchanged.
-func (uc *uniCache) EncodeEntry(entry pb.Entry) pb.Entry {
-	// Try to extract the key field from the entry data.
-	keyBytes, _, err := GetProtoFieldAndWireType(entry.Data, cachedFieldNumber)
-	if err != nil {
-		// Field not found – nothing to cache.
+func (uc *uniCache) EncodeEntry(entry pb.Entry, nextId *uint32) pb.Entry {
+	if len(entry.Data) == 0 {
 		return entry
 	}
 
-	// Check if the key is already known.
-	if id, ok := uc.reverseCache[string(keyBytes)]; ok {
-		// Create a new varint value representing the id.
-		newValue := protowire.AppendVarint(nil, uint64(id))
-		// Replace the field (with field number cachedFieldNumber) with the id (and wire type Varint).
-		newData, err := ReplaceProtoField(entry.Data, cachedFieldNumber, newValue, protowire.VarintType)
+	keyBytes, _, err := GetProtoFieldAndWireType(entry.Data, cachedFieldNumber)
+	if err != nil {
+		return entry
+	}
+	keyStr := string(keyBytes)
+	id, ok := uc.reverseCache[keyStr]
+
+	if ok && id < *nextId {
+		// Update LRU status.
+		uc.updateLRU(id)
+		encodedID := protowire.AppendVarint(nil, uint64(id))
+		newData, err := ReplaceProtoField(entry.Data, cachedFieldNumber, encodedID, protowire.VarintType)
 		if err != nil {
-			// In case of error (e.g. parsing problem), return the entry unchanged.
 			return entry
 		}
 		entry.Data = newData
-	} else {
-		// Key not in cache: assign a new id and add it.
-		id := uc.nextID
-		uc.nextID++
-		uc.cache[id] = keyBytes
-		uc.reverseCache[string(keyBytes)] = id
-		// Leave entry.Data unchanged.
 	}
+
+	newID := *nextId
+	if _, exists := uc.lruMap[newID]; exists {
+		uc.updateLRU(newID)
+	} else {
+		uc.addToLRU(newID, keyBytes)
+	}
+
+	uc.cache[newID] = keyBytes
+	uc.reverseCache[keyStr] = newID
+	(*nextId)++
 	return entry
 }
 
-// DecodeEntry reverses the encoding: if the target field is a varint (i.e. an id reference)
-// then it looks up the original key bytes in the cache and replaces the field with a bytes value.
-func (uc *uniCache) DecodeEntry(entry pb.Entry) pb.Entry {
-	// Scan the entry data for the target field.
-	data := entry.Data
-	var foundWireType protowire.Type
-	var fieldValue []byte
-	var found bool
-	for len(data) > 0 {
-		fieldNum, wireType, n := protowire.ConsumeTag(data)
-		if n < 0 {
-			break
-		}
-		data = data[n:]
-		if int(fieldNum) == cachedFieldNumber {
-			switch wireType {
-			case protowire.VarintType:
-				v, n := protowire.ConsumeVarint(data)
-				if n < 0 {
-					break
-				}
-				fieldValue = protowire.AppendVarint(nil, v)
-				foundWireType = wireType
-				found = true
-			case protowire.BytesType:
-				v, n := protowire.ConsumeBytes(data)
-				if n < 0 {
-					break
-				}
-				fieldValue = v
-				foundWireType = wireType
-				found = true
-			default:
-				// For our purposes we expect either Varint (the encoded id)
-				// or Bytes (the full key).
-			}
-			break
-		} else {
-			// Skip non-target fields.
-			var skip int
-			switch wireType {
-			case protowire.VarintType:
-				_, skip = protowire.ConsumeVarint(data)
-			case protowire.Fixed32Type:
-				_, skip = protowire.ConsumeFixed32(data)
-			case protowire.Fixed64Type:
-				_, skip = protowire.ConsumeFixed64(data)
-			case protowire.BytesType:
-				_, skip = protowire.ConsumeBytes(data)
-			case protowire.StartGroupType:
-				_, skip = protowire.ConsumeGroup(fieldNum, data)
-			default:
-			}
-			if skip < 0 {
-				break
-			}
-			data = data[skip:]
-		}
-	}
-	if !found {
-		// Nothing to do.
-		return entry
+func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
+	if len(entry.Data) == 0 {
+		return entry, true
 	}
 
-	// If the field is encoded as varint, it is an id reference.
-	if foundWireType == protowire.VarintType {
-		// Decode the id.
-		id, _ := protowire.ConsumeVarint(fieldValue)
-		// Look up the key bytes in the cache.
-		keyBytes, ok := uc.cache[uint32(id)]
-		if !ok {
-			// If the cache is missing the key, return the entry as is.
-			return entry
+	keyField, wireType, err := GetProtoFieldAndWireType(entry.Data, cachedFieldNumber)
+	if err != nil {
+		return entry, true
+	}
+	if wireType == protowire.BytesType {
+		keyStr := string(keyField)
+		if id, ok := uc.reverseCache[keyStr]; !ok {
+			newID := uc.nextID
+			uc.nextID++
+			uc.cache[newID] = keyField
+			uc.reverseCache[keyStr] = newID
+			uc.addToLRU(newID, keyField)
+		} else {
+			uc.updateLRU(id)
 		}
-		// Replace the field with the original key bytes, encoded as a bytes field.
-		newValue := protowire.AppendBytes(nil, keyBytes)
-		newData, err := ReplaceProtoField(entry.Data, cachedFieldNumber, newValue, protowire.BytesType)
+		return entry, true
+	} else if wireType == protowire.VarintType {
+		id, n := protowire.ConsumeVarint(keyField)
+		if n <= 0 {
+			return entry, false
+		}
+		origKey, ok := uc.cache[uint32(id)]
+		if !ok {
+			fmt.Println("DecodeEntry - id not found in cache:", id)
+			fmt.Println("cache size", uc.lruList.Len())
+			return entry, false
+		}
+		uc.updateLRU(uint32(id))
+		newData, err := ReplaceProtoField(entry.Data, cachedFieldNumber, origKey, protowire.BytesType)
 		if err != nil {
-			return entry
+			fmt.Println("DecodeEntry - error replacing key field:", err)
+			return entry, false
 		}
 		entry.Data = newData
-	} else if foundWireType == protowire.BytesType {
-		// This is a full key. To help future decoding, add it to the cache if it isn’t already there.
-		if _, ok := uc.reverseCache[string(fieldValue)]; !ok {
-			id := uc.nextID
-			uc.nextID++
-			uc.cache[id] = fieldValue
-			uc.reverseCache[string(fieldValue)] = id
-		}
+		return entry, true
+	} else {
+		return entry, true
 	}
-	return entry
 }
 
 // ReplaceProtoField is a helper that scans a protobuf-encoded message in data,
@@ -228,7 +212,6 @@ func ReplaceProtoField(data []byte, targetField int, newValue []byte, newWireTyp
 		if n < 0 {
 			return nil, errors.New("failed to consume tag")
 		}
-		// Get the original tag bytes.
 		originalTag := protowire.AppendTag(nil, fieldNum, wireType)
 		data = data[n:]
 		var fieldBytes []byte
@@ -260,7 +243,7 @@ func ReplaceProtoField(data []byte, targetField int, newValue []byte, newWireTyp
 			if m < 0 {
 				return nil, errors.New("failed to consume bytes")
 			}
-			// Re-encode the consumed bytes with a length prefix.
+			// For non-replaced fields, we want to keep the full encoding (tag + length + value)
 			fieldBytes = protowire.AppendBytes(nil, v)
 			skip = m
 		case protowire.StartGroupType:
@@ -275,11 +258,18 @@ func ReplaceProtoField(data []byte, targetField int, newValue []byte, newWireTyp
 		}
 
 		if int(fieldNum) == targetField {
+			// Build the new field.
+			var encodedNewValue []byte
+			if newWireType == protowire.BytesType {
+				encodedNewValue = protowire.AppendBytes(nil, newValue)
+			} else {
+				encodedNewValue = newValue
+			}
 			newTag := protowire.AppendTag(nil, protowire.Number(targetField), newWireType)
 			out = append(out, newTag...)
-			out = append(out, newValue...)
+			out = append(out, encodedNewValue...)
 		} else {
-			// Otherwise, keep the original tag and re-encoded value.
+			// Keep the field unchanged.
 			out = append(out, originalTag...)
 			out = append(out, fieldBytes...)
 		}
@@ -305,7 +295,6 @@ func ReplaceProtoFieldInPlaceCompress(data []byte, targetField int, newValue []b
 		start := i
 		// Consume the tag.
 		fieldNum, wireType, n := protowire.ConsumeTag(data[i:])
-		fmt.Println("fieldnum: ", fieldNum, "wiretype", wireType)
 		if n < 0 {
 			return nil, errors.New("failed to consume tag")
 		}
@@ -376,7 +365,6 @@ func ReplaceProtoFieldInPlaceCompress(data []byte, targetField int, newValue []b
 	for _, f := range fields {
 		newTotalLen += f.newLen
 	}
-	// In a compressing scenario, newTotalLen is guaranteed to be <= len(data).
 
 	// Second pass: Copy fields backwards to avoid overwriting data that hasn't been moved.
 	writePos := newTotalLen

@@ -40,6 +40,10 @@ type Progress struct {
 	// In StateSnapshot, Next == PendingSnapshot + 1.
 	Next uint64
 
+	// UniCacheNext is the next integer to
+	// be used to encode an entry
+	NextCacheId uint32
+
 	// sentCommit is the highest commit index in flight to the follower.
 	//
 	// Generally, it is monotonic, but con regress in some cases, e.g. when
