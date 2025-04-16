@@ -1822,9 +1822,7 @@ func logSliceFromMsgApp(m *pb.Message) logSlice {
 func (r *raft) handleAppendEntries(m pb.Message) {
 
 	for i, ent := range m.Entries {
-		fmt.Println("size of received message: ", m.Size())
 		m.Entries[i], _ = r.uniCache.DecodeEntry(ent)
-		fmt.Println("size of decoded message: ", m.Size())
 	}
 
 	// TODO(pav-kv): construct logSlice up the stack next to receiving the

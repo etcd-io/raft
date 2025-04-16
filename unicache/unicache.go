@@ -118,6 +118,7 @@ func (uc *uniCache) EncodeData(data []byte, nextId *uint32) []byte {
 	uc.cache[newID] = keyBytes
 	uc.reverseCache[keyStr] = newID
 	(*nextId)++
+
 	return data
 }
 
