@@ -16,7 +16,6 @@ const maxCacheSize = 10000
 type UniCache interface {
 	NewUniCache() UniCache
 	EncodeData(data []byte, nextId *uint32) []byte
-	EncodeEntry(entry pb.Entry, nextId *uint32) pb.Entry
 	DecodeEntry(entry pb.Entry) (pb.Entry, bool)
 	GetNextId() uint32
 }
@@ -88,8 +87,11 @@ func (uc *uniCache) EncodeData(data []byte, nextId *uint32) []byte {
 	if len(data) == 0 {
 		return data
 	}
+
+	fmt.Println("data: ", data)
 	// Extract the keyBytes: bytes representing the field to be encoded.
 	keyBytes, _, err := GetProtoFieldAndWireType(data, cachedFieldNumber)
+	fmt.Println("keybytes:", keyBytes)
 	if err != nil {
 		return data
 	}
@@ -101,7 +103,8 @@ func (uc *uniCache) EncodeData(data []byte, nextId *uint32) []byte {
 		uc.updateLRU(id)
 
 		encodedID := protowire.AppendVarint(nil, uint64(id))
-		newData, err := ReplaceProtoField(data, cachedFieldNumber, encodedID, protowire.VarintType)
+		newData, err := ReplaceProtoFieldInPlaceCompress(data, cachedFieldNumber, encodedID, protowire.VarintType)
+		fmt.Println("newdata: ", newData)
 		if err != nil {
 			return data
 		}
@@ -117,45 +120,11 @@ func (uc *uniCache) EncodeData(data []byte, nextId *uint32) []byte {
 
 	uc.cache[newID] = keyBytes
 	uc.reverseCache[keyStr] = newID
+	fmt.Println("add to cache: ", keyStr)
+	fmt.Println("cache: ", uc.cache)
 	(*nextId)++
 
 	return data
-}
-
-func (uc *uniCache) EncodeEntry(entry pb.Entry, nextId *uint32) pb.Entry {
-	if len(entry.Data) == 0 {
-		return entry
-	}
-
-	keyBytes, _, err := GetProtoFieldAndWireType(entry.Data, cachedFieldNumber)
-	if err != nil {
-		return entry
-	}
-	keyStr := string(keyBytes)
-	id, ok := uc.reverseCache[keyStr]
-
-	if ok && id < *nextId {
-		// Update LRU status.
-		uc.updateLRU(id)
-		encodedID := protowire.AppendVarint(nil, uint64(id))
-		newData, err := ReplaceProtoField(entry.Data, cachedFieldNumber, encodedID, protowire.VarintType)
-		if err != nil {
-			return entry
-		}
-		entry.Data = newData
-	}
-
-	newID := *nextId
-	if _, exists := uc.lruMap[newID]; exists {
-		uc.updateLRU(newID)
-	} else {
-		uc.addToLRU(newID, keyBytes)
-	}
-
-	uc.cache[newID] = keyBytes
-	uc.reverseCache[keyStr] = newID
-	(*nextId)++
-	return entry
 }
 
 func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
