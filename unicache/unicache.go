@@ -13,6 +13,7 @@ const cachedFieldNumber = 1
 
 const maxCacheSize = 10000
 
+// UniCache defines methods for encoding/decoding entries with key caching.
 type UniCache interface {
 	NewUniCache() UniCache
 	EncodeData(data []byte, nextId *uint32) []byte
@@ -34,6 +35,7 @@ type uniCache struct {
 	capacity     int
 }
 
+// NewUniCache constructs a UniCache with simple LRU caching.
 func NewUniCache() UniCache {
 	return &uniCache{
 		cache:        make(map[uint32][]byte),
@@ -83,15 +85,14 @@ func (uc *uniCache) GetNextId() uint32 {
 	return uc.nextID
 }
 
+// EncodeData replaces a cached key with a varint ID by first copying
+// the original slice and then doing an in-place compress on the copy.
 func (uc *uniCache) EncodeData(data []byte, nextId *uint32) []byte {
 	if len(data) == 0 {
 		return data
 	}
-
-	fmt.Println("data: ", data)
-	// Extract the keyBytes: bytes representing the field to be encoded.
+	// 1) Extract the keyBytes
 	keyBytes, _, err := GetProtoFieldAndWireType(data, cachedFieldNumber)
-	fmt.Println("keybytes:", keyBytes)
 	if err != nil {
 		return data
 	}
@@ -102,31 +103,30 @@ func (uc *uniCache) EncodeData(data []byte, nextId *uint32) []byte {
 	if ok && id < *nextId {
 		uc.updateLRU(id)
 
+		// 2) Copy original data into a new buffer
+		buf := make([]byte, len(data))
+		copy(buf, data)
+
+		// 3) Compress in-place on the copy
 		encodedID := protowire.AppendVarint(nil, uint64(id))
-		newData, err := ReplaceProtoFieldInPlaceCompress(data, cachedFieldNumber, encodedID, protowire.VarintType)
-		fmt.Println("newdata: ", newData)
-		if err != nil {
-			return data
+		newData, err := ReplaceProtoFieldInPlaceCompress(buf, cachedFieldNumber, encodedID, protowire.VarintType)
+		if err == nil {
+			return newData
 		}
-		return newData
+		// on error, fall through and return original
 	}
 
+	// MISS path: record key and update LRU, leave original data untouched
 	newID := *nextId
-	if _, exists := uc.lruMap[newID]; exists {
-		uc.updateLRU(newID)
-	} else {
-		uc.addToLRU(newID, keyBytes)
-	}
-
-	uc.cache[newID] = keyBytes
 	uc.reverseCache[keyStr] = newID
-	fmt.Println("add to cache: ", keyStr)
-	fmt.Println("cache: ", uc.cache)
-	(*nextId)++
+	uc.cache[newID] = keyBytes
+	uc.addToLRU(newID, keyBytes)
+	*nextId++
 
 	return data
 }
 
+// DecodeEntry restores original key bytes or caches first-seen keys.
 func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
 	if len(entry.Data) == 0 {
 		return entry, true
@@ -155,26 +155,19 @@ func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
 		}
 		origKey, ok := uc.cache[uint32(id)]
 		if !ok {
-			fmt.Println("DecodeEntry - id not found in cache:", id)
-			fmt.Println("cache size", uc.lruList.Len())
 			return entry, false
 		}
 		uc.updateLRU(uint32(id))
 		newData, err := ReplaceProtoField(entry.Data, cachedFieldNumber, origKey, protowire.BytesType)
-		if err != nil {
-			fmt.Println("DecodeEntry - error replacing key field:", err)
-			return entry, false
+		if err == nil {
+			entry.Data = newData
 		}
-		entry.Data = newData
 		return entry, true
 	} else {
 		return entry, true
 	}
 }
 
-// ReplaceProtoField is a helper that scans a protobuf-encoded message in data,
-// and whenever it finds a field with number targetField it replaces that field’s value
-// with newValue and uses newWireType. (It leaves all other fields unchanged.)
 func ReplaceProtoField(data []byte, targetField int, newValue []byte, newWireType protowire.Type) ([]byte, error) {
 	var out []byte
 	for len(data) > 0 {
@@ -248,121 +241,99 @@ func ReplaceProtoField(data []byte, targetField int, newValue []byte, newWireTyp
 	return out, nil
 }
 
-// ReplaceProtoFieldInPlaceCompress replaces occurrences of the target field in the
-// protobuf message contained in data, handling only the compressing case (new encoding is shorter).
-// For BytesType fields, it correctly inserts the length prefix.
+// ReplaceProtoFieldInPlaceCompress replaces a field in-place when the new encoding is shorter.
 func ReplaceProtoFieldInPlaceCompress(data []byte, targetField int, newValue []byte, newWireType protowire.Type) ([]byte, error) {
 	type fieldInfo struct {
-		start    int  // start index of the field in the original slice
-		end      int  // end index (exclusive)
-		isTarget bool // whether this field is the one to replace
-		newLen   int  // the length of the field after replacement
+		start    int
+		end      int
+		isTarget bool
+		newLen   int
 	}
 	var fields []fieldInfo
 	i := 0
-	// First pass: record each field's boundaries and compute new lengths.
 	for i < len(data) {
 		start := i
-		// Consume the tag.
 		fieldNum, wireType, n := protowire.ConsumeTag(data[i:])
 		if n < 0 {
-			return nil, errors.New("failed to consume tag")
+			return nil, errors.New("bad tag")
 		}
 		i += n
 
-		var skip int
+		var oldValLen int
 		switch wireType {
 		case protowire.VarintType:
-			_, m := protowire.ConsumeVarint(data[i:])
-			if m < 0 {
-				return nil, errors.New("failed to consume varint")
-			}
-			skip = m
-		case protowire.Fixed32Type:
-			_, m := protowire.ConsumeFixed32(data[i:])
-			if m < 0 {
-				return nil, errors.New("failed to consume fixed32")
-			}
-			skip = m
-		case protowire.Fixed64Type:
-			_, m := protowire.ConsumeFixed64(data[i:])
-			if m < 0 {
-				return nil, errors.New("failed to consume fixed64")
-			}
-			skip = m
+			_, vLen := protowire.ConsumeVarint(data[i:])
+			oldValLen = vLen
 		case protowire.BytesType:
-			_, m := protowire.ConsumeBytes(data[i:])
-			if m < 0 {
-				return nil, errors.New("failed to consume bytes")
-			}
-			skip = m
-		case protowire.StartGroupType:
-			_, m := protowire.ConsumeGroup(fieldNum, data[i:])
-			if m < 0 {
-				return nil, errors.New("failed to consume group")
-			}
-			skip = m
+			_, vLen := protowire.ConsumeBytes(data[i:])
+			oldValLen = vLen
 		default:
-			return nil, fmt.Errorf("unknown wire type: %v", wireType)
+			skip, _ := skipField(wireType, data[i:])
+			i += skip
+			continue
 		}
-		i += skip
+		end := i + oldValLen
 
-		origFieldLen := i - start
 		isTarget := int(fieldNum) == targetField
-		newFieldLen := origFieldLen
+		newLen := end - start
 		if isTarget {
-			// Build the new tag.
 			newTag := protowire.AppendTag(nil, protowire.Number(targetField), newWireType)
-			// For BytesType fields, the proper encoding uses protowire.AppendBytes,
-			// which adds a length prefix. For other types, we use newValue directly.
-			var newFieldBytes []byte
+			var newField []byte
 			if newWireType == protowire.BytesType {
-				newFieldBytes = protowire.AppendBytes(nil, newValue)
+				newField = protowire.AppendBytes(nil, newValue)
 			} else {
-				newFieldBytes = newValue
+				newField = newValue
 			}
-			newFieldLen = len(newTag) + len(newFieldBytes)
-			// We expect newFieldLen to be <= origFieldLen.
-			if newFieldLen > origFieldLen {
-				return nil, fmt.Errorf("new field encoding is larger than original; expected compressing")
+			newLen = len(newTag) + len(newField)
+			if newLen > end-start {
+				return nil, fmt.Errorf("new field encoding is larger than original")
 			}
 		}
-		fields = append(fields, fieldInfo{start: start, end: i, isTarget: isTarget, newLen: newFieldLen})
+		fields = append(fields, fieldInfo{start, end, isTarget, newLen})
+		i = end
 	}
 
-	// Calculate the total new length.
-	newTotalLen := 0
+	// compute total
+	newTotal := 0
 	for _, f := range fields {
-		newTotalLen += f.newLen
+		newTotal += f.newLen
 	}
-
-	// Second pass: Copy fields backwards to avoid overwriting data that hasn't been moved.
-	writePos := newTotalLen
+	writePos := newTotal
 	for j := len(fields) - 1; j >= 0; j-- {
 		f := fields[j]
 		writePos -= f.newLen
 		if f.isTarget {
 			newTag := protowire.AppendTag(nil, protowire.Number(targetField), newWireType)
-			var newFieldBytes []byte
+			var newField []byte
 			if newWireType == protowire.BytesType {
-				newFieldBytes = protowire.AppendBytes(nil, newValue)
+				newField = protowire.AppendBytes(nil, newValue)
 			} else {
-				newFieldBytes = newValue
+				newField = newValue
 			}
 			copy(data[writePos:], newTag)
-			copy(data[writePos+len(newTag):], newFieldBytes)
+			copy(data[writePos+len(newTag):], newField)
 		} else {
 			copy(data[writePos:], data[f.start:f.end])
 		}
 	}
 
-	// Return the slice re-sliced to the new length.
-	return data[:newTotalLen], nil
+	return data[:newTotal], nil
 }
 
-// GetProtoFieldAndWireType scans the provided protobuf-encoded data looking for the first
-// occurrence of the field with number targetField. It returns the raw value bytes, the field’s wire type,
-// or an error if the field isn’t found.
+func skipField(wt protowire.Type, data []byte) (int, error) {
+	switch wt {
+	case protowire.Fixed32Type:
+		return 4, nil
+	case protowire.Fixed64Type:
+		return 8, nil
+	case protowire.StartGroupType:
+		_, n := protowire.ConsumeGroup(0, data)
+		return n, nil
+	default:
+		return 0, fmt.Errorf("unsupported wire type %v", wt)
+	}
+}
+
 func GetProtoFieldAndWireType(data []byte, targetField int) ([]byte, protowire.Type, error) {
 	for len(data) > 0 {
 		fieldNum, wireType, n := protowire.ConsumeTag(data)
@@ -373,32 +344,32 @@ func GetProtoFieldAndWireType(data []byte, targetField int) ([]byte, protowire.T
 		if int(fieldNum) == targetField {
 			switch wireType {
 			case protowire.VarintType:
-				v, n := protowire.ConsumeVarint(data)
-				if n < 0 {
+				v, nn := protowire.ConsumeVarint(data)
+				if nn < 0 {
 					return nil, 0, errors.New("failed to consume varint")
 				}
 				return protowire.AppendVarint(nil, v), wireType, nil
 			case protowire.BytesType:
-				v, n := protowire.ConsumeBytes(data)
-				if n < 0 {
+				v, nn := protowire.ConsumeBytes(data)
+				if nn < 0 {
 					return nil, 0, errors.New("failed to consume bytes")
 				}
 				return v, wireType, nil
 			case protowire.Fixed32Type:
-				v, n := protowire.ConsumeFixed32(data)
-				if n < 0 {
+				v, nn := protowire.ConsumeFixed32(data)
+				if nn < 0 {
 					return nil, 0, errors.New("failed to consume fixed32")
 				}
 				return protowire.AppendFixed32(nil, v), wireType, nil
 			case protowire.Fixed64Type:
-				v, n := protowire.ConsumeFixed64(data)
-				if n < 0 {
+				v, nn := protowire.ConsumeFixed64(data)
+				if nn < 0 {
 					return nil, 0, errors.New("failed to consume fixed64")
 				}
 				return protowire.AppendFixed64(nil, v), wireType, nil
 			case protowire.StartGroupType:
-				v, n := protowire.ConsumeGroup(fieldNum, data)
-				if n < 0 {
+				v, nn := protowire.ConsumeGroup(fieldNum, data)
+				if nn < 0 {
 					return nil, 0, errors.New("failed to consume group")
 				}
 				return v, wireType, nil
@@ -406,7 +377,6 @@ func GetProtoFieldAndWireType(data []byte, targetField int) ([]byte, protowire.T
 				return nil, 0, fmt.Errorf("unknown wire type: %v", wireType)
 			}
 		} else {
-			// Skip this field.
 			var skip int
 			switch wireType {
 			case protowire.VarintType:

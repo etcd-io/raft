@@ -1822,15 +1822,13 @@ func logSliceFromMsgApp(m *pb.Message) logSlice {
 func (r *raft) handleAppendEntries(m pb.Message) {
 
 	for i, ent := range m.Entries {
-		//if ent.Index%50000 == 0 {
-		fmt.Println("Size of received: ", m.Entries[i].Size())
-		fmt.Println("entry: ", m.Entries[i])
-		//}
+		if ent.Index%50000 == 0 {
+			fmt.Println("Size of received: ", m.Entries[i].Size())
+		}
 		m.Entries[i], _ = r.uniCache.DecodeEntry(ent)
-		//if ent.Index%50000 == 0 {
-		fmt.Println("Size of decoded: ", m.Entries[i].Size())
-		fmt.Println("entry: ", m.Entries[i])
-		//}
+		if ent.Index%50000 == 0 {
+			fmt.Println("Size of decoded: ", m.Entries[i].Size())
+		}
 	}
 
 	// TODO(pav-kv): construct logSlice up the stack next to receiving the
