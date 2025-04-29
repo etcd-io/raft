@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"errors"
 	"fmt"
+	"sync"
 
 	pb "go.etcd.io/raft/v3/raftpb"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -16,7 +17,7 @@ const maxCacheSize = 10000
 // UniCache defines methods for encoding/decoding entries with key caching.
 type UniCache interface {
 	NewUniCache() UniCache
-	EncodeData(data []byte, nextId *uint32) []byte
+	EncodeData(data []byte) []byte
 	DecodeEntry(entry pb.Entry) (pb.Entry, bool)
 	GetNextId() uint32
 }
@@ -27,6 +28,7 @@ type cacheEntry struct {
 }
 
 type uniCache struct {
+	mu           sync.RWMutex
 	cache        map[uint32][]byte
 	reverseCache map[string]uint32
 	lruList      *list.List
@@ -82,12 +84,15 @@ func (uc *uniCache) evictLRU() {
 }
 
 func (uc *uniCache) GetNextId() uint32 {
+	uc.mu.Lock()
+	defer uc.mu.Unlock()
+
 	return uc.nextID
 }
 
 // EncodeData replaces a cached key with a varint ID by first copying
 // the original slice and then doing an in-place compress on the copy.
-func (uc *uniCache) EncodeData(data []byte, nextId *uint32) []byte {
+func (uc *uniCache) EncodeData(data []byte) []byte {
 	if len(data) == 0 {
 		return data
 	}
@@ -97,31 +102,29 @@ func (uc *uniCache) EncodeData(data []byte, nextId *uint32) []byte {
 		return data
 	}
 
+	uc.mu.Lock()
+	defer uc.mu.Unlock()
+
 	keyStr := string(keyBytes)
 	id, ok := uc.reverseCache[keyStr]
 
-	if ok && id < *nextId {
+	if ok && id < uc.nextID {
 		uc.updateLRU(id)
-
-		// 2) Copy original data into a new buffer
-		buf := make([]byte, len(data))
-		copy(buf, data)
 
 		// 3) Compress in-place on the copy
 		encodedID := protowire.AppendVarint(nil, uint64(id))
-		newData, err := ReplaceProtoFieldInPlaceCompress(buf, cachedFieldNumber, encodedID, protowire.VarintType)
+		newData, err := ReplaceProtoField(data, cachedFieldNumber, encodedID, protowire.VarintType)
 		if err == nil {
 			return newData
 		}
-		// on error, fall through and return original
 	}
 
 	// MISS path: record key and update LRU, leave original data untouched
-	newID := *nextId
+	newID := uc.nextID
 	uc.reverseCache[keyStr] = newID
 	uc.cache[newID] = keyBytes
 	uc.addToLRU(newID, keyBytes)
-	*nextId++
+	uc.nextID++
 
 	return data
 }
@@ -136,6 +139,10 @@ func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
 	if err != nil {
 		return entry, true
 	}
+
+	uc.mu.Lock()
+	defer uc.mu.Unlock()
+
 	if wireType == protowire.BytesType {
 		keyStr := string(keyField)
 		if id, ok := uc.reverseCache[keyStr]; !ok {
@@ -245,79 +252,108 @@ func ReplaceProtoField(data []byte, targetField int, newValue []byte, newWireTyp
 func ReplaceProtoFieldInPlaceCompress(data []byte, targetField int, newValue []byte, newWireType protowire.Type) ([]byte, error) {
 	type fieldInfo struct {
 		start    int
-		end      int
+		fieldLen int
 		isTarget bool
 		newLen   int
 	}
+
+	// First pass: discover field offsets and lengths
 	var fields []fieldInfo
 	i := 0
 	for i < len(data) {
-		start := i
-		fieldNum, wireType, n := protowire.ConsumeTag(data[i:])
-		if n < 0 {
-			return nil, errors.New("bad tag")
+		// 1) Consume tag
+		fieldNum, wireType, tagLen := protowire.ConsumeTag(data[i:])
+		if tagLen < 0 {
+			return nil, fmt.Errorf("bad tag at offset %d", i)
 		}
-		i += n
+		start := i
+		i += tagLen
 
-		var oldValLen int
+		// 2) Consume the rest of the field (length-prefix + value) to get its total length
+		var valLen int
 		switch wireType {
 		case protowire.VarintType:
-			_, vLen := protowire.ConsumeVarint(data[i:])
-			oldValLen = vLen
+			_, n := protowire.ConsumeVarint(data[i:])
+			if n < 0 {
+				return nil, fmt.Errorf("bad varint at offset %d", i)
+			}
+			valLen = n
+
 		case protowire.BytesType:
-			_, vLen := protowire.ConsumeBytes(data[i:])
-			oldValLen = vLen
+			_, n := protowire.ConsumeBytes(data[i:])
+			if n < 0 {
+				return nil, fmt.Errorf("bad bytes at offset %d", i)
+			}
+			valLen = n
+
 		default:
-			skip, _ := skipField(wireType, data[i:])
+			// skip unsupported types entirely
+			skip, err := skipField(wireType, data[i:])
+			if err != nil {
+				return nil, err
+			}
 			i += skip
 			continue
 		}
-		end := i + oldValLen
 
+		fieldLen := tagLen + valLen
 		isTarget := int(fieldNum) == targetField
-		newLen := end - start
+
+		// 3) Compute replacement length if this is our target
+		newLen := fieldLen
 		if isTarget {
-			newTag := protowire.AppendTag(nil, protowire.Number(targetField), newWireType)
-			var newField []byte
+			tagBytes := protowire.AppendTag(nil, protowire.Number(targetField), newWireType)
+			var valBytes []byte
 			if newWireType == protowire.BytesType {
-				newField = protowire.AppendBytes(nil, newValue)
+				valBytes = protowire.AppendBytes(nil, newValue)
 			} else {
-				newField = newValue
+				valBytes = newValue
 			}
-			newLen = len(newTag) + len(newField)
-			if newLen > end-start {
-				return nil, fmt.Errorf("new field encoding is larger than original")
+			newLen = len(tagBytes) + len(valBytes)
+			if newLen > fieldLen {
+				return nil, fmt.Errorf("replacement longer than original field")
 			}
 		}
-		fields = append(fields, fieldInfo{start, end, isTarget, newLen})
-		i = end
+
+		fields = append(fields, fieldInfo{
+			start:    start,
+			fieldLen: fieldLen,
+			isTarget: isTarget,
+			newLen:   newLen,
+		})
+		i = start + fieldLen
 	}
 
-	// compute total
-	newTotal := 0
+	// Second pass: rewrite into the same buffer, backwards
+	totalNew := 0
 	for _, f := range fields {
-		newTotal += f.newLen
+		totalNew += f.newLen
 	}
-	writePos := newTotal
-	for j := len(fields) - 1; j >= 0; j-- {
-		f := fields[j]
+	writePos := totalNew
+
+	for idx := len(fields) - 1; idx >= 0; idx-- {
+		f := fields[idx]
 		writePos -= f.newLen
+
 		if f.isTarget {
-			newTag := protowire.AppendTag(nil, protowire.Number(targetField), newWireType)
-			var newField []byte
+			// build new tag+value
+			tagBytes := protowire.AppendTag(nil, protowire.Number(targetField), newWireType)
+			var valBytes []byte
 			if newWireType == protowire.BytesType {
-				newField = protowire.AppendBytes(nil, newValue)
+				valBytes = protowire.AppendBytes(nil, newValue)
 			} else {
-				newField = newValue
+				valBytes = newValue
 			}
-			copy(data[writePos:], newTag)
-			copy(data[writePos+len(newTag):], newField)
+			copy(data[writePos:], tagBytes)
+			copy(data[writePos+len(tagBytes):], valBytes)
+
 		} else {
-			copy(data[writePos:], data[f.start:f.end])
+			// copy original field bytes
+			copy(data[writePos:], data[f.start:f.start+f.fieldLen])
 		}
 	}
 
-	return data[:newTotal], nil
+	return data[:totalNew], nil
 }
 
 func skipField(wt protowire.Type, data []byte) (int, error) {

@@ -16,6 +16,7 @@ package raft
 
 import (
 	"errors"
+	"fmt"
 
 	pb "go.etcd.io/raft/v3/raftpb"
 	"go.etcd.io/raft/v3/tracker"
@@ -161,6 +162,16 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 		rd.ReadStates = r.readStates
 	}
 	rd.MustSync = MustSync(r.hardState(), rn.prevHardSt, len(rd.Entries))
+
+	for i := range rd.CommittedEntries {
+		if rd.CommittedEntries[i].Type == pb.EntryNormal {
+			decoded, ok := rn.raft.uniCache.DecodeEntry(rd.CommittedEntries[i])
+			if !ok {
+				panic(fmt.Sprintf("cache decode failed for index %d", rd.CommittedEntries[i].Index))
+			}
+			rd.CommittedEntries[i] = decoded
+		}
+	}
 
 	if rn.asyncStorageWrites {
 		// If async storage writes are enabled, enqueue messages to

@@ -649,35 +649,16 @@ func (r *raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 		return r.maybeSendSnapshot(to, pr)
 	}
 
-	entriesForFollower := make([]pb.Entry, 0, len(ents))
-	for _, ent := range ents {
-		// Shallow-copy the struct fields, reusing the original ones.
-		// No separate allocation for Data yet.
-		entryCopy := pb.Entry{
-			Term:  ent.Term,
-			Index: ent.Index,
-			Type:  ent.Type,
-		}
-
-		// Encode (and potentially allocate new) data.
-		// If EncodeData always returns a new slice when changes are needed,
-		// we’re guaranteed not to mutate the storage-backed ent.Data.
-		entryCopy.Data = r.uniCache.EncodeData(ent.Data, &pr.NextCacheId)
-
-		// Now append the newly formed pb.Entry to our outbound slice.
-		entriesForFollower = append(entriesForFollower, entryCopy)
-	}
-
 	// Send the actual MsgApp otherwise, and update the progress accordingly.
 	r.send(pb.Message{
 		To:      to,
 		Type:    pb.MsgApp,
 		Index:   prevIndex,
 		LogTerm: prevTerm,
-		Entries: entriesForFollower,
+		Entries: ents,
 		Commit:  r.raftLog.committed,
 	})
-	pr.SentEntries(len(ents), uint64(payloadsSize(entriesForFollower)))
+	pr.SentEntries(len(ents), uint64(payloadsSize(ents)))
 	pr.SentCommit(r.raftLog.committed)
 	return true
 }
@@ -1820,17 +1801,6 @@ func logSliceFromMsgApp(m *pb.Message) logSlice {
 // Also, if log is not matching leaders, check if we have
 // appended entries that were never committed(?)
 func (r *raft) handleAppendEntries(m pb.Message) {
-
-	for i, ent := range m.Entries {
-		if ent.Index%50000 == 0 {
-			fmt.Println("Size of received: ", m.Entries[i].Size())
-		}
-		m.Entries[i], _ = r.uniCache.DecodeEntry(ent)
-		if ent.Index%50000 == 0 {
-			fmt.Println("Size of decoded: ", m.Entries[i].Size())
-		}
-	}
-
 	// TODO(pav-kv): construct logSlice up the stack next to receiving the
 	// message, and validate it before taking any action (e.g. bumping term).
 	a := logSliceFromMsgApp(&m)

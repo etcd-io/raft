@@ -1,11 +1,10 @@
-module github.com/jedeland10/raft
+module go.etcd.io/raft/v3
 
 go 1.23
 
 toolchain go1.23.5
 
 require (
-	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/cockroachdb/datadriven v1.0.2
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/protobuf v1.5.4
