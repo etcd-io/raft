@@ -173,7 +173,7 @@ func traceEvent(evt stateMachineEventType, r *raft, m *raftpb.Message, prop map[
 		NodeID:     strconv.FormatUint(r.id, 10),
 		State:      makeTracingState(r),
 		LogSize:    r.raftLog.lastIndex(),
-		Conf:       [2][]string{formatConf(r.trk.Voters[0].Slice()), formatConf(r.trk.Voters[1].Slice())},
+		Conf:       [2][]string{formatConf(r.trk.Voters.Incoming.Slice()), formatConf(r.trk.Voters.Outgoing.Slice())},
 		Role:       r.state.String(),
 		Message:    makeTracingMessage(m),
 		Properties: prop,
@@ -276,7 +276,7 @@ func traceConfChangeEvent(cfg tracker.Config, r *raft) {
 
 	cc := &TracingConfChange{
 		Changes: []SingleConfChange{},
-		NewConf: formatConf(cfg.Voters[0].Slice()),
+		NewConf: formatConf(cfg.Voters.Incoming.Slice()),
 	}
 
 	p := map[string]any{}
