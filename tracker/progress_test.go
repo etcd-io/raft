@@ -27,13 +27,12 @@ func TestProgressString(t *testing.T) {
 		Match:            1,
 		Next:             2,
 		State:            StateSnapshot,
-		PendingSnapshot:  123,
 		RecentActive:     false,
 		MsgAppFlowPaused: true,
 		IsLearner:        true,
 		Inflights:        ins,
 	}
-	const exp = `StateSnapshot match=1 next=2 learner paused pendingSnap=123 inactive inflight=1[full]`
+	const exp = `StateSnapshot match=1 next=2 learner paused inactive inflight=1[full]`
 	assert.Equal(t, exp, pr.String())
 }
 
@@ -87,12 +86,7 @@ func TestProgressBecomeProbe(t *testing.T) {
 		},
 		{
 			// snapshot finish
-			&Progress{State: StateSnapshot, Match: match, Next: 5, PendingSnapshot: 10, Inflights: NewInflights(256, 0)},
-			11,
-		},
-		{
-			// snapshot failure
-			&Progress{State: StateSnapshot, Match: match, Next: 5, PendingSnapshot: 0, Inflights: NewInflights(256, 0)},
+			&Progress{State: StateSnapshot, Match: match, Next: 5, Inflights: NewInflights(256, 0)},
 			2,
 		},
 	}
@@ -117,7 +111,18 @@ func TestProgressBecomeSnapshot(t *testing.T) {
 	p.BecomeSnapshot(10)
 	assert.Equal(t, StateSnapshot, p.State)
 	assert.Equal(t, uint64(1), p.Match)
-	assert.Equal(t, uint64(10), p.PendingSnapshot)
+	assert.Equal(t, uint64(11), p.Next) // Next is set to snapshot index + 1
+	assert.Equal(t, uint64(10), p.sentCommit)
+}
+
+func TestProgressOnSnapshotApplied(t *testing.T) {
+	p := &Progress{State: StateSnapshot, Match: 5, Next: 6, Inflights: NewInflights(256, 0)}
+	appliedSnapshotIndex := uint64(10)
+
+	p.OnSnapshotApplied(appliedSnapshotIndex)
+
+	assert.Equal(t, appliedSnapshotIndex, p.Match)
+	assert.Equal(t, appliedSnapshotIndex+1, p.Next)
 }
 
 func TestProgressUpdate(t *testing.T) {
