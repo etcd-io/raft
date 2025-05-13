@@ -163,6 +163,10 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 	}
 	rd.MustSync = MustSync(r.hardState(), rn.prevHardSt, len(rd.Entries))
 
+	cloned := make([]pb.Entry, len(rd.Entries))
+	copy(cloned, rd.Entries)
+	rd.Entries = cloned
+
 	for i := range rd.Entries {
 		if rd.Entries[i].Type == pb.EntryNormal {
 			if decoded, ok := rn.raft.uniCache.DecodeEntry(rd.Entries[i], true); ok {

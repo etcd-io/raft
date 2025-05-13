@@ -111,7 +111,7 @@ func (uc *uniCache) EncodeData(data []byte) []byte {
 	if ok && id < uc.nextID {
 
 		encodedID := protowire.AppendVarint(nil, uint64(id))
-		newData, err := ReplaceProtoField(data, cachedFieldNumber, encodedID, protowire.VarintType)
+		newData, err := ReplaceProtoFieldInPlaceCompress(data, cachedFieldNumber, encodedID, protowire.VarintType)
 		if err == nil {
 			return newData
 		}
