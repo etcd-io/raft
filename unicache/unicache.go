@@ -18,7 +18,7 @@ const maxCacheSize = 10000
 type UniCache interface {
 	NewUniCache() UniCache
 	EncodeData(data []byte) []byte
-	DecodeEntry(entry pb.Entry) (pb.Entry, bool)
+	DecodeEntry(entry pb.Entry, touchLRU bool) (pb.Entry, bool)
 	GetNextId() uint32
 }
 
@@ -96,7 +96,7 @@ func (uc *uniCache) EncodeData(data []byte) []byte {
 	if len(data) == 0 {
 		return data
 	}
-	// 1) Extract the keyBytes
+
 	keyBytes, _, err := GetProtoFieldAndWireType(data, cachedFieldNumber)
 	if err != nil {
 		return data
@@ -109,9 +109,7 @@ func (uc *uniCache) EncodeData(data []byte) []byte {
 	id, ok := uc.reverseCache[keyStr]
 
 	if ok && id < uc.nextID {
-		uc.updateLRU(id)
 
-		// 3) Compress in-place on the copy
 		encodedID := protowire.AppendVarint(nil, uint64(id))
 		newData, err := ReplaceProtoField(data, cachedFieldNumber, encodedID, protowire.VarintType)
 		if err == nil {
@@ -119,18 +117,11 @@ func (uc *uniCache) EncodeData(data []byte) []byte {
 		}
 	}
 
-	// MISS path: record key and update LRU, leave original data untouched
-	newID := uc.nextID
-	uc.reverseCache[keyStr] = newID
-	uc.cache[newID] = keyBytes
-	uc.addToLRU(newID, keyBytes)
-	uc.nextID++
-
 	return data
 }
 
 // DecodeEntry restores original key bytes or caches first-seen keys.
-func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
+func (uc *uniCache) DecodeEntry(entry pb.Entry, touchLRU bool) (pb.Entry, bool) {
 	if len(entry.Data) == 0 {
 		return entry, true
 	}
@@ -152,7 +143,9 @@ func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
 			uc.reverseCache[keyStr] = newID
 			uc.addToLRU(newID, keyField)
 		} else {
-			uc.updateLRU(id)
+			if touchLRU {
+				uc.updateLRU(uint32(id))
+			}
 		}
 		return entry, true
 	} else if wireType == protowire.VarintType {
@@ -164,7 +157,9 @@ func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
 		if !ok {
 			return entry, false
 		}
-		uc.updateLRU(uint32(id))
+		if touchLRU {
+			uc.updateLRU(uint32(id))
+		}
 		newData, err := ReplaceProtoField(entry.Data, cachedFieldNumber, origKey, protowire.BytesType)
 		if err == nil {
 			entry.Data = newData
