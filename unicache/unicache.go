@@ -12,7 +12,7 @@ import (
 
 const cachedFieldNumber = 1
 
-const maxCacheSize = 2
+const maxCacheSize = 10000
 
 // UniCache defines methods for encoding/decoding entries with key caching.
 type UniCache interface {
