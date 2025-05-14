@@ -12,7 +12,7 @@ import (
 
 const cachedFieldNumber = 1
 
-const maxCacheSize = 10000
+const maxCacheSize = 2
 
 // UniCache defines methods for encoding/decoding entries with key caching.
 type UniCache interface {
@@ -111,7 +111,7 @@ func (uc *uniCache) EncodeData(data []byte) []byte {
 	if ok && id < uc.nextID {
 
 		encodedID := protowire.AppendVarint(nil, uint64(id))
-		newData, err := ReplaceProtoFieldInPlaceCompress(data, cachedFieldNumber, encodedID, protowire.VarintType)
+		newData, err := ReplaceProtoField(data, cachedFieldNumber, encodedID, protowire.VarintType)
 		if err == nil {
 			return newData
 		}

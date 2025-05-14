@@ -14,7 +14,9 @@
 
 package raft
 
-import pb "go.etcd.io/raft/v3/raftpb"
+import (
+	pb "go.etcd.io/raft/v3/raftpb"
+)
 
 // unstable contains "unstable" log entries and snapshot state that has
 // not yet been written to Storage. The type serves two roles. First, it
