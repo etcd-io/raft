@@ -1069,6 +1069,36 @@ func TestPastElectionTimeout(t *testing.T) {
 	}
 }
 
+func TestRandomizedElectionTimeoutOnLostVote(t *testing.T) {
+	storage := newTestMemoryStorage(withPeers(1, 2, 3))
+	storage.Append(index(1).terms(1, 2, 3, 4, 5))
+	r := newTestRaft(1, 10, 1, storage)
+
+	term, index := r.raftLog.lastEntryID().term, r.raftLog.lastEntryID().index
+	r.Term = term
+
+	r.becomeCandidate()
+	msgVote := pb.Message{
+		From:    1,
+		To:      2,
+		Type:    pb.MsgVote,
+		Term:    term + 1,
+		LogTerm: index,
+		Index:   42,
+	}
+	r.stepOrSend([]pb.Message{msgVote})
+
+	// The MsgVote is rejected by r2
+	err := r.Step(pb.Message{From: 2, To: 1, Term: term + 1, Type: pb.MsgVoteResp, Reject: true})
+	require.NoError(t, err)
+	require.Less(t, r.randomizedElectionTimeout, r.electionTimeout*2)
+
+	// The MsgVote is rejected by r3
+	err = r.Step(pb.Message{From: 3, To: 1, Term: term + 1, Type: pb.MsgVoteResp, Reject: true})
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, r.randomizedElectionTimeout, r.electionTimeout*2)
+}
+
 // TestStepIgnoreOldTermMsg to ensure that the Step function ignores the message
 // from old term and does not pass it to the actual stepX function.
 func TestStepIgnoreOldTermMsg(t *testing.T) {
