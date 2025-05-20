@@ -491,6 +491,8 @@ func (rn *RawNode) Advance(_ Ready) {
 		rn.stepsOnAdvance[i] = pb.Message{}
 	}
 	rn.stepsOnAdvance = rn.stepsOnAdvance[:0]
+
+	traceAdvance(rn.raft)
 }
 
 // Status returns the current status of the given group. This allocates, see
