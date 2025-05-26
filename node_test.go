@@ -504,7 +504,7 @@ func TestNodeStart(t *testing.T) {
 			HardState:        raftpb.HardState{Term: 2, Commit: 3, Vote: 1},
 			Entries:          nil,
 			CommittedEntries: []raftpb.Entry{{Term: 2, Index: 3, Data: []byte("foo")}},
-			MustSync:         false,
+			MustSync:         true,
 		},
 	}
 	storage := NewMemoryStorage()
