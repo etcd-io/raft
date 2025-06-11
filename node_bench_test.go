@@ -21,7 +21,7 @@ import (
 )
 
 func BenchmarkOneNode(b *testing.B) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(b.Context())
 	defer cancel()
 
 	s := newTestMemoryStorage(withPeers(1))
