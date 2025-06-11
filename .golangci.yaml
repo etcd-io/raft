@@ -27,6 +27,7 @@ linters:
     - stylecheck
     - unused
     - unconvert # Remove unnecessary type conversions
+    - usetesting
 
 linters-settings: # please keep this alphabetized
   goimports:
