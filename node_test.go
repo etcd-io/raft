@@ -56,7 +56,7 @@ func TestNodeStep(t *testing.T) {
 			recvc: make(chan raftpb.Message, 1),
 		}
 		msgt := raftpb.MessageType(i)
-		n.Step(context.TODO(), raftpb.Message{Type: msgt})
+		n.Step(t.Context(), raftpb.Message{Type: msgt})
 		// Proposal goes to proc chan. Others go to recvc chan.
 		if msgt == raftpb.MsgProp {
 			select {
@@ -90,7 +90,7 @@ func TestNodeStepUnblock(t *testing.T) {
 		done:  make(chan struct{}),
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	stopFunc := func() { close(n.done) }
 
 	tests := []struct {
@@ -113,7 +113,7 @@ func TestNodeStepUnblock(t *testing.T) {
 			assert.Equal(t, tt.werr, err, "#%d", i)
 			// clean up side-effect
 			if ctx.Err() != nil {
-				ctx = context.TODO()
+				ctx = t.Context()
 			}
 			select {
 			case <-n.done:
@@ -143,7 +143,7 @@ func TestNodePropose(t *testing.T) {
 	n := newNode(rn)
 	r := rn.raft
 	go n.run()
-	require.NoError(t, n.Campaign(context.TODO()))
+	require.NoError(t, n.Campaign(t.Context()))
 	for {
 		rd := <-n.Ready()
 		s.Append(rd.Entries)
@@ -155,7 +155,7 @@ func TestNodePropose(t *testing.T) {
 		}
 		n.Advance()
 	}
-	n.Propose(context.TODO(), []byte("somedata"))
+	n.Propose(t.Context(), []byte("somedata"))
 	n.Stop()
 
 	require.Len(t, msgs, 1)
@@ -253,7 +253,7 @@ func TestNodeProposeConfig(t *testing.T) {
 	n := newNode(rn)
 	r := rn.raft
 	go n.run()
-	n.Campaign(context.TODO())
+	n.Campaign(t.Context())
 	for {
 		rd := <-n.Ready()
 		s.Append(rd.Entries)
@@ -268,7 +268,7 @@ func TestNodeProposeConfig(t *testing.T) {
 	cc := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode, NodeID: 1}
 	ccdata, err := cc.Marshal()
 	require.NoError(t, err)
-	n.ProposeConfChange(context.TODO(), cc)
+	n.ProposeConfChange(t.Context(), cc)
 	n.Stop()
 
 	require.Len(t, msgs, 1)
@@ -281,7 +281,7 @@ func TestNodeProposeConfig(t *testing.T) {
 func TestNodeProposeAddDuplicateNode(t *testing.T) {
 	s := newTestMemoryStorage(withPeers(1))
 	cfg := newTestConfig(1, 10, 1, s)
-	ctx, cancel, n := newNodeTestHarness(context.Background(), t, cfg)
+	ctx, cancel, n := newNodeTestHarness(t.Context(), t, cfg)
 	defer cancel()
 	n.Campaign(ctx)
 	allCommittedEntries := make([]raftpb.Entry, 0)
@@ -360,7 +360,7 @@ func TestBlockProposal(t *testing.T) {
 
 	errc := make(chan error, 1)
 	go func() {
-		errc <- n.Propose(context.TODO(), []byte("somedata"))
+		errc <- n.Propose(t.Context(), []byte("somedata"))
 	}()
 
 	time.Sleep(10 * time.Millisecond)
@@ -371,7 +371,7 @@ func TestBlockProposal(t *testing.T) {
 	default:
 	}
 
-	n.Campaign(context.TODO())
+	n.Campaign(t.Context())
 	rd := <-n.Ready()
 	s.Append(rd.Entries)
 	n.Advance()
@@ -404,7 +404,7 @@ func TestNodeProposeWaitDropped(t *testing.T) {
 	n := newNode(rn)
 	r := rn.raft
 	go n.run()
-	n.Campaign(context.TODO())
+	n.Campaign(t.Context())
 	for {
 		rd := <-n.Ready()
 		s.Append(rd.Entries)
@@ -417,7 +417,7 @@ func TestNodeProposeWaitDropped(t *testing.T) {
 		n.Advance()
 	}
 	proposalTimeout := time.Millisecond * 100
-	ctx, cancel := context.WithTimeout(context.Background(), proposalTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), proposalTimeout)
 	// propose with cancel should be cancelled earyly if dropped
 	assert.Equal(t, ErrProposalDropped, n.Propose(ctx, droppingMsg))
 	cancel()
@@ -517,7 +517,7 @@ func TestNodeStart(t *testing.T) {
 		MaxInflightMsgs: 256,
 	}
 	StartNode(c, []Peer{{ID: 1}})
-	ctx, cancel, n := newNodeTestHarness(context.Background(), t, c, Peer{ID: 1})
+	ctx, cancel, n := newNodeTestHarness(t.Context(), t, c, Peer{ID: 1})
 	defer cancel()
 
 	{
@@ -660,7 +660,7 @@ func TestNodeAdvance(t *testing.T) {
 		MaxSizePerMsg:   noLimit,
 		MaxInflightMsgs: 256,
 	}
-	ctx, cancel, n := newNodeTestHarness(context.Background(), t, c)
+	ctx, cancel, n := newNodeTestHarness(t.Context(), t, c)
 	defer cancel()
 
 	n.Campaign(ctx)
@@ -721,7 +721,7 @@ func TestNodeProposeAddLearnerNode(t *testing.T) {
 	rn := newTestRawNode(1, 10, 1, s)
 	n := newNode(rn)
 	go n.run()
-	n.Campaign(context.TODO())
+	n.Campaign(t.Context())
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	applyConfChan := make(chan struct{})
@@ -756,7 +756,7 @@ func TestNodeProposeAddLearnerNode(t *testing.T) {
 		}
 	}()
 	cc := raftpb.ConfChange{Type: raftpb.ConfChangeAddLearnerNode, NodeID: 2}
-	n.ProposeConfChange(context.TODO(), cc)
+	n.ProposeConfChange(t.Context(), cc)
 	<-applyConfChan
 	close(stop)
 	<-done
@@ -807,7 +807,7 @@ func TestCommitPagination(t *testing.T) {
 	s := newTestMemoryStorage(withPeers(1))
 	cfg := newTestConfig(1, 10, 1, s)
 	cfg.MaxCommittedSizePerReady = 2048
-	ctx, cancel, n := newNodeTestHarness(context.Background(), t, cfg)
+	ctx, cancel, n := newNodeTestHarness(t.Context(), t, cfg)
 	defer cancel()
 	n.Campaign(ctx)
 
@@ -856,7 +856,7 @@ func TestCommitPaginationWithAsyncStorageWrites(t *testing.T) {
 	cfg := newTestConfig(1, 10, 1, s)
 	cfg.MaxCommittedSizePerReady = 2048
 	cfg.AsyncStorageWrites = true
-	ctx, cancel, n := newNodeTestHarness(context.Background(), t, cfg)
+	ctx, cancel, n := newNodeTestHarness(t.Context(), t, cfg)
 	defer cancel()
 	n.Campaign(ctx)
 
