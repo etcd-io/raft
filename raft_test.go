@@ -3975,7 +3975,7 @@ func newNetworkWithConfig(configFunc func(*Config), peers ...stateMachine) *netw
 					pr.IsLearner = true
 					v.trk.Learners[peerAddrs[i]] = struct{}{}
 				} else {
-					v.trk.Voters[0][peerAddrs[i]] = struct{}{}
+					v.trk.Voters.Incoming[peerAddrs[i]] = struct{}{}
 				}
 				v.trk.Progress[peerAddrs[i]] = pr
 			}
