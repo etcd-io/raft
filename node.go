@@ -467,7 +467,7 @@ func (n *node) Tick() {
 func (n *node) Campaign(ctx context.Context) error { return n.step(ctx, pb.Message{Type: pb.MsgHup}) }
 
 func (n *node) Propose(ctx context.Context, data []byte) error {
-	//data = n.rn.raft.uniCache.EncodeData(data, n.rn.raft.raftLog.lastIndex(), n.rn.raft.raftLog.committed)
+	data = n.rn.raft.uniCache.EncodeData(data, n.rn.raft.raftLog.committed)
 	return n.stepWait(ctx, pb.Message{Type: pb.MsgProp, Entries: []pb.Entry{{Data: data}}, Commit: n.rn.raft.raftLog.committed})
 }
 

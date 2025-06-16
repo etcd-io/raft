@@ -830,9 +830,11 @@ func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 		}
 		es[i].Term = r.Term
 		es[i].Index = li + 1 + uint64(i)
-		es[i].Data = r.uniCache.EncodeData(
-			es[i].Data,
+		es[i].Data = r.uniCache.SafeEncode(
+			es[i].CacheVersion,
+			r.raftLog.committed,
 			es[i].Index,
+			es[i].Data,
 		)
 	}
 

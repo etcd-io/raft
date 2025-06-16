@@ -25,7 +25,7 @@ const evictionLag = maxCacheSize / 4
 // UniCache defines methods for encoding/decoding entries with key caching.
 type UniCache interface {
 	NewUniCache(maxCommit *uint64, minCommitted func() uint64) UniCache
-	EncodeData(data []byte, appendIdx uint64) []byte
+	EncodeData(data []byte, commited uint64) []byte
 	DecodeEntry(entry pb.Entry) (pb.Entry, bool)
 	SafeEncode(cacheVersion uint64, maxCommitIdx uint64, appendIdx uint64, data []byte) []byte
 	GetNextId() uint32
@@ -123,8 +123,8 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
 		return
 	}
 
-	//evictedElem := uc.evictOrder.PushBack(entry)
-	//uc.evicted[entry.id] = evictedElem
+	evictedElem := uc.evictOrder.PushBack(entry)
+	uc.evicted[entry.id] = evictedElem
 
 	delete(uc.cache, entry.id)
 	delete(uc.reverseCache, string(entry.key))
@@ -171,57 +171,86 @@ func (uc *uniCache) PrintCache() {
 }
 
 func (uc *uniCache) SafeEncode(cacheVersion uint64, maxCommitIdx uint64, appendIdx uint64, data []byte) []byte {
+	if len(data) == 0 {
+		return data
+	}
+
 	uc.mu.Lock()
 	defer uc.mu.Unlock()
 
 	keyBytes, wireType, err := GetProtoFieldAndWireType(data, cachedFieldNumber)
-	if err != nil || wireType == protowire.BytesType {
+	if err != nil {
 		return data
 	}
 
-	id, _ := protowire.ConsumeVarint(keyBytes)
-	cacheID := uint32(id)
-
-	if elem, ok := uc.cache[cacheID]; ok {
-
-		if appendIdx-elem.lastIdx < uint64(uc.capacity) {
-			nCached++
-			keyHash := sha256.Sum256(elem.key) // or keyBytes depending on availability
-			fmt.Printf("[SafeEncode] index=%d sending cached keyID=%d keyHash=%x\n", appendIdx, cacheID, keyHash)
+	switch wireType {
+	case protowire.BytesType:
+		// This is a raw key — try to encode if it's safe
+		keyStr := string(keyBytes)
+		id, ok := uc.reverseCache[keyStr]
+		if !ok {
+			fmt.Println("[SafeEncode] BytesType not in reverseCache")
 			return data
-		} else {
-			fmt.Println("eviction risk, send full ", cacheID)
-			keyHash := sha256.Sum256(elem.key) // or keyBytes depending on availability
-			fmt.Printf("[SafeEncode] index=%d sending full keyID=%d keyHash=%x\n", appendIdx, cacheID, keyHash)
-			newData, err := ReplaceProtoField(data, cachedFieldNumber, elem.key, protowire.BytesType)
-			if err != nil {
-				fmt.Println("error replacing field", err)
-				return nil
+		}
+		elem, ok := uc.cache[id]
+		if !ok {
+			fmt.Println("[SafeEncode] BytesType not in cache")
+			return data
+		}
+		if appendIdx-elem.lastIdx <= uint64(uc.capacity) && uc.minCommitted() <= elem.lastIdx {
+			encodedID := protowire.AppendVarint(nil, uint64(id))
+			newData, err := ReplaceProtoField(data, cachedFieldNumber, encodedID, protowire.VarintType)
+			if err == nil {
+				nCached++
+				fmt.Printf("[SafeEncode] index=%d encoding to ID=%d keyHash=%x\n", appendIdx, id, sha256.Sum256(elem.key))
+				return newData
 			}
-			return newData
+			fmt.Println("[SafeEncode] encoding failed:", err)
 		}
-	}
+		// otherwise just return data as-is (keep full key)
+		return data
 
-	if elem, ok := uc.evicted[cacheID]; ok {
-		elemEntry := elem.Value.(*cacheEntry)
-		newData, err := ReplaceProtoField(data, cachedFieldNumber, elemEntry.key, protowire.BytesType)
-		if err != nil {
-			fmt.Println("error replacing field", err)
-			return nil
+	case protowire.VarintType:
+		// Already encoded — check if it's still valid
+		id, _ := protowire.ConsumeVarint(keyBytes)
+		elem, ok := uc.cache[uint32(id)]
+		if ok {
+			if appendIdx-elem.lastIdx <= uint64(uc.capacity) && uc.minCommitted() <= elem.lastIdx {
+				nCached++
+				fmt.Printf("[SafeEncode] index=%d confirmed safe ID=%d keyHash=%x\n", appendIdx, id, sha256.Sum256(elem.key))
+				return data
+			}
+			fmt.Println("[SafeEncode] eviction risk, restoring full for ID=", id)
+			newData, err := ReplaceProtoField(data, cachedFieldNumber, elem.key, protowire.BytesType)
+			if err == nil {
+				return newData
+			}
+			fmt.Println("[SafeEncode] restore failed:", err)
+			return data
 		}
-		nRestoreWithEvicted++
-		keyHash := sha256.Sum256(elemEntry.key) // or keyBytes depending on availability
-		fmt.Printf("[SafeEncode] index=%d sending restored keyID=%d keyHash=%x\n", appendIdx, cacheID, keyHash)
-		return newData
-	}
+		// check evicted cache
+		if evElem, ok := uc.evicted[uint32(id)]; ok {
+			ev := evElem.Value.(*cacheEntry)
+			newData, err := ReplaceProtoField(data, cachedFieldNumber, ev.key, protowire.BytesType)
+			if err == nil {
+				nRestoreWithEvicted++
+				fmt.Printf("[SafeEncode] index=%d restored from evicted ID=%d keyHash=%x\n", appendIdx, id, sha256.Sum256(ev.key))
+				return newData
+			}
+			fmt.Println("[SafeEncode] evicted restore failed:", err)
+		} else {
+			fmt.Printf("[SafeEncode] ID %d missing in cache and evicted (index=%d)\n", id, appendIdx)
+		}
+		return data
 
-	panic(fmt.Sprintf(
-		"SafeEncode: cacheID %d missing from both LRU and evictedRaw; appendIdx=%d maxCommitIdx=%d",
-		cacheID, appendIdx, maxCommitIdx,
-	))
+	default:
+		// For other types, do nothing
+		fmt.Printf("[SafeEncode] unsupported wireType=%d for index=%d\n", wireType, appendIdx)
+		return data
+	}
 }
 
-func (uc *uniCache) EncodeData(data []byte, appendIdx uint64) []byte {
+func (uc *uniCache) EncodeData(data []byte, committed uint64) []byte {
 	if len(data) == 0 {
 		return data
 	}
@@ -249,20 +278,13 @@ func (uc *uniCache) EncodeData(data []byte, appendIdx uint64) []byte {
 		return data
 	}
 
-	fmt.Println("[EncodeData] appendidx", appendIdx, "lastidx", elem.lastIdx)
-	fmt.Println("[EncodeData] appendidx-lastidx=", appendIdx-elem.lastIdx)
-
-	if appendIdx-elem.lastIdx <= uint64(uc.capacity) && uc.minCommitted() <= elem.lastIdx {
-		nCached++
+	if elem.lastIdx <= committed {
 		encodedID := protowire.AppendVarint(nil, uint64(id))
 		newData, err := ReplaceProtoField(data, cachedFieldNumber, encodedID, protowire.VarintType)
 		if err == nil {
-			elem.lastIdx = appendIdx
-			fmt.Printf("[EncodeData] index=%d sending cached ID=%d keyHash=%x ncached=%d\n", appendIdx, id, sha256.Sum256(keyBytes), nCached)
 			return newData
 		}
 	}
-	fmt.Printf("[EncodeData] index=%d sending full ID=%d keyHash=%x\n", appendIdx, id, sha256.Sum256(keyBytes))
 	return data
 }
 
