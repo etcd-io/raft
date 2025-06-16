@@ -180,6 +180,23 @@ func (p *ProgressTracker) Committed() uint64 {
 	return uint64(p.Voters.CommittedIndex(matchAckIndexer(p.Progress)))
 }
 
+// MinMatch returns the smallest log index known to be commited among all peers.
+func (p *ProgressTracker) MinMatch() uint64 {
+	const maxUint64 = ^uint64(0)
+	min := maxUint64
+
+	p.Visit(func(id uint64, pr *Progress) {
+		if pr.Match < min {
+			min = pr.Match
+		}
+	})
+
+	if min == maxUint64 {
+		return 0
+	}
+	return min
+}
+
 // Visit invokes the supplied closure for all tracked progresses in stable order.
 func (p *ProgressTracker) Visit(f func(id uint64, pr *Progress)) {
 	n := len(p.Progress)

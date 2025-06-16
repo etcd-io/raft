@@ -19,4 +19,5 @@ option (gogoproto.goproto_sizecache_all) = false;
 message MyKV {
     required bytes key = 1;
     required bytes value = 2;
+    optional uint64 proposalID = 3 [(gogoproto.nullable) = false];
 }

@@ -2,8 +2,11 @@ package unicache
 
 import (
 	"container/list"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"runtime/debug"
+	"sort"
 	"sync"
 
 	pb "go.etcd.io/raft/v3/raftpb"
@@ -12,75 +15,142 @@ import (
 
 const cachedFieldNumber = 1
 
-const maxCacheSize = 10000
+var nCached = 0
+var nRestoreWithEvicted = 0
+
+const maxCacheSize = 500
+
+const evictionLag = maxCacheSize / 4
 
 // UniCache defines methods for encoding/decoding entries with key caching.
 type UniCache interface {
-	NewUniCache() UniCache
-	EncodeData(data []byte) []byte
-	DecodeEntry(entry pb.Entry, touchLRU bool) (pb.Entry, bool)
+	NewUniCache(maxCommit *uint64, minCommitted func() uint64) UniCache
+	EncodeData(data []byte, appendIdx uint64) []byte
+	DecodeEntry(entry pb.Entry) (pb.Entry, bool)
+	SafeEncode(cacheVersion uint64, maxCommitIdx uint64, appendIdx uint64, data []byte) []byte
 	GetNextId() uint32
+	PrintCache()
+	UpdateCache(entry pb.Entry, purge bool) (pb.Entry, bool)
 }
 
 type cacheEntry struct {
-	id  uint32
-	key []byte
+	id      uint32
+	key     []byte
+	lastIdx uint64
 }
 
 type uniCache struct {
-	mu           sync.RWMutex
-	cache        map[uint32][]byte
+	mu sync.RWMutex
+
+	cache        map[uint32]*cacheEntry
 	reverseCache map[string]uint32
-	lruList      *list.List
-	lruMap       map[uint32]*list.Element
 	nextID       uint32
 	capacity     int
+
+	lruList *list.List
+	lruMap  map[uint32]*list.Element
+
+	evicted    map[uint32]*list.Element
+	evictOrder *list.List
+
+	maxCommit    *uint64
+	minCommitted func() uint64
+
+	appliedIdx uint64
 }
 
 // NewUniCache constructs a UniCache with simple LRU caching.
-func NewUniCache() UniCache {
+func NewUniCache(maxCommit *uint64, minCommitted func() uint64) UniCache {
 	return &uniCache{
-		cache:        make(map[uint32][]byte),
+		cache:        make(map[uint32]*cacheEntry),
 		reverseCache: make(map[string]uint32),
-		lruList:      list.New(),
-		lruMap:       make(map[uint32]*list.Element),
-		nextID:       1,
-		capacity:     maxCacheSize,
+
+		lruList: list.New(),
+		lruMap:  make(map[uint32]*list.Element),
+
+		nextID:   1,
+		capacity: maxCacheSize,
+
+		evicted:    make(map[uint32]*list.Element),
+		evictOrder: list.New(),
+
+		maxCommit:    maxCommit,
+		minCommitted: minCommitted,
+
+		appliedIdx: uint64(0),
 	}
 }
 
 // NewUniCache implements the UniCache interface.
-func (uc *uniCache) NewUniCache() UniCache {
-	return NewUniCache()
+func (uc *uniCache) NewUniCache(maxCommit *uint64, minCommitted func() uint64) UniCache {
+	return NewUniCache(maxCommit, minCommitted)
 }
 
-func (uc *uniCache) updateLRU(id uint32) {
+func (uc *uniCache) updateLRU(id uint32, lastIdx uint64) {
 	if elem, ok := uc.lruMap[id]; ok {
 		uc.lruList.MoveToFront(elem)
 	}
 }
 
-func (uc *uniCache) addToLRU(id uint32, key []byte) {
-	entry := cacheEntry{id: id, key: key}
-	elem := uc.lruList.PushFront(entry)
-	uc.lruMap[id] = elem
+func (uc *uniCache) addToLRU(cacheEntry *cacheEntry) {
+	elem := uc.lruList.PushFront(cacheEntry)
+	uc.lruMap[cacheEntry.id] = elem
 
-	if uc.lruList.Len() > uc.capacity {
-		uc.evictLRU()
-	}
+	uc.evictLRU(cacheEntry.lastIdx)
 }
 
-func (uc *uniCache) evictLRU() {
+func (uc *uniCache) evictLRU(currIdx uint64) {
 	elem := uc.lruList.Back()
 	if elem == nil {
 		return
 	}
-	entry := elem.Value.(cacheEntry)
+	entry := elem.Value.(*cacheEntry)
+
+	if currIdx-entry.lastIdx <= uint64(uc.capacity) {
+		return
+	}
+
+	keyHash := sha256.Sum256(entry.key)
+	fmt.Printf("[evictLRU] index=%d evicting ID=%d keyHash=%x lenCache:%d\n", currIdx, entry.id, keyHash, len(uc.cache))
+
+	minCommit := int(uc.minCommitted())
+
+	if minCommit == 0 {
+		delete(uc.cache, entry.id)
+		delete(uc.reverseCache, string(entry.key))
+		delete(uc.lruMap, entry.id)
+		uc.lruList.Remove(elem)
+		return
+	}
+
+	//evictedElem := uc.evictOrder.PushBack(entry)
+	//uc.evicted[entry.id] = evictedElem
 
 	delete(uc.cache, entry.id)
 	delete(uc.reverseCache, string(entry.key))
 	delete(uc.lruMap, entry.id)
 	uc.lruList.Remove(elem)
+}
+
+func (uc *uniCache) PurgeEvicted(appendIdx uint64) {
+	for {
+		front := uc.evictOrder.Front()
+		if front == nil {
+			return
+		}
+		entry, ok := front.Value.(*cacheEntry)
+		if !ok {
+			return
+		}
+
+		if entry.lastIdx > appendIdx && appendIdx-uc.minCommitted() < uint64(uc.capacity) {
+			return
+		}
+
+		uc.evictOrder.Remove(front)
+		delete(uc.evicted, entry.id)
+		fmt.Println("purged id: ", entry.id, "index", uc.appliedIdx, "len evicted: ", uc.evictOrder.Len())
+	}
 }
 
 func (uc *uniCache) GetNextId() uint32 {
@@ -90,84 +160,232 @@ func (uc *uniCache) GetNextId() uint32 {
 	return uc.nextID
 }
 
-// EncodeData replaces a cached key with a varint ID by first copying
-// the original slice and then doing an in-place compress on the copy.
-func (uc *uniCache) EncodeData(data []byte) []byte {
-	if len(data) == 0 {
-		return data
+func (uc *uniCache) PrintCache() {
+	fmt.Println("len cache: ", len(uc.cache), "len evicted", len(uc.evicted), "nextId:", uc.nextID)
+	keys := make([]uint32, 0, len(uc.cache))
+	for k := range uc.cache {
+		keys = append(keys, k)
 	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	fmt.Println("keys", keys)
+}
 
-	keyBytes, _, err := GetProtoFieldAndWireType(data, cachedFieldNumber)
-	if err != nil {
-		return data
-	}
-
+func (uc *uniCache) SafeEncode(cacheVersion uint64, maxCommitIdx uint64, appendIdx uint64, data []byte) []byte {
 	uc.mu.Lock()
 	defer uc.mu.Unlock()
 
-	keyStr := string(keyBytes)
-	id, ok := uc.reverseCache[keyStr]
+	keyBytes, wireType, err := GetProtoFieldAndWireType(data, cachedFieldNumber)
+	if err != nil || wireType == protowire.BytesType {
+		return data
+	}
 
-	if ok && id < uc.nextID {
+	id, _ := protowire.ConsumeVarint(keyBytes)
+	cacheID := uint32(id)
 
-		encodedID := protowire.AppendVarint(nil, uint64(id))
-		newData, err := ReplaceProtoField(data, cachedFieldNumber, encodedID, protowire.VarintType)
-		if err == nil {
+	if elem, ok := uc.cache[cacheID]; ok {
+
+		if appendIdx-elem.lastIdx < uint64(uc.capacity) {
+			nCached++
+			keyHash := sha256.Sum256(elem.key) // or keyBytes depending on availability
+			fmt.Printf("[SafeEncode] index=%d sending cached keyID=%d keyHash=%x\n", appendIdx, cacheID, keyHash)
+			return data
+		} else {
+			fmt.Println("eviction risk, send full ", cacheID)
+			keyHash := sha256.Sum256(elem.key) // or keyBytes depending on availability
+			fmt.Printf("[SafeEncode] index=%d sending full keyID=%d keyHash=%x\n", appendIdx, cacheID, keyHash)
+			newData, err := ReplaceProtoField(data, cachedFieldNumber, elem.key, protowire.BytesType)
+			if err != nil {
+				fmt.Println("error replacing field", err)
+				return nil
+			}
 			return newData
 		}
 	}
 
+	if elem, ok := uc.evicted[cacheID]; ok {
+		elemEntry := elem.Value.(*cacheEntry)
+		newData, err := ReplaceProtoField(data, cachedFieldNumber, elemEntry.key, protowire.BytesType)
+		if err != nil {
+			fmt.Println("error replacing field", err)
+			return nil
+		}
+		nRestoreWithEvicted++
+		keyHash := sha256.Sum256(elemEntry.key) // or keyBytes depending on availability
+		fmt.Printf("[SafeEncode] index=%d sending restored keyID=%d keyHash=%x\n", appendIdx, cacheID, keyHash)
+		return newData
+	}
+
+	panic(fmt.Sprintf(
+		"SafeEncode: cacheID %d missing from both LRU and evictedRaw; appendIdx=%d maxCommitIdx=%d",
+		cacheID, appendIdx, maxCommitIdx,
+	))
+}
+
+func (uc *uniCache) EncodeData(data []byte, appendIdx uint64) []byte {
+	if len(data) == 0 {
+		return data
+	}
+
+	uc.mu.Lock()
+	defer uc.mu.Unlock()
+
+	keyBytes, _, err := GetProtoFieldAndWireType(data, cachedFieldNumber)
+
+	if err != nil {
+		return data
+	}
+
+	keyStr := string(keyBytes)
+	id, ok := uc.reverseCache[keyStr]
+
+	if !ok {
+		fmt.Println("[EncodeData] not in reversecache")
+		return data
+	}
+
+	elem, ok := uc.cache[id]
+	if !ok {
+		fmt.Println("[EncodeData] not in cache")
+		return data
+	}
+
+	fmt.Println("[EncodeData] appendidx", appendIdx, "lastidx", elem.lastIdx)
+	fmt.Println("[EncodeData] appendidx-lastidx=", appendIdx-elem.lastIdx)
+
+	if appendIdx-elem.lastIdx <= uint64(uc.capacity) && uc.minCommitted() <= elem.lastIdx {
+		nCached++
+		encodedID := protowire.AppendVarint(nil, uint64(id))
+		newData, err := ReplaceProtoField(data, cachedFieldNumber, encodedID, protowire.VarintType)
+		if err == nil {
+			elem.lastIdx = appendIdx
+			fmt.Printf("[EncodeData] index=%d sending cached ID=%d keyHash=%x ncached=%d\n", appendIdx, id, sha256.Sum256(keyBytes), nCached)
+			return newData
+		}
+	}
+	fmt.Printf("[EncodeData] index=%d sending full ID=%d keyHash=%x\n", appendIdx, id, sha256.Sum256(keyBytes))
 	return data
 }
 
 // DecodeEntry restores original key bytes or caches first-seen keys.
-func (uc *uniCache) DecodeEntry(entry pb.Entry, touchLRU bool) (pb.Entry, bool) {
+func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
 	if len(entry.Data) == 0 {
-		return entry, true
-	}
-
-	keyField, wireType, err := GetProtoFieldAndWireType(entry.Data, cachedFieldNumber)
-	if err != nil {
 		return entry, true
 	}
 
 	uc.mu.Lock()
 	defer uc.mu.Unlock()
 
+	keyField, wireType, err := GetProtoFieldAndWireType(entry.Data, cachedFieldNumber)
+	if err != nil {
+		return entry, false
+	}
+
 	if wireType == protowire.BytesType {
-		keyStr := string(keyField)
-		if id, ok := uc.reverseCache[keyStr]; !ok {
-			newID := uc.nextID
-			uc.nextID++
-			uc.cache[newID] = keyField
-			uc.reverseCache[keyStr] = newID
-			uc.addToLRU(newID, keyField)
-		} else {
-			if touchLRU {
-				uc.updateLRU(uint32(id))
-			}
-		}
 		return entry, true
-	} else if wireType == protowire.VarintType {
+	}
+
+	if wireType == protowire.VarintType {
 		id, n := protowire.ConsumeVarint(keyField)
 		if n <= 0 {
 			return entry, false
 		}
-		origKey, ok := uc.cache[uint32(id)]
+		elem, ok := uc.cache[uint32(id)]
+
 		if !ok {
+			fmt.Println("[decode cache] not in cache: ", id, "index", entry.Index)
 			return entry, false
 		}
-		if touchLRU {
-			uc.updateLRU(uint32(id))
+		newData, err := ReplaceProtoField(entry.Data, cachedFieldNumber, elem.key, protowire.BytesType)
+		if err != nil {
+			fmt.Printf("[ReplaceProtoField error] id=%d, key=%x, wireType=BytesType, err=%v\n", elem.id, elem.key, err)
+			debug.PrintStack()
+			return entry, false
 		}
-		newData, err := ReplaceProtoField(entry.Data, cachedFieldNumber, origKey, protowire.BytesType)
 		if err == nil {
 			entry.Data = newData
 		}
 		return entry, true
-	} else {
+	}
+	return entry, true
+}
+
+func (uc *uniCache) UpdateCache(entry pb.Entry, purge bool) (pb.Entry, bool) {
+	if len(entry.Data) == 0 {
 		return entry, true
 	}
+
+	uc.mu.Lock()
+	defer uc.mu.Unlock()
+
+	keyField, wireType, err := GetProtoFieldAndWireType(entry.Data, cachedFieldNumber)
+	if err != nil {
+		return entry, false
+	}
+
+	if entry.Index <= uc.appliedIdx {
+		return entry, true
+	}
+
+	uc.appliedIdx = entry.Index
+
+	dataHash := string(entry.Data)
+	fmt.Printf("[UpdateCache] index=%d wireType=%v appliedIdx=%d nextId=%d dataHash=%x\n",
+		entry.Index, wireType, uc.appliedIdx, uc.nextID, dataHash)
+
+	if wireType == protowire.VarintType {
+		id, n := protowire.ConsumeVarint(keyField)
+		if n <= 0 {
+			return entry, false
+		}
+		elem, ok := uc.cache[uint32(id)]
+
+		if !ok {
+			fmt.Printf("[UpdateCache] index=%d ERROR: key ID %d not in cache\n", entry.Index, id)
+			return entry, false
+		}
+
+		keyHash := string(elem.key)
+		fmt.Printf("[UpdateCache] index=%d USED existing ID %d keyHash=%x\n", entry.Index, id, keyHash)
+
+		newData, err := ReplaceProtoField(entry.Data, cachedFieldNumber, elem.key, protowire.BytesType)
+		if err != nil {
+			fmt.Printf("[ReplaceProtoField error] id=%d key=%x wireType=BytesType err=%v\n",
+				id, elem.id, elem.key, err)
+			debug.PrintStack()
+			return entry, false
+		}
+		entry.Data = newData
+		uc.updateLRU(uint32(id), entry.Index)
+
+		if elem.lastIdx < entry.Index {
+			elem.lastIdx = entry.Index
+
+		}
+
+		return entry, true
+
+	} else if wireType == protowire.BytesType {
+		keyStr := string(keyField)
+
+		if _, ok := uc.reverseCache[keyStr]; !ok {
+			newID := uc.nextID
+			uc.nextID++
+			elem := &cacheEntry{
+				id:      newID,
+				key:     keyField,
+				lastIdx: entry.Index,
+			}
+			uc.cache[newID] = elem
+			uc.reverseCache[keyStr] = newID
+			uc.addToLRU(elem)
+
+			fmt.Printf("[UpdateCache] index=%d LEARNED new key ID %d keyHash=%x\n",
+				entry.Index, newID, string(keyField))
+		}
+		return entry, true
+	}
+
+	return entry, false
 }
 
 func ReplaceProtoField(data []byte, targetField int, newValue []byte, newWireType protowire.Type) ([]byte, error) {

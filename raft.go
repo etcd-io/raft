@@ -464,8 +464,9 @@ func newRaft(c *Config) *raft {
 		disableConfChangeValidation: c.DisableConfChangeValidation,
 		stepDownOnRemoval:           c.StepDownOnRemoval,
 		traceLogger:                 c.TraceLogger,
-		uniCache:                    unicache.NewUniCache(),
 	}
+
+	r.uniCache = unicache.NewUniCache(&r.raftLog.committed, r.trk.MinMatch)
 
 	traceInitState(r)
 
@@ -817,13 +818,24 @@ func (r *raft) reset(term uint64) {
 	r.readOnly = newReadOnly(r.readOnly.option)
 }
 
-// TODO: UniCache, leader code: append to cache as well
 func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 	li := r.raftLog.lastIndex()
 	for i := range es {
+		var kv pb.MyKV
+		if err := kv.Unmarshal(es[i].Data); err != nil {
+			fmt.Printf("[appendEntry] Failed to decode MyKV: index=%d error=%v\n", es[i].Index, err)
+		} else {
+			fmt.Printf("[appendEntry] Proposing index=%d proposalID=%d key=%s value=%s\n",
+				es[i].Index, kv.ProposalID, string(kv.Key), string(kv.Value))
+		}
 		es[i].Term = r.Term
 		es[i].Index = li + 1 + uint64(i)
+		es[i].Data = r.uniCache.EncodeData(
+			es[i].Data,
+			es[i].Index,
+		)
 	}
+
 	// Track the size of this uncommitted proposal.
 	if !r.increaseUncommittedSize(es) {
 		r.logger.Warningf(
@@ -1347,6 +1359,8 @@ func stepLeader(r *raft, m pb.Message) error {
 					traceChangeConfEvent(cc, r)
 				}
 			}
+
+			e.CacheVersion = m.Commit
 		}
 
 		if !r.appendEntry(m.Entries...) {
