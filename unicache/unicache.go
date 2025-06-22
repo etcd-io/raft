@@ -2,10 +2,8 @@ package unicache
 
 import (
 	"container/list"
-	"crypto/sha256"
 	"errors"
 	"fmt"
-	"runtime/debug"
 	"sort"
 	"sync"
 
@@ -15,12 +13,7 @@ import (
 
 const cachedFieldNumber = 1
 
-var nCached = 0
-var nRestoreWithEvicted = 0
-
 const maxCacheSize = 500
-
-const evictionLag = maxCacheSize / 4
 
 // UniCache defines methods for encoding/decoding entries with key caching.
 type UniCache interface {
@@ -110,8 +103,8 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
 		return
 	}
 
-	keyHash := sha256.Sum256(entry.key)
-	fmt.Printf("[evictLRU] index=%d evicting ID=%d keyHash=%x lenCache:%d, lastIdx=%d\n", currIdx, entry.id, keyHash, len(uc.cache), entry.lastIdx)
+	//keyHash := sha256.Sum256(entry.key)
+	//fmt.Printf("[evictLRU] index=%d evicting ID=%d keyHash=%x lenCache:%d, lastIdx=%d\n", currIdx, entry.id, keyHash, len(uc.cache), entry.lastIdx)
 
 	minCommit := int(uc.minCommitted())
 
@@ -149,7 +142,7 @@ func (uc *uniCache) PurgeEvicted(appendIdx uint64) {
 
 		uc.evictOrder.Remove(front)
 		delete(uc.evicted, entry.id)
-		fmt.Println("purged id: ", entry.id, "index", uc.appliedIdx, "len evicted: ", uc.evictOrder.Len())
+		//fmt.Println("purged id: ", entry.id, "index", uc.appliedIdx, "len evicted: ", uc.evictOrder.Len())
 	}
 }
 
@@ -189,25 +182,23 @@ func (uc *uniCache) SafeEncode(data []byte, appendIdx uint64) ([]byte, []byte) {
 		keyStr := string(keyBytes)
 		id, ok := uc.reverseCache[keyStr]
 		if !ok {
-			fmt.Println("[SafeEncode] BytesType not in reverseCache")
+			//fmt.Println("[SafeEncode] BytesType not in reverseCache")
 			return data, nil
 		}
 		elem, ok := uc.cache[id]
 		if !ok {
-			fmt.Println("[SafeEncode] BytesType not in cache")
+			//fmt.Println("[SafeEncode] BytesType not in cache")
 			return data, nil
 		}
-		fmt.Println("[EncodeData BYTES] appendidx", appendIdx, "lastidx", elem.lastIdx, "mincommited", uc.minCommitted())
-		fmt.Println("[EncodeData BYTES] appendidx-lastidx=", appendIdx-elem.lastIdx)
+		//fmt.Println("[EncodeData BYTES] appendidx", appendIdx, "lastidx", elem.lastIdx, "mincommited", uc.minCommitted())
+		//fmt.Println("[EncodeData BYTES] appendidx-lastidx=", appendIdx-elem.lastIdx)
 		if appendIdx-elem.lastIdx <= uint64(uc.capacity) && uc.minCommitted() >= elem.lastIdx {
 			encodedID := protowire.AppendVarint(nil, uint64(id))
 			newData, err := ReplaceProtoField(data, cachedFieldNumber, encodedID, protowire.VarintType)
 			if err == nil {
-				nCached++
-				fmt.Printf("[SafeEncode] index=%d encoding to ID=%d keyHash=%x\n", appendIdx, id, sha256.Sum256(elem.key))
+				//fmt.Printf("[SafeEncode] index=%d encoding to ID=%d keyHash=%x\n", appendIdx, id, sha256.Sum256(elem.key))
 				return newData, data
 			}
-			fmt.Println("[SafeEncode] encoding failed:", err)
 		}
 		return data, nil
 
@@ -217,23 +208,22 @@ func (uc *uniCache) SafeEncode(data []byte, appendIdx uint64) ([]byte, []byte) {
 		elem, ok := uc.cache[uint32(id)]
 
 		if ok {
-			fmt.Println("[SafeEncode VARINT] appendidx", appendIdx, "lastidx", elem.lastIdx, "mincommited", uc.minCommitted())
-			fmt.Println("[SafeEncode VARINT] appendidx-lastidx=", appendIdx-elem.lastIdx)
+			//fmt.Println("[SafeEncode VARINT] appendidx", appendIdx, "lastidx", elem.lastIdx, "mincommited", uc.minCommitted())
+			//fmt.Println("[SafeEncode VARINT] appendidx-lastidx=", appendIdx-elem.lastIdx)
 		}
 
 		if ok {
 			if appendIdx-elem.lastIdx <= uint64(uc.capacity) && uc.minCommitted() >= elem.lastIdx {
-				nCached++
 				fullData, err := ReplaceProtoField(data, cachedFieldNumber, elem.key, protowire.BytesType)
 				if err == nil {
-					fmt.Printf("[SafeEncode] index=%d confirmed safe ID=%d keyHash=%x\n", appendIdx, id, sha256.Sum256(elem.key))
+					//fmt.Printf("[SafeEncode] index=%d confirmed safe ID=%d keyHash=%x\n", appendIdx, id, sha256.Sum256(elem.key))
 					return data, fullData
 				}
 			}
-			fmt.Println("[SafeEncode] eviction risk, restoring full for ID=", id)
+			//fmt.Println("[SafeEncode] eviction risk, restoring full for ID=", id)
 			newData, err := ReplaceProtoField(data, cachedFieldNumber, elem.key, protowire.BytesType)
 			if err == nil {
-				fmt.Println("[SafeEncode] successfully restored ID=", id)
+				//fmt.Println("[SafeEncode] successfully restored ID=", id)
 				return newData, newData
 			}
 		}
@@ -242,13 +232,12 @@ func (uc *uniCache) SafeEncode(data []byte, appendIdx uint64) ([]byte, []byte) {
 			ev := evElem.Value.(*cacheEntry)
 			newData, err := ReplaceProtoField(data, cachedFieldNumber, ev.key, protowire.BytesType)
 			if err == nil {
-				nRestoreWithEvicted++
-				fmt.Printf("[SafeEncode] index=%d restored from evicted ID=%d keyHash=%x\n", appendIdx, id, sha256.Sum256(ev.key))
+				//fmt.Printf("[SafeEncode] index=%d restored from evicted ID=%d keyHash=%x\n", appendIdx, id, sha256.Sum256(ev.key))
 				return newData, newData
 			}
-			fmt.Println("[SafeEncode] evicted restore failed:", err)
+			//fmt.Println("[SafeEncode] evicted restore failed:", err)
 		} else {
-			fmt.Printf("[SafeEncode] ID %d missing in cache and evicted (index=%d)\n", id, appendIdx)
+			//fmt.Printf("[SafeEncode] ID %d missing in cache and evicted (index=%d)\n", id, appendIdx)
 		}
 
 	default:
@@ -277,13 +266,13 @@ func (uc *uniCache) EncodeData(data []byte, committed uint64) []byte {
 	id, ok := uc.reverseCache[keyStr]
 
 	if !ok {
-		fmt.Println("[EncodeData] not in reversecache")
+		//fmt.Println("[EncodeData] not in reversecache")
 		return data
 	}
 
 	elem, ok := uc.cache[id]
 	if !ok {
-		fmt.Println("[EncodeData] not in cache")
+		//fmt.Println("[EncodeData] not in cache")
 		return data
 	}
 
@@ -323,13 +312,11 @@ func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
 		elem, ok := uc.cache[uint32(id)]
 
 		if !ok {
-			fmt.Println("[decode cache] not in cache: ", id, "index", entry.Index)
+			//fmt.Println("[decode cache] not in cache: ", id, "index", entry.Index)
 			return entry, false
 		}
 		newData, err := ReplaceProtoField(entry.Data, cachedFieldNumber, elem.key, protowire.BytesType)
 		if err != nil {
-			fmt.Printf("[ReplaceProtoField error] id=%d, key=%x, wireType=BytesType, err=%v\n", elem.id, elem.key, err)
-			debug.PrintStack()
 			return entry, false
 		}
 		if err == nil {
@@ -358,10 +345,6 @@ func (uc *uniCache) UpdateCache(entry pb.Entry, purge bool) (pb.Entry, bool) {
 	}
 
 	uc.appliedIdx = entry.Index
-
-	dataHash := string(entry.Data)
-	fmt.Printf("[UpdateCache] index=%d wireType=%v appliedIdx=%d nextId=%d dataHash=%x\n",
-		entry.Index, wireType, uc.appliedIdx, uc.nextID, dataHash)
 
 	if wireType == protowire.VarintType {
 		fmt.Println("[UpdateCache] Got unexpected VARINT")
@@ -494,128 +477,6 @@ func ReplaceProtoField(data []byte, targetField int, newValue []byte, newWireTyp
 		data = data[skip:]
 	}
 	return out, nil
-}
-
-// ReplaceProtoFieldInPlaceCompress replaces a field in-place when the new encoding is shorter.
-func ReplaceProtoFieldInPlaceCompress(data []byte, targetField int, newValue []byte, newWireType protowire.Type) ([]byte, error) {
-	type fieldInfo struct {
-		start    int
-		fieldLen int
-		isTarget bool
-		newLen   int
-	}
-
-	// First pass: discover field offsets and lengths
-	var fields []fieldInfo
-	i := 0
-	for i < len(data) {
-		// 1) Consume tag
-		fieldNum, wireType, tagLen := protowire.ConsumeTag(data[i:])
-		if tagLen < 0 {
-			return nil, fmt.Errorf("bad tag at offset %d", i)
-		}
-		start := i
-		i += tagLen
-
-		// 2) Consume the rest of the field (length-prefix + value) to get its total length
-		var valLen int
-		switch wireType {
-		case protowire.VarintType:
-			_, n := protowire.ConsumeVarint(data[i:])
-			if n < 0 {
-				return nil, fmt.Errorf("bad varint at offset %d", i)
-			}
-			valLen = n
-
-		case protowire.BytesType:
-			_, n := protowire.ConsumeBytes(data[i:])
-			if n < 0 {
-				return nil, fmt.Errorf("bad bytes at offset %d", i)
-			}
-			valLen = n
-
-		default:
-			// skip unsupported types entirely
-			skip, err := skipField(wireType, data[i:])
-			if err != nil {
-				return nil, err
-			}
-			i += skip
-			continue
-		}
-
-		fieldLen := tagLen + valLen
-		isTarget := int(fieldNum) == targetField
-
-		// 3) Compute replacement length if this is our target
-		newLen := fieldLen
-		if isTarget {
-			tagBytes := protowire.AppendTag(nil, protowire.Number(targetField), newWireType)
-			var valBytes []byte
-			if newWireType == protowire.BytesType {
-				valBytes = protowire.AppendBytes(nil, newValue)
-			} else {
-				valBytes = newValue
-			}
-			newLen = len(tagBytes) + len(valBytes)
-			if newLen > fieldLen {
-				return nil, fmt.Errorf("replacement longer than original field")
-			}
-		}
-
-		fields = append(fields, fieldInfo{
-			start:    start,
-			fieldLen: fieldLen,
-			isTarget: isTarget,
-			newLen:   newLen,
-		})
-		i = start + fieldLen
-	}
-
-	// Second pass: rewrite into the same buffer, backwards
-	totalNew := 0
-	for _, f := range fields {
-		totalNew += f.newLen
-	}
-	writePos := totalNew
-
-	for idx := len(fields) - 1; idx >= 0; idx-- {
-		f := fields[idx]
-		writePos -= f.newLen
-
-		if f.isTarget {
-			// build new tag+value
-			tagBytes := protowire.AppendTag(nil, protowire.Number(targetField), newWireType)
-			var valBytes []byte
-			if newWireType == protowire.BytesType {
-				valBytes = protowire.AppendBytes(nil, newValue)
-			} else {
-				valBytes = newValue
-			}
-			copy(data[writePos:], tagBytes)
-			copy(data[writePos+len(tagBytes):], valBytes)
-
-		} else {
-			// copy original field bytes
-			copy(data[writePos:], data[f.start:f.start+f.fieldLen])
-		}
-	}
-
-	return data[:totalNew], nil
-}
-
-func skipField(wt protowire.Type, data []byte) (int, error) {
-	switch wt {
-	case protowire.Fixed32Type:
-		return 4, nil
-	case protowire.Fixed64Type:
-		return 8, nil
-	case protowire.StartGroupType:
-		_, n := protowire.ConsumeGroup(0, data)
-		return n, nil
-	default:
-		return 0, fmt.Errorf("unsupported wire type %v", wt)
-	}
 }
 
 func GetProtoFieldAndWireType(data []byte, targetField int) ([]byte, protowire.Type, error) {

@@ -189,7 +189,6 @@ func (p *ProgressTracker) MinCacheIdxMatch() uint64 {
 		if pr.CacheIdx < min {
 			min = pr.CacheIdx
 		}
-		fmt.Println("node", id, "min cacheidx", pr.CacheIdx)
 	})
 
 	if min == maxUint64 {

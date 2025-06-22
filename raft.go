@@ -851,7 +851,6 @@ func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 			if fullData != nil {
 				es[i].Data = fullData
 			}
-			fmt.Printf("[appendEntry] Proposing index=%d data=%d, newData=%d\n", enc.Index, es[i].Data, enc.Data)
 		}
 	}
 	if len(encEnts) > 0 {
