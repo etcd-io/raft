@@ -455,6 +455,9 @@ func (rn *RawNode) acceptReady(rd Ready) {
 	rn.raft.msgs = nil
 	rn.raft.msgsAfterAppend = nil
 	rn.raft.raftLog.acceptUnstable()
+	if rn.raft.uniCache != nil {
+		rn.raft.pend.Truncate(rn.raft.raftLog.unstable.offset)
+	}
 	if len(rd.CommittedEntries) > 0 {
 		ents := rd.CommittedEntries
 		index := ents[len(ents)-1].Index
