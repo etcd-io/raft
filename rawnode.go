@@ -163,26 +163,24 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 	}
 	rd.MustSync = MustSync(r.hardState(), rn.prevHardSt, len(rd.Entries))
 
-	for i := range rd.CommittedEntries {
-		if rd.CommittedEntries[i].Type == pb.EntryNormal {
-			decoded, ok := rn.raft.uniCache.UpdateCache(rd.CommittedEntries[i], r.lead == r.id)
-			if !ok {
-				panic(fmt.Sprintf("cache update failed for index %d with data: %d", rd.CommittedEntries[i].Index, rd.CommittedEntries[i].Data))
+	if rn.raft.uniCache != nil {
+		var maxIdx uint64
+		for i := range rd.CommittedEntries {
+			if rd.CommittedEntries[i].Type == pb.EntryNormal {
+				decoded, ok := rn.raft.uniCache.UpdateCache(rd.CommittedEntries[i], r.lead == r.id)
+				if !ok {
+					panic(fmt.Sprintf("cache update failed for index %d with data: %d", rd.CommittedEntries[i].Index, rd.CommittedEntries[i].Data))
+				}
+				rd.CommittedEntries[i] = decoded
+				maxIdx = rd.CommittedEntries[i].Index
 			}
-			rd.CommittedEntries[i] = decoded
-		}
-	}
 
-	for i := range rd.Entries {
-		if rd.Entries[i].Type == pb.EntryNormal {
-			if decoded, ok := rn.raft.uniCache.DecodeEntry(rd.Entries[i]); ok {
-				rd.Entries[i] = decoded
-			} else {
-				panic(fmt.Sprintf("cache decode failed for index %d committed %d with data: %d, cacheversion: %d",
-					rd.Entries[i].Index, rn.raft.raftLog.committed, rd.Entries[i].Data,
-					rd.Entries[i].CacheVersion))
-			}
 		}
+
+		if maxIdx > rn.raft.lastCacheIdx {
+			rn.raft.lastCacheIdx = maxIdx
+		}
+
 	}
 
 	if rn.asyncStorageWrites {

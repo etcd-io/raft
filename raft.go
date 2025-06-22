@@ -287,6 +287,9 @@ type Config struct {
 
 	// raft state tracer
 	TraceLogger TraceLogger
+
+	// Enable UniCache
+	EnableUniCache bool
 }
 
 func (c *Config) validate() error {
@@ -433,7 +436,13 @@ type raft struct {
 	pendingReadIndexMessages []pb.Message
 
 	traceLogger TraceLogger
-	uniCache    unicache.UniCache
+
+	// UniCache module
+	uniCache unicache.UniCache
+	// Leader only pending entries encoded using UniCache module
+	pend pendingBuf
+	// UniCache up to date up to this index
+	lastCacheIdx uint64
 }
 
 func newRaft(c *Config) *raft {
@@ -466,7 +475,11 @@ func newRaft(c *Config) *raft {
 		traceLogger:                 c.TraceLogger,
 	}
 
-	r.uniCache = unicache.NewUniCache(&r.raftLog.committed, r.trk.MinMatch)
+	if c.EnableUniCache {
+		r.uniCache = unicache.NewUniCache(&r.raftLog.committed, r.trk.MinCacheIdxMatch)
+	} else {
+		r.uniCache = nil
+	}
 
 	traceInitState(r)
 
@@ -640,7 +653,12 @@ func (r *raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 	// leader to send an append), allowing it to be acked or rejected, both of
 	// which will clear out Inflights.
 	if pr.State != tracker.StateReplicate || !pr.Inflights.Full() {
-		ents, err = r.raftLog.entries(pr.Next, r.maxMsgSize)
+		ents, err = r.pend.Slice(pr.Next, r.raftLog.lastIndex()+1, r.maxMsgSize)
+		if errors.Is(err, ErrUnavailable) {
+			// should not happen; if it does, fall back
+			fmt.Println("Error creating slice of encoded ents", err, ". Use fallback normal ents instead")
+			ents, err = r.raftLog.entries(pr.Next, r.maxMsgSize)
+		}
 	}
 	if len(ents) == 0 && !sendIfEmpty {
 		return false
@@ -820,22 +838,24 @@ func (r *raft) reset(term uint64) {
 
 func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 	li := r.raftLog.lastIndex()
+	encEnts := make([]pb.Entry, len(es))
 	for i := range es {
-		var kv pb.MyKV
-		if err := kv.Unmarshal(es[i].Data); err != nil {
-			fmt.Printf("[appendEntry] Failed to decode MyKV: index=%d error=%v\n", es[i].Index, err)
-		} else {
-			fmt.Printf("[appendEntry] Proposing index=%d proposalID=%d key=%s value=%s\n",
-				es[i].Index, kv.ProposalID, string(kv.Key), string(kv.Value))
-		}
 		es[i].Term = r.Term
 		es[i].Index = li + 1 + uint64(i)
-		es[i].Data = r.uniCache.SafeEncode(
-			es[i].CacheVersion,
-			r.raftLog.committed,
-			es[i].Index,
-			es[i].Data,
-		)
+
+		if r.uniCache != nil {
+			var fullData []byte
+			enc := es[i]
+			enc.Data, fullData = r.uniCache.SafeEncode(enc.Data, enc.Index)
+			encEnts[i] = enc
+			if fullData != nil {
+				es[i].Data = fullData
+			}
+			fmt.Printf("[appendEntry] Proposing index=%d data=%d, newData=%d\n", enc.Index, es[i].Data, enc.Data)
+		}
+	}
+	if len(encEnts) > 0 {
+		r.pend.TruncateAndAppend(encEnts)
 	}
 
 	// Track the size of this uncommitted proposal.
@@ -1361,8 +1381,6 @@ func stepLeader(r *raft, m pb.Message) error {
 					traceChangeConfEvent(cc, r)
 				}
 			}
-
-			e.CacheVersion = m.Commit
 		}
 
 		if !r.appendEntry(m.Entries...) {
@@ -1535,6 +1553,11 @@ func stepLeader(r *raft, m pb.Message) error {
 				r.sendAppend(m.From)
 			}
 		} else {
+
+			if r.uniCache != nil && m.Commit > pr.CacheIdx {
+				pr.CacheIdx = m.Commit
+			}
+
 			// We want to update our tracking if the response updates our
 			// matched index or if the response can move a probing peer back
 			// into StateReplicate (see heartbeat_rep_recovers_from_probing.txt
@@ -1567,6 +1590,12 @@ func stepLeader(r *raft, m pb.Message) error {
 				}
 
 				if r.maybeCommit() {
+					// Leader's cache is always valid up to its committed index,
+					// so bump its CacheIdx before broadcasting.
+					if prL := r.trk.Progress[r.id]; r.raftLog.committed > prL.CacheIdx {
+						prL.CacheIdx = r.raftLog.committed
+					}
+
 					// committed index has progressed for the term, so it is safe
 					// to respond to pending read index requests
 					releasePendingReadIndexMessages(r)
@@ -1817,16 +1846,27 @@ func logSliceFromMsgApp(m *pb.Message) logSlice {
 // Also, if log is not matching leaders, check if we have
 // appended entries that were never committed(?)
 func (r *raft) handleAppendEntries(m pb.Message) {
+	for i := range m.Entries {
+		if m.Entries[i].Type == pb.EntryNormal {
+			if decoded, ok := r.uniCache.DecodeEntry(m.Entries[i]); ok {
+				m.Entries[i] = decoded
+			} else {
+				panic(fmt.Sprintf("cache decode failed for index %d committed %d with data: %d",
+					m.Entries[i].Index, r.raftLog.committed, m.Entries[i].Data))
+			}
+		}
+	}
+
 	// TODO(pav-kv): construct logSlice up the stack next to receiving the
 	// message, and validate it before taking any action (e.g. bumping term).
 	a := logSliceFromMsgApp(&m)
 
 	if a.prev.index < r.raftLog.committed {
-		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: r.raftLog.committed})
+		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: r.raftLog.committed, Commit: r.lastCacheIdx})
 		return
 	}
 	if mlastIndex, ok := r.raftLog.maybeAppend(a, m.Commit); ok {
-		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: mlastIndex})
+		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: mlastIndex, Commit: r.lastCacheIdx})
 		return
 	}
 	r.logger.Debugf("%x [logterm: %d, index: %d] rejected MsgApp [logterm: %d, index: %d] from %x",

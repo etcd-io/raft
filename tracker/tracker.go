@@ -181,14 +181,15 @@ func (p *ProgressTracker) Committed() uint64 {
 }
 
 // MinMatch returns the smallest log index known to be commited among all peers.
-func (p *ProgressTracker) MinMatch() uint64 {
+func (p *ProgressTracker) MinCacheIdxMatch() uint64 {
 	const maxUint64 = ^uint64(0)
 	min := maxUint64
 
 	p.Visit(func(id uint64, pr *Progress) {
-		if pr.Match < min {
-			min = pr.Match
+		if pr.CacheIdx < min {
+			min = pr.CacheIdx
 		}
+		fmt.Println("node", id, "min cacheidx", pr.CacheIdx)
 	})
 
 	if min == maxUint64 {

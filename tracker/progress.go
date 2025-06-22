@@ -118,6 +118,9 @@ type Progress struct {
 
 	// IsLearner is true if this progress is tracked for a learner.
 	IsLearner bool
+
+	// UniCache up to date ut to log index
+	CacheIdx uint64
 }
 
 // ResetState moves the Progress into the specified State, resetting MsgAppFlowPaused,
