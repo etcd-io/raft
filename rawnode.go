@@ -164,23 +164,16 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 	rd.MustSync = MustSync(r.hardState(), rn.prevHardSt, len(rd.Entries))
 
 	if rn.raft.uniCache != nil {
-		var maxIdx uint64
 		for i := range rd.CommittedEntries {
-			if rd.CommittedEntries[i].Type == pb.EntryNormal {
+			if rd.CommittedEntries[i].Type == pb.EntryNormal && rd.CommittedEntries[i].Index > rn.raft.lastCacheIdx {
 				decoded, ok := rn.raft.uniCache.UpdateCache(rd.CommittedEntries[i], r.lead == r.id)
 				if !ok {
 					panic(fmt.Sprintf("cache update failed for index %d with data: %d", rd.CommittedEntries[i].Index, rd.CommittedEntries[i].Data))
 				}
 				rd.CommittedEntries[i] = decoded
-				maxIdx = rd.CommittedEntries[i].Index
+				rn.raft.lastCacheIdx = rd.CommittedEntries[i].Index
 			}
-
 		}
-
-		if maxIdx > rn.raft.lastCacheIdx {
-			rn.raft.lastCacheIdx = maxIdx
-		}
-
 	}
 
 	if rn.asyncStorageWrites {

@@ -338,10 +338,6 @@ func (uc *uniCache) UpdateCache(entry pb.Entry, purge bool) (pb.Entry, bool) {
 		return entry, false
 	}
 
-	if entry.Index <= uc.appliedIdx {
-		return entry, true
-	}
-
 	uc.appliedIdx = entry.Index
 
 	if wireType == protowire.VarintType {
