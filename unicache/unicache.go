@@ -388,13 +388,13 @@ func (uc *uniCache) UpdateCache(entry pb.Entry, purge bool) (pb.Entry, bool) {
 			uc.reverseCache[keyStr] = newID
 			uc.addToLRU(elem)
 
-			fmt.Printf("[UpdateCache] index=%d LEARNED new key ID %d keyHash=%x\n",
-				entry.Index, newID, string(keyField))
+			/*fmt.Printf("[UpdateCache] index=%d LEARNED new key ID %d keyHash=%x\n",
+			entry.Index, newID, string(keyField))*/
 		} else {
 			ent := uc.cache[id]
 			if ent.lastIdx < entry.Index {
-				fmt.Printf("[UpdateCache] index=%d updating key ID %d prevIndex=%d newIndex=%d keyHash=%x\n",
-					entry.Index, id, ent.lastIdx, entry.Index, string(keyField))
+				/*fmt.Printf("[UpdateCache] index=%d updating key ID %d prevIndex=%d newIndex=%d keyHash=%x\n",
+				entry.Index, id, ent.lastIdx, entry.Index, string(keyField))*/
 				ent.lastIdx = entry.Index
 			}
 		}
