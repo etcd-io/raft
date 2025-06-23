@@ -18,7 +18,7 @@ const maxCacheSize = 500
 // UniCache defines methods for encoding/decoding entries with key caching.
 type UniCache interface {
 	NewUniCache(maxCommit *uint64, minCommitted func() uint64) UniCache
-	EncodeData(data []byte, commited uint64) []byte
+	EncodeData(data []byte) []byte
 	DecodeEntry(entry pb.Entry) (pb.Entry, bool)
 	SafeEncode(data []byte, appendIdx uint64) ([]byte, []byte)
 	GetNextId() uint32
@@ -248,7 +248,7 @@ func (uc *uniCache) SafeEncode(data []byte, appendIdx uint64) ([]byte, []byte) {
 	return data, nil
 }
 
-func (uc *uniCache) EncodeData(data []byte, committed uint64) []byte {
+func (uc *uniCache) EncodeData(data []byte) []byte {
 	if len(data) == 0 {
 		return data
 	}
@@ -270,18 +270,16 @@ func (uc *uniCache) EncodeData(data []byte, committed uint64) []byte {
 		return data
 	}
 
-	elem, ok := uc.cache[id]
+	_, ok = uc.cache[id]
 	if !ok {
 		//fmt.Println("[EncodeData] not in cache")
 		return data
 	}
 
-	if elem.lastIdx <= committed {
-		encodedID := protowire.AppendVarint(nil, uint64(id))
-		newData, err := ReplaceProtoField(data, cachedFieldNumber, encodedID, protowire.VarintType)
-		if err == nil {
-			return newData
-		}
+	encodedID := protowire.AppendVarint(nil, uint64(id))
+	newData, err := ReplaceProtoField(data, cachedFieldNumber, encodedID, protowire.VarintType)
+	if err == nil {
+		return newData
 	}
 	return data
 }
