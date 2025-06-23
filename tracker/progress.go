@@ -36,8 +36,6 @@ type Progress struct {
 	//
 	// Invariant: 0 <= Match < Next.
 	// NB: it follows that Next >= 1.
-	//
-	// In StateSnapshot, Next == PendingSnapshot + 1.
 	Next uint64
 
 	// sentCommit is the highest commit index in flight to the follower.
@@ -45,7 +43,7 @@ type Progress struct {
 	// Generally, it is monotonic, but con regress in some cases, e.g. when
 	// converting to `StateProbe` or when receiving a rejection from a follower.
 	//
-	// In StateSnapshot, sentCommit == PendingSnapshot == Next-1.
+	// In StateSnapshot, sentCommit == Next-1.
 	sentCommit uint64
 
 	// State defines how the leader should interact with the follower.
@@ -60,29 +58,6 @@ type Progress struct {
 	// When in StateSnapshot, leader should have sent out snapshot
 	// before and stops sending any replication message.
 	State StateType
-
-	// PendingSnapshot is used in StateSnapshot and tracks the last index of the
-	// leader at the time at which it realized a snapshot was necessary. This
-	// matches the index in the MsgSnap message emitted from raft.
-	//
-	// While there is a pending snapshot, replication to the follower is paused.
-	// The follower will transition back to StateReplicate if the leader
-	// receives an MsgAppResp from it that reconnects the follower to the
-	// leader's log (such an MsgAppResp is emitted when the follower applies a
-	// snapshot). It may be surprising that PendingSnapshot is not taken into
-	// account here, but consider that complex systems may delegate the sending
-	// of snapshots to alternative datasources (i.e. not the leader). In such
-	// setups, it is difficult to manufacture a snapshot at a particular index
-	// requested by raft and the actual index may be ahead or behind. This
-	// should be okay, as long as the snapshot allows replication to resume.
-	//
-	// The follower will transition to StateProbe if ReportSnapshot is called on
-	// the leader; if SnapshotFinish is passed then PendingSnapshot becomes the
-	// basis for the next attempt to append. In practice, the first mechanism is
-	// the one that is relevant in most cases. However, if this MsgAppResp is
-	// lost (fallible network) then the second mechanism ensures that in this
-	// case the follower does not erroneously remain in StateSnapshot.
-	PendingSnapshot uint64
 
 	// RecentActive is true if the progress is recently active. Receiving any messages
 	// from the corresponding follower indicates the progress is active.
@@ -117,28 +92,17 @@ type Progress struct {
 }
 
 // ResetState moves the Progress into the specified State, resetting MsgAppFlowPaused,
-// PendingSnapshot, and Inflights.
+// and Inflights.
 func (pr *Progress) ResetState(state StateType) {
 	pr.MsgAppFlowPaused = false
-	pr.PendingSnapshot = 0
 	pr.State = state
 	pr.Inflights.reset()
 }
 
-// BecomeProbe transitions into StateProbe. Next is reset to Match+1 or,
-// optionally and if larger, the index of the pending snapshot.
+// BecomeProbe transitions into StateProbe. Next is reset to Match+1.
 func (pr *Progress) BecomeProbe() {
-	// If the original state is StateSnapshot, progress knows that
-	// the pending snapshot has been sent to this peer successfully, then
-	// probes from pendingSnapshot + 1.
-	if pr.State == StateSnapshot {
-		pendingSnapshot := pr.PendingSnapshot
-		pr.ResetState(StateProbe)
-		pr.Next = max(pr.Match+1, pendingSnapshot+1)
-	} else {
-		pr.ResetState(StateProbe)
-		pr.Next = pr.Match + 1
-	}
+	pr.ResetState(StateProbe)
+	pr.Next = pr.Match + 1
 	pr.sentCommit = min(pr.sentCommit, pr.Next-1)
 }
 
@@ -148,13 +112,18 @@ func (pr *Progress) BecomeReplicate() {
 	pr.Next = pr.Match + 1
 }
 
-// BecomeSnapshot moves the Progress to StateSnapshot with the specified pending
-// snapshot index.
+// BecomeSnapshot moves the Progress to StateSnapshot.
 func (pr *Progress) BecomeSnapshot(snapshoti uint64) {
 	pr.ResetState(StateSnapshot)
-	pr.PendingSnapshot = snapshoti
 	pr.Next = snapshoti + 1
 	pr.sentCommit = snapshoti
+}
+
+// OnSnapshotApplied updates the Progress state based on the applied snapshot index.
+// This method sets Match to the given index and adjusts Next accordingly.
+func (pr *Progress) OnSnapshotApplied(appliedSnapshotIndex uint64) {
+	pr.Match = appliedSnapshotIndex
+	pr.Next = pr.Match + 1
 }
 
 // SentEntries updates the progress on the given number of consecutive entries
@@ -280,9 +249,6 @@ func (pr *Progress) String() string {
 	}
 	if pr.IsPaused() {
 		fmt.Fprint(&buf, " paused")
-	}
-	if pr.PendingSnapshot > 0 {
-		fmt.Fprintf(&buf, " pendingSnap=%d", pr.PendingSnapshot)
 	}
 	if !pr.RecentActive {
 		fmt.Fprint(&buf, " inactive")
