@@ -24,6 +24,9 @@ linters:
         - -SA1019 # TODO(fix) Using a deprecated function, variable, constant or field
         - -SA2002 # TODO(fix) Called testing.T.FailNow or SkipNow in a goroutine, which isn’t allowed
         - -QF1008
+        - -QF1003
+        - -QF1001
+        - -S1019
   # Excluding configuration per-path, per-linter, per-text and per-source
   exclusions:
     generated: lax
