@@ -1,7 +1,5 @@
 run:
   timeout: 30m
-  skip-files:
-    - "^zz_generated.*"
 formatters:
   enable:
     - gci
