@@ -34,8 +34,14 @@ issues:
   max-same-issues: 0
 formatters:
   enable:
+    - gci
     - goimports
   settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(go.etcd.io)
     goimports:
       local-prefixes:
         - go.etcd.io
