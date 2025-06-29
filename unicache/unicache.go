@@ -4,8 +4,8 @@ import (
 	"container/list"
 	"errors"
 	"fmt"
-	"sort"
 	"sync"
+	"sync/atomic"
 
 	pb "go.etcd.io/raft/v3/raftpb"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -13,17 +13,19 @@ import (
 
 const cachedFieldNumber = 1
 
-const maxCacheSize = 500
+const maxCacheSize = 50000
 
 // UniCache defines methods for encoding/decoding entries with key caching.
 type UniCache interface {
 	NewUniCache(maxCommit *uint64, minCommitted func() uint64) UniCache
-	EncodeData(data []byte) []byte
+	EncodeData(data []byte) ([]byte, uint32)
 	DecodeEntry(entry pb.Entry) (pb.Entry, bool)
-	SafeEncode(data []byte, appendIdx uint64) ([]byte, []byte)
+	SafeEncode(data []byte, appendIdx uint64, encodedID uint32) ([]byte, []byte)
 	GetNextId() uint32
 	PrintCache()
-	UpdateCache(entry pb.Entry, purge bool) (pb.Entry, bool)
+	UpdateCache(entry pb.Entry) (pb.Entry, bool)
+	PurgeEvicted(idx uint64)
+	CacheHits() uint64
 }
 
 type cacheEntry struct {
@@ -49,7 +51,7 @@ type uniCache struct {
 	maxCommit    *uint64
 	minCommitted func() uint64
 
-	appliedIdx uint64
+	cachehits uint64
 }
 
 // NewUniCache constructs a UniCache with simple LRU caching.
@@ -70,8 +72,12 @@ func NewUniCache(maxCommit *uint64, minCommitted func() uint64) UniCache {
 		maxCommit:    maxCommit,
 		minCommitted: minCommitted,
 
-		appliedIdx: uint64(0),
+		cachehits: uint64(0),
 	}
+}
+
+func (uc *uniCache) CacheHits() uint64 {
+	return atomic.LoadUint64(&uc.cachehits)
 }
 
 // NewUniCache implements the UniCache interface.
@@ -79,10 +85,11 @@ func (uc *uniCache) NewUniCache(maxCommit *uint64, minCommitted func() uint64) U
 	return NewUniCache(maxCommit, minCommitted)
 }
 
-func (uc *uniCache) updateLRU(id uint32, lastIdx uint64) {
+func (uc *uniCache) updateLRU(id uint32) {
 	if elem, ok := uc.lruMap[id]; ok {
 		uc.lruList.MoveToFront(elem)
 	}
+
 }
 
 func (uc *uniCache) addToLRU(cacheEntry *cacheEntry) {
@@ -99,12 +106,11 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
 	}
 	entry := elem.Value.(*cacheEntry)
 
-	if currIdx-entry.lastIdx <= uint64(uc.capacity) {
+	if len(uc.cache) < uc.capacity && currIdx-entry.lastIdx <= uint64(uc.capacity) {
 		return
 	}
 
-	//keyHash := sha256.Sum256(entry.key)
-	//fmt.Printf("[evictLRU] index=%d evicting ID=%d keyHash=%x lenCache:%d, lastIdx=%d\n", currIdx, entry.id, keyHash, len(uc.cache), entry.lastIdx)
+	//fmt.Printf("[evictLRU] index=%d evicting ID=%d lenCache:%d, lastIdx=%d capacity=%d len evicted=%d\n", currIdx, entry.id, len(uc.cache), entry.lastIdx, uc.capacity, len(uc.evicted))
 
 	minCommit := int(uc.minCommitted())
 
@@ -125,24 +131,29 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
 	uc.lruList.Remove(elem)
 }
 
-func (uc *uniCache) PurgeEvicted(appendIdx uint64) {
-	for {
+func (uc *uniCache) PurgeEvicted(currIdx uint64) {
+	uc.mu.Lock()
+	defer uc.mu.Unlock()
+	// how many entries could still be needed?
+	// (i.e. how far behind the slowest follower might lag)
+	// guard against wrap/negative
+	minC := uc.minCommitted()
+	var window uint64
+	if currIdx > minC {
+		window = currIdx - minC
+	} else {
+		window = 0
+	}
+
+	// drop from the front until we’re down to 'window' elements
+	for uc.evictOrder.Len() > int(window) {
 		front := uc.evictOrder.Front()
 		if front == nil {
-			return
+			break
 		}
-		entry, ok := front.Value.(*cacheEntry)
-		if !ok {
-			return
-		}
-
-		if entry.lastIdx > appendIdx && appendIdx-uc.minCommitted() < uint64(uc.capacity) {
-			return
-		}
-
+		e := front.Value.(*cacheEntry)
 		uc.evictOrder.Remove(front)
-		delete(uc.evicted, entry.id)
-		//fmt.Println("purged id: ", entry.id, "index", uc.appliedIdx, "len evicted: ", uc.evictOrder.Len())
+		delete(uc.evicted, e.id)
 	}
 }
 
@@ -154,112 +165,70 @@ func (uc *uniCache) GetNextId() uint32 {
 }
 
 func (uc *uniCache) PrintCache() {
+	uc.mu.RLock()
 	fmt.Println("len cache: ", len(uc.cache), "len evicted", len(uc.evicted), "nextId:", uc.nextID)
-	keys := make([]uint32, 0, len(uc.cache))
+	uc.mu.RUnlock()
+	/*keys := make([]uint32, 0, len(uc.cache))
 	for k := range uc.cache {
 		keys = append(keys, k)
 	}
 	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
-	fmt.Println("keys", keys)
+	fmt.Println("keys", keys)*/
 }
 
-func (uc *uniCache) SafeEncode(data []byte, appendIdx uint64) ([]byte, []byte) {
-	if len(data) == 0 {
+func (uc *uniCache) SafeEncode(data []byte, appendIdx uint64, encodedID uint32) ([]byte, []byte) {
+	if len(data) == 0 || encodedID == 0 {
 		return data, nil
 	}
 
-	uc.mu.Lock()
-	defer uc.mu.Unlock()
+	uc.mu.RLock()
+	defer uc.mu.RUnlock()
 
-	keyBytes, wireType, err := GetProtoFieldAndWireType(data, cachedFieldNumber)
-	if err != nil {
-		return data, nil
-	}
+	elem, ok := uc.cache[encodedID]
 
-	switch wireType {
-	case protowire.BytesType:
-		// This is a raw key — try to encode if it's safe
-		keyStr := string(keyBytes)
-		id, ok := uc.reverseCache[keyStr]
-		if !ok {
-			//fmt.Println("[SafeEncode] BytesType not in reverseCache")
-			return data, nil
-		}
-		elem, ok := uc.cache[id]
-		if !ok {
-			//fmt.Println("[SafeEncode] BytesType not in cache")
-			return data, nil
-		}
-		//fmt.Println("[EncodeData BYTES] appendidx", appendIdx, "lastidx", elem.lastIdx, "mincommited", uc.minCommitted())
-		//fmt.Println("[EncodeData BYTES] appendidx-lastidx=", appendIdx-elem.lastIdx)
+	if ok {
 		if appendIdx-elem.lastIdx <= uint64(uc.capacity) && uc.minCommitted() >= elem.lastIdx {
-			encodedID := protowire.AppendVarint(nil, uint64(id))
-			newData, err := ReplaceProtoField(data, cachedFieldNumber, encodedID, protowire.VarintType)
+			atomic.AddUint64(&uc.cachehits, 1)
+			//fmt.Printf("[SafeEncode] index=%d cachehits=%d appendIdx=%d lastIdx=%d minCachedIdx=%d\n", appendIdx, cachehits, appendIdx, elem.lastIdx, uc.minCommitted())
+
+			fullData, err := ReplaceProtoField(data, cachedFieldNumber, elem.key, protowire.BytesType)
 			if err == nil {
-				//fmt.Printf("[SafeEncode] index=%d encoding to ID=%d keyHash=%x\n", appendIdx, id, sha256.Sum256(elem.key))
-				return newData, data
+				return data, fullData
 			}
 		}
-		return data, nil
-
-	case protowire.VarintType:
-		// Already encoded — check if it's still valid
-		id, _ := protowire.ConsumeVarint(keyBytes)
-		elem, ok := uc.cache[uint32(id)]
-
-		if ok {
-			//fmt.Println("[SafeEncode VARINT] appendidx", appendIdx, "lastidx", elem.lastIdx, "mincommited", uc.minCommitted())
-			//fmt.Println("[SafeEncode VARINT] appendidx-lastidx=", appendIdx-elem.lastIdx)
+		//fmt.Printf("[SafeEncode] index=%d eviction risk, restoring full for ID=%d\n", appendIdx, encodedID)
+		newData, err := ReplaceProtoField(data, cachedFieldNumber, elem.key, protowire.BytesType)
+		if err == nil {
+			//fmt.Printf("[SafeEncode] index=%d successfully restored ID=%d\n", appendIdx, encodedID)
+			return newData, newData
 		}
-
-		if ok {
-			if appendIdx-elem.lastIdx <= uint64(uc.capacity) && uc.minCommitted() >= elem.lastIdx {
-				fullData, err := ReplaceProtoField(data, cachedFieldNumber, elem.key, protowire.BytesType)
-				if err == nil {
-					//fmt.Printf("[SafeEncode] index=%d confirmed safe ID=%d keyHash=%x\n", appendIdx, id, sha256.Sum256(elem.key))
-					return data, fullData
-				}
-			}
-			//fmt.Println("[SafeEncode] eviction risk, restoring full for ID=", id)
-			newData, err := ReplaceProtoField(data, cachedFieldNumber, elem.key, protowire.BytesType)
-			if err == nil {
-				//fmt.Println("[SafeEncode] successfully restored ID=", id)
-				return newData, newData
-			}
-		}
-		// check evicted cache
-		if evElem, ok := uc.evicted[uint32(id)]; ok {
-			ev := evElem.Value.(*cacheEntry)
-			newData, err := ReplaceProtoField(data, cachedFieldNumber, ev.key, protowire.BytesType)
-			if err == nil {
-				//fmt.Printf("[SafeEncode] index=%d restored from evicted ID=%d keyHash=%x\n", appendIdx, id, sha256.Sum256(ev.key))
-				return newData, newData
-			}
-			//fmt.Println("[SafeEncode] evicted restore failed:", err)
-		} else {
-			//fmt.Printf("[SafeEncode] ID %d missing in cache and evicted (index=%d)\n", id, appendIdx)
-		}
-
-	default:
-		// For other types, do nothing
-		fmt.Printf("[SafeEncode] unsupported wireType=%d for index=%d\n", wireType, appendIdx)
-		return data, nil
 	}
+	// check evicted cache
+	if evElem, ok := uc.evicted[encodedID]; ok {
+		ev := evElem.Value.(*cacheEntry)
+		newData, err := ReplaceProtoField(data, cachedFieldNumber, ev.key, protowire.BytesType)
+		if err == nil {
+			//fmt.Printf("[SafeEncode] index=%d restored from evicted ID=%d keyHash=%x\n", appendIdx, encodedID, sha256.Sum256(ev.key))
+			return newData, newData
+		}
+		//fmt.Println("[SafeEncode] evicted restore failed:", err)
+	}
+	fmt.Printf("[SafeEncode] index=%d didnt find have data for for ID=%d \n", appendIdx, encodedID)
 	return data, nil
 }
 
-func (uc *uniCache) EncodeData(data []byte) []byte {
+func (uc *uniCache) EncodeData(data []byte) ([]byte, uint32) {
 	if len(data) == 0 {
-		return data
+		return data, 0
 	}
 
-	uc.mu.Lock()
-	defer uc.mu.Unlock()
+	uc.mu.RLock()
+	defer uc.mu.RUnlock()
 
 	keyBytes, _, err := GetProtoFieldAndWireType(data, cachedFieldNumber)
 
 	if err != nil {
-		return data
+		return data, 0
 	}
 
 	keyStr := string(keyBytes)
@@ -267,21 +236,21 @@ func (uc *uniCache) EncodeData(data []byte) []byte {
 
 	if !ok {
 		//fmt.Println("[EncodeData] not in reversecache")
-		return data
+		return data, 0
 	}
 
 	_, ok = uc.cache[id]
 	if !ok {
 		//fmt.Println("[EncodeData] not in cache")
-		return data
+		return data, 0
 	}
 
 	encodedID := protowire.AppendVarint(nil, uint64(id))
 	newData, err := ReplaceProtoField(data, cachedFieldNumber, encodedID, protowire.VarintType)
 	if err == nil {
-		return newData
+		return newData, id
 	}
-	return data
+	return data, 0
 }
 
 // DecodeEntry restores original key bytes or caches first-seen keys.
@@ -290,8 +259,8 @@ func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
 		return entry, true
 	}
 
-	uc.mu.Lock()
-	defer uc.mu.Unlock()
+	uc.mu.RLock()
+	defer uc.mu.RUnlock()
 
 	keyField, wireType, err := GetProtoFieldAndWireType(entry.Data, cachedFieldNumber)
 	if err != nil {
@@ -310,7 +279,7 @@ func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
 		elem, ok := uc.cache[uint32(id)]
 
 		if !ok {
-			//fmt.Println("[decode cache] not in cache: ", id, "index", entry.Index)
+			fmt.Println("[decode cache] not in cache: ", id, "index", entry.Index)
 			return entry, false
 		}
 		newData, err := ReplaceProtoField(entry.Data, cachedFieldNumber, elem.key, protowire.BytesType)
@@ -325,7 +294,7 @@ func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
 	return entry, true
 }
 
-func (uc *uniCache) UpdateCache(entry pb.Entry, purge bool) (pb.Entry, bool) {
+func (uc *uniCache) UpdateCache(entry pb.Entry) (pb.Entry, bool) {
 	if len(entry.Data) == 0 {
 		return entry, true
 	}
@@ -337,8 +306,6 @@ func (uc *uniCache) UpdateCache(entry pb.Entry, purge bool) (pb.Entry, bool) {
 	if err != nil {
 		return entry, false
 	}
-
-	uc.appliedIdx = entry.Index
 
 	if wireType == protowire.VarintType {
 		fmt.Println("[UpdateCache] Got unexpected VARINT")
@@ -384,14 +351,15 @@ func (uc *uniCache) UpdateCache(entry pb.Entry, purge bool) (pb.Entry, bool) {
 			uc.reverseCache[keyStr] = newID
 			uc.addToLRU(elem)
 
-			/*fmt.Printf("[UpdateCache] index=%d LEARNED new key ID %d keyHash=%x\n",
-			entry.Index, newID, string(keyField))*/
+			//fmt.Printf("[UpdateCache] index=%d LEARNED new key ID %d keyHash=%x\n",
+			//entry.Index, newID, string(keyField))
 		} else {
 			ent := uc.cache[id]
 			if ent.lastIdx < entry.Index {
-				/*fmt.Printf("[UpdateCache] index=%d updating key ID %d prevIndex=%d newIndex=%d keyHash=%x\n",
-				entry.Index, id, ent.lastIdx, entry.Index, string(keyField))*/
+				//fmt.Printf("[UpdateCache] index=%d updating key ID %d prevIndex=%d newIndex=%d keyHash=%x\n",
+				//entry.Index, id, ent.lastIdx, entry.Index, string(keyField))
 				ent.lastIdx = entry.Index
+				uc.updateLRU(id)
 			}
 		}
 		return entry, true

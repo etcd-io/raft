@@ -240,6 +240,9 @@ type Node interface {
 	ReportSnapshot(id uint64, status SnapshotStatus)
 	// Stop performs any necessary termination of the Node.
 	Stop()
+
+	// UniCache: returns number of cache hits
+	CacheHits() uint64
 }
 
 type Peer struct {
@@ -466,11 +469,16 @@ func (n *node) Tick() {
 
 func (n *node) Campaign(ctx context.Context) error { return n.step(ctx, pb.Message{Type: pb.MsgHup}) }
 
+func (n *node) CacheHits() uint64 {
+	return n.rn.raft.uniCache.CacheHits()
+}
+
 func (n *node) Propose(ctx context.Context, data []byte) error {
+	var encodedID = uint32(0)
 	if n.rn.raft.lead == n.rn.raft.id {
-		data = n.rn.raft.uniCache.EncodeData(data)
+		data, encodedID = n.rn.raft.uniCache.EncodeData(data)
 	}
-	return n.stepWait(ctx, pb.Message{Type: pb.MsgProp, Entries: []pb.Entry{{Data: data}}})
+	return n.stepWait(ctx, pb.Message{Type: pb.MsgProp, Entries: []pb.Entry{{Data: data, EncodedID: encodedID}}})
 }
 
 func (n *node) Step(ctx context.Context, m pb.Message) error {

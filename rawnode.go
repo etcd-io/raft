@@ -166,13 +166,17 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 	if rn.raft.uniCache != nil {
 		for i := range rd.CommittedEntries {
 			if rd.CommittedEntries[i].Type == pb.EntryNormal && rd.CommittedEntries[i].Index > rn.raft.lastCacheIdx {
-				decoded, ok := rn.raft.uniCache.UpdateCache(rd.CommittedEntries[i], r.lead == r.id)
+				decoded, ok := rn.raft.uniCache.UpdateCache(rd.CommittedEntries[i])
 				if !ok {
 					panic(fmt.Sprintf("cache update failed for index %d with data: %d", rd.CommittedEntries[i].Index, rd.CommittedEntries[i].Data))
 				}
 				rd.CommittedEntries[i] = decoded
 				rn.raft.lastCacheIdx = rd.CommittedEntries[i].Index
 			}
+		}
+
+		if r.lead == r.id && len(rd.Entries) > 0 {
+			rn.raft.uniCache.PurgeEvicted(rd.Entries[len(rd.Entries)-1].Index)
 		}
 	}
 
