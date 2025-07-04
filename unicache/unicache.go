@@ -188,6 +188,7 @@ func (uc *uniCache) SafeEncode(data []byte, appendIdx uint64, encodedID uint32) 
 
 	if ok {
 		if appendIdx-elem.lastIdx <= uint64(uc.capacity) && uc.minCommitted() >= elem.lastIdx {
+			atomic.AddUint64(&uc.cachehits, 1)
 			//fmt.Printf("[SafeEncode] index=%d cachehits=%d appendIdx=%d lastIdx=%d minCachedIdx=%d\n", appendIdx, cachehits, appendIdx, elem.lastIdx, uc.minCommitted())
 
 			fullData, err := ReplaceProtoField(data, cachedFieldNumber, elem.key, protowire.BytesType)
