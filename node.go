@@ -475,9 +475,7 @@ func (n *node) CacheHits() uint64 {
 
 func (n *node) Propose(ctx context.Context, data []byte) error {
 	var encodedID = uint32(0)
-	if n.rn.raft.lead == n.rn.raft.id {
-		data, encodedID = n.rn.raft.uniCache.EncodeData(data)
-	}
+	data, encodedID = n.rn.raft.uniCache.EncodeData(data)
 	return n.stepWait(ctx, pb.Message{Type: pb.MsgProp, Entries: []pb.Entry{{Data: data, EncodedID: encodedID}}})
 }
 
