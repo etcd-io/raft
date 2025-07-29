@@ -13,7 +13,7 @@ import (
 
 const cachedFieldNumber = 1
 
-const maxCacheSize = 200000
+const maxCacheSize = 1000
 
 // UniCache defines methods for encoding/decoding entries with key caching.
 type UniCache interface {
@@ -29,9 +29,10 @@ type UniCache interface {
 }
 
 type cacheEntry struct {
-	id      uint32
-	key     []byte
-	lastIdx uint64
+	id       uint32
+	key      []byte
+	lastIdx  uint64
+	addedIdx uint64
 }
 
 type uniCache struct {
@@ -48,14 +49,14 @@ type uniCache struct {
 	evicted    map[uint32]*list.Element
 	evictOrder *list.List
 
-	maxCommit    *uint64
-	minCommitted func() uint64
+	maxCommit       *uint64
+	minCacheVersion func() uint64
 
 	cachehits uint64
 }
 
 // NewUniCache constructs a UniCache with simple LRU caching.
-func NewUniCache(maxCommit *uint64, minCommitted func() uint64) UniCache {
+func NewUniCache(maxCommit *uint64, minCacheVersion func() uint64) UniCache {
 	return &uniCache{
 		cache:        make(map[uint32]*cacheEntry),
 		reverseCache: make(map[string]uint32),
@@ -69,8 +70,8 @@ func NewUniCache(maxCommit *uint64, minCommitted func() uint64) UniCache {
 		evicted:    make(map[uint32]*list.Element),
 		evictOrder: list.New(),
 
-		maxCommit:    maxCommit,
-		minCommitted: minCommitted,
+		maxCommit:       maxCommit,
+		minCacheVersion: minCacheVersion,
 
 		cachehits: uint64(0),
 	}
@@ -81,8 +82,8 @@ func (uc *uniCache) CacheHits() uint64 {
 }
 
 // NewUniCache implements the UniCache interface.
-func (uc *uniCache) NewUniCache(maxCommit *uint64, minCommitted func() uint64) UniCache {
-	return NewUniCache(maxCommit, minCommitted)
+func (uc *uniCache) NewUniCache(maxCommit *uint64, minCacheVersion func() uint64) UniCache {
+	return NewUniCache(maxCommit, minCacheVersion)
 }
 
 func (uc *uniCache) updateLRU(id uint32) {
@@ -106,13 +107,13 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
 	}
 	entry := elem.Value.(*cacheEntry)
 
-	if len(uc.cache) < uc.capacity && currIdx-entry.lastIdx <= uint64(uc.capacity) {
+	if len(uc.cache) <= uc.capacity {
 		return
 	}
 
 	//fmt.Printf("[evictLRU] index=%d evicting ID=%d lenCache:%d, lastIdx=%d capacity=%d len evicted=%d\n", currIdx, entry.id, len(uc.cache), entry.lastIdx, uc.capacity, len(uc.evicted))
 
-	minCommit := int(uc.minCommitted())
+	minCommit := int(uc.minCacheVersion())
 
 	if minCommit == 0 {
 		delete(uc.cache, entry.id)
@@ -137,10 +138,10 @@ func (uc *uniCache) PurgeEvicted(currIdx uint64) {
 	// how many entries could still be needed?
 	// (i.e. how far behind the slowest follower might lag)
 	// guard against wrap/negative
-	minC := uc.minCommitted()
+	minC := uc.minCacheVersion()
 	var window uint64
-	if currIdx > minC {
-		window = currIdx - minC
+	if minC > uint64(uc.capacity) {
+		window = minC - uint64(uc.capacity)
 	} else {
 		window = 0
 	}
@@ -154,6 +155,7 @@ func (uc *uniCache) PurgeEvicted(currIdx uint64) {
 		e := front.Value.(*cacheEntry)
 		uc.evictOrder.Remove(front)
 		delete(uc.evicted, e.id)
+		fmt.Printf("[PurgeEvicted] index=%d removing ID=%d lenCache:%d, lastIdx=%d capacity=%d len evicted=%d mincommited=%d\n", currIdx, e.id, len(uc.cache), e.lastIdx, uc.capacity, len(uc.evicted), minC)
 	}
 }
 
@@ -187,7 +189,7 @@ func (uc *uniCache) SafeEncode(data []byte, appendIdx uint64, encodedID uint32) 
 	elem, ok := uc.cache[encodedID]
 
 	if ok {
-		if appendIdx-elem.lastIdx <= uint64(uc.capacity) && uc.minCommitted() >= elem.lastIdx {
+		if appendIdx-elem.lastIdx <= uint64(uc.capacity) && uc.minCacheVersion() >= elem.addedIdx {
 			atomic.AddUint64(&uc.cachehits, 1)
 			//fmt.Printf("[SafeEncode] index=%d cachehits=%d appendIdx=%d lastIdx=%d minCachedIdx=%d\n", appendIdx, cachehits, appendIdx, elem.lastIdx, uc.minCommitted())
 
@@ -344,9 +346,10 @@ func (uc *uniCache) UpdateCache(entry pb.Entry) (pb.Entry, bool) {
 			newID := uc.nextID
 			uc.nextID++
 			elem := &cacheEntry{
-				id:      newID,
-				key:     keyField,
-				lastIdx: entry.Index,
+				id:       newID,
+				key:      keyField,
+				lastIdx:  entry.Index,
+				addedIdx: entry.Index,
 			}
 			uc.cache[newID] = elem
 			uc.reverseCache[keyStr] = newID
