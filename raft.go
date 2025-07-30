@@ -288,8 +288,8 @@ type Config struct {
 	// raft state tracer
 	TraceLogger TraceLogger
 
-	// Enable UniCache
-	EnableUniCache bool
+	// Size of UniCache, <= 0 disabled
+	UniCacheSize int
 }
 
 func (c *Config) validate() error {
@@ -475,8 +475,8 @@ func newRaft(c *Config) *raft {
 		traceLogger:                 c.TraceLogger,
 	}
 
-	if c.EnableUniCache {
-		r.uniCache = unicache.NewUniCache(&r.raftLog.committed, r.trk.MinCacheIdxMatch)
+	if c.UniCacheSize > 0 {
+		r.uniCache = unicache.NewUniCache(&r.raftLog.committed, r.trk.MinCacheIdxMatch, c.UniCacheSize)
 	} else {
 		r.uniCache = nil
 	}
