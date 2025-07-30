@@ -161,7 +161,7 @@ func (uc *uniCache) PurgeEvicted(currIdx uint64) {
 		e := front.Value.(*cacheEntry)
 		uc.evictOrder.Remove(front)
 		delete(uc.evicted, e.id)
-		fmt.Printf("[PurgeEvicted] index=%d removing ID=%d lenCache:%d, lastIdx=%d capacity=%d len evicted=%d mincommited=%d\n", currIdx, e.id, len(uc.cache), e.lastIdx, uc.capacity, len(uc.evicted), minC)
+		//fmt.Printf("[PurgeEvicted] index=%d removing ID=%d lenCache:%d, lastIdx=%d capacity=%d len evicted=%d mincommited=%d\n", currIdx, e.id, len(uc.cache), e.lastIdx, uc.capacity, len(uc.evicted), minC)
 	}
 }
 
