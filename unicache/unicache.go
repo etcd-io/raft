@@ -26,6 +26,7 @@ type UniCache interface {
 	UpdateCache(entry pb.Entry) (pb.Entry, bool)
 	PurgeEvicted(idx uint64)
 	CacheHits() uint64
+	ResetCacheHits() uint64
 }
 
 type cacheEntry struct {
@@ -78,6 +79,11 @@ func NewUniCache(maxCommit *uint64, minCacheVersion func() uint64) UniCache {
 }
 
 func (uc *uniCache) CacheHits() uint64 {
+	return atomic.LoadUint64(&uc.cachehits)
+}
+
+func (uc *uniCache) ResetCacheHits() uint64 {
+	atomic.StoreUint64(&uc.cachehits, 0)
 	return atomic.LoadUint64(&uc.cachehits)
 }
 

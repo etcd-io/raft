@@ -243,6 +243,7 @@ type Node interface {
 
 	// UniCache: returns number of cache hits
 	CacheHits() uint64
+	ResetCacheHits() uint64
 }
 
 type Peer struct {
@@ -471,6 +472,10 @@ func (n *node) Campaign(ctx context.Context) error { return n.step(ctx, pb.Messa
 
 func (n *node) CacheHits() uint64 {
 	return n.rn.raft.uniCache.CacheHits()
+}
+
+func (n *node) ResetCacheHits() uint64 {
+	return n.rn.raft.uniCache.ResetCacheHits()
 }
 
 func (n *node) Propose(ctx context.Context, data []byte) error {
