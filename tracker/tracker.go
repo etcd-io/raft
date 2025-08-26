@@ -105,7 +105,7 @@ func (c *Config) Clone() Config {
 		return mm
 	}
 	return Config{
-		Voters:       quorum.JointConfig{clone(c.Voters[0]), clone(c.Voters[1])},
+		Voters:       quorum.JointConfig{clone(c.Voters.Incoming), clone(c.Voters.Outgoing)},
 		Learners:     clone(c.Learners),
 		LearnersNext: clone(c.LearnersNext),
 	}
@@ -147,8 +147,8 @@ func MakeProgressTracker(maxInflight int, maxBytes uint64) ProgressTracker {
 // ConfState returns a ConfState representing the active configuration.
 func (p *ProgressTracker) ConfState() pb.ConfState {
 	return pb.ConfState{
-		Voters:         p.Voters[0].Slice(),
-		VotersOutgoing: p.Voters[1].Slice(),
+		Voters:         p.Voters.Incoming.Slice(),
+		VotersOutgoing: p.Voters.Outgoing.Slice(),
 		Learners:       quorum.MajorityConfig(p.Learners).Slice(),
 		LearnersNext:   quorum.MajorityConfig(p.LearnersNext).Slice(),
 		AutoLeave:      p.AutoLeave,
@@ -158,7 +158,7 @@ func (p *ProgressTracker) ConfState() pb.ConfState {
 // IsSingleton returns true if (and only if) there is only one voting member
 // (i.e. the leader) in the current configuration.
 func (p *ProgressTracker) IsSingleton() bool {
-	return len(p.Voters[0]) == 1 && len(p.Voters[1]) == 0
+	return len(p.Voters.Incoming) == 1 && len(p.Voters.Outgoing) == 0
 }
 
 type matchAckIndexer map[uint64]*Progress
