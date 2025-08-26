@@ -23,8 +23,8 @@ import (
 	"go.etcd.io/raft/v3/tracker"
 )
 
-func (env *InteractionEnv) handleStatus(t *testing.T, d datadriven.TestData) error {
-	idx := firstAsNodeIdx(t, d)
+func (env *InteractionEnv) handleStatus(t *testing.T, args []datadriven.CmdArg) error {
+	idx := firstAsNodeIdx(t, args)
 	return env.Status(idx)
 }
 
