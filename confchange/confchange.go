@@ -57,17 +57,17 @@ func (c Changer) EnterJoint(autoLeave bool, ccs ...pb.ConfChangeSingle) (tracker
 		err := errors.New("config is already joint")
 		return c.err(err)
 	}
-	if len(incoming(cfg.Voters)) == 0 {
+	if len(cfg.Voters.Incoming) == 0 {
 		// We allow adding nodes to an empty config for convenience (testing and
 		// bootstrap), but you can't enter a joint state.
 		err := errors.New("can't make a zero-voter config joint")
 		return c.err(err)
 	}
 	// Clear the outgoing config.
-	*outgoingPtr(&cfg.Voters) = quorum.MajorityConfig{}
+	cfg.Voters.Outgoing = quorum.MajorityConfig{}
 	// Copy incoming to outgoing.
-	for id := range incoming(cfg.Voters) {
-		outgoing(cfg.Voters)[id] = struct{}{}
+	for id := range cfg.Voters.Incoming {
+		cfg.Voters.Outgoing[id] = struct{}{}
 	}
 
 	if err := c.apply(&cfg, trk, ccs...); err != nil {
@@ -79,7 +79,7 @@ func (c Changer) EnterJoint(autoLeave bool, ccs ...pb.ConfChangeSingle) (tracker
 
 // LeaveJoint transitions out of a joint configuration. It is an error to call
 // this method if the configuration is not joint, i.e. if the outgoing majority
-// config Voters[1] is empty.
+// config Voters.Outgoing is empty.
 //
 // The outgoing majority config of the joint configuration will be removed,
 // that is, the incoming config is promoted as the sole decision maker. In the
@@ -106,22 +106,22 @@ func (c Changer) LeaveJoint() (tracker.Config, tracker.ProgressMap, error) {
 	}
 	cfg.LearnersNext = nil
 
-	for id := range outgoing(cfg.Voters) {
-		_, isVoter := incoming(cfg.Voters)[id]
+	for id := range cfg.Voters.Outgoing {
+		_, isVoter := cfg.Voters.Incoming[id]
 		_, isLearner := cfg.Learners[id]
 
 		if !isVoter && !isLearner {
 			delete(trk, id)
 		}
 	}
-	*outgoingPtr(&cfg.Voters) = nil
+	cfg.Voters.Outgoing = nil
 	cfg.AutoLeave = false
 
 	return checkAndReturn(cfg, trk)
 }
 
 // Simple carries out a series of configuration changes that (in aggregate)
-// mutates the incoming majority config Voters[0] by at most one. This method
+// mutates the incoming majority config Voters.Incoming by at most one. This method
 // will return an error if that is not the case, if the resulting quorum is
 // zero, or if the configuration is in a joint state (i.e. if there is an
 // outgoing configuration).
@@ -137,7 +137,7 @@ func (c Changer) Simple(ccs ...pb.ConfChangeSingle) (tracker.Config, tracker.Pro
 	if err := c.apply(&cfg, trk, ccs...); err != nil {
 		return c.err(err)
 	}
-	if n := symdiff(incoming(c.Tracker.Voters), incoming(cfg.Voters)); n > 1 {
+	if n := symdiff(c.Tracker.Voters.Incoming, cfg.Voters.Incoming); n > 1 {
 		return tracker.Config{}, nil, errors.New("more than one voter changed without entering joint config")
 	}
 
@@ -145,7 +145,7 @@ func (c Changer) Simple(ccs ...pb.ConfChangeSingle) (tracker.Config, tracker.Pro
 }
 
 // apply a change to the configuration. By convention, changes to voters are
-// always made to the incoming majority config Voters[0]. Voters[1] is either
+// always made to the incoming majority config Voters.Incoming. Voters.Outgoing is either
 // empty or preserves the outgoing majority configuration while in a joint state.
 func (c Changer) apply(cfg *tracker.Config, trk tracker.ProgressMap, ccs ...pb.ConfChangeSingle) error {
 	for _, cc := range ccs {
@@ -167,7 +167,7 @@ func (c Changer) apply(cfg *tracker.Config, trk tracker.ProgressMap, ccs ...pb.C
 			return fmt.Errorf("unexpected conf type %d", cc.Type)
 		}
 	}
-	if len(incoming(cfg.Voters)) == 0 {
+	if len(cfg.Voters.Incoming) == 0 {
 		return errors.New("removed all voters")
 	}
 	return nil
@@ -185,7 +185,7 @@ func (c Changer) makeVoter(cfg *tracker.Config, trk tracker.ProgressMap, id uint
 	pr.IsLearner = false
 	nilAwareDelete(&cfg.Learners, id)
 	nilAwareDelete(&cfg.LearnersNext, id)
-	incoming(cfg.Voters)[id] = struct{}{}
+	cfg.Voters.Incoming[id] = struct{}{}
 }
 
 // makeLearner makes the given ID a learner or stages it to be a learner once
@@ -219,7 +219,7 @@ func (c Changer) makeLearner(cfg *tracker.Config, trk tracker.ProgressMap, id ui
 	// be turned into a learner in LeaveJoint().
 	//
 	// Otherwise, add a regular learner right away.
-	if _, onRight := outgoing(cfg.Voters)[id]; onRight {
+	if _, onRight := cfg.Voters.Outgoing[id]; onRight {
 		nilAwareAdd(&cfg.LearnersNext, id)
 	} else {
 		pr.IsLearner = true
@@ -233,12 +233,12 @@ func (c Changer) remove(cfg *tracker.Config, trk tracker.ProgressMap, id uint64)
 		return
 	}
 
-	delete(incoming(cfg.Voters), id)
+	delete(cfg.Voters.Incoming, id)
 	nilAwareDelete(&cfg.Learners, id)
 	nilAwareDelete(&cfg.LearnersNext, id)
 
 	// If the peer is still a voter in the outgoing config, keep the Progress.
-	if _, onRight := outgoing(cfg.Voters)[id]; !onRight {
+	if _, onRight := cfg.Voters.Outgoing[id]; !onRight {
 		delete(trk, id)
 	}
 }
@@ -246,7 +246,7 @@ func (c Changer) remove(cfg *tracker.Config, trk tracker.ProgressMap, id uint64)
 // initProgress initializes a new progress for the given node or learner.
 func (c Changer) initProgress(cfg *tracker.Config, trk tracker.ProgressMap, id uint64, isLearner bool) {
 	if !isLearner {
-		incoming(cfg.Voters)[id] = struct{}{}
+		cfg.Voters.Incoming[id] = struct{}{}
 	} else {
 		nilAwareAdd(&cfg.Learners, id)
 	}
@@ -295,8 +295,8 @@ func checkInvariants(cfg tracker.Config, trk tracker.ProgressMap) error {
 	// Any staged learner was staged because it could not be directly added due
 	// to a conflicting voter in the outgoing config.
 	for id := range cfg.LearnersNext {
-		if _, ok := outgoing(cfg.Voters)[id]; !ok {
-			return fmt.Errorf("%d is in LearnersNext, but not Voters[1]", id)
+		if _, ok := cfg.Voters.Outgoing[id]; !ok {
+			return fmt.Errorf("%d is in LearnersNext, but not Voters.Outgoing", id)
 		}
 		if trk[id].IsLearner {
 			return fmt.Errorf("%d is in LearnersNext, but is already marked as learner", id)
@@ -304,11 +304,11 @@ func checkInvariants(cfg tracker.Config, trk tracker.ProgressMap) error {
 	}
 	// Conversely Learners and Voters doesn't intersect at all.
 	for id := range cfg.Learners {
-		if _, ok := outgoing(cfg.Voters)[id]; ok {
-			return fmt.Errorf("%d is in Learners and Voters[1]", id)
+		if _, ok := cfg.Voters.Outgoing[id]; ok {
+			return fmt.Errorf("%d is in Learners and Voters.Outgoing", id)
 		}
-		if _, ok := incoming(cfg.Voters)[id]; ok {
-			return fmt.Errorf("%d is in Learners and Voters[0]", id)
+		if _, ok := cfg.Voters.Incoming[id]; ok {
+			return fmt.Errorf("%d is in Learners and Voters.Incoming", id)
 		}
 		if !trk[id].IsLearner {
 			return fmt.Errorf("%d is in Learners, but is not marked as learner", id)
@@ -317,8 +317,8 @@ func checkInvariants(cfg tracker.Config, trk tracker.ProgressMap) error {
 
 	if !joint(cfg) {
 		// We enforce that empty maps are nil instead of zero.
-		if outgoing(cfg.Voters) != nil {
-			return fmt.Errorf("cfg.Voters[1] must be nil when not joint")
+		if cfg.Voters.Outgoing != nil {
+			return fmt.Errorf("cfg.Voters.Outgoing must be nil when not joint")
 		}
 		if cfg.LearnersNext != nil {
 			return fmt.Errorf("cfg.LearnersNext must be nil when not joint")
@@ -398,12 +398,8 @@ func symdiff(l, r map[uint64]struct{}) int {
 }
 
 func joint(cfg tracker.Config) bool {
-	return len(outgoing(cfg.Voters)) > 0
+	return len(cfg.Voters.Outgoing) > 0
 }
-
-func incoming(voters quorum.JointConfig) quorum.MajorityConfig      { return voters[0] }
-func outgoing(voters quorum.JointConfig) quorum.MajorityConfig      { return voters[1] }
-func outgoingPtr(voters *quorum.JointConfig) *quorum.MajorityConfig { return &voters[1] }
 
 // Describe prints the type and NodeID of the configuration changes as a
 // space-delimited string.
