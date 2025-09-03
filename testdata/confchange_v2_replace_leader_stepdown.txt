@@ -5,29 +5,15 @@
 # reconfiguration completes, we verify that the removed leader cannot campaign
 # to become leader.
 
-# We'll turn this back on after the boilerplate.
+# Bootstrap n1, n2, n3. Elect 1 as the leader.
 log-level none
-----
-ok
-
-# Bootstrap n1, n2, n3.
 add-nodes 3 voters=(1,2,3) index=2 step-down-on-removal=true
-----
-ok
-
-# n1 campaigns to become leader.
 campaign 1
-----
-ok
-
 stabilize
 ----
 ok
 
 log-level info
-----
-ok
-
 raft-state
 ----
 1: StateLeader (Voter) Term:1 Lead:1
