@@ -1514,19 +1514,16 @@ func stepLeader(r *raft, m pb.Message) error {
 			// for an example of the latter case).
 			// NB: the same does not make sense for StateSnapshot - if `m.Index`
 			// equals pr.Match we know we don't m.Index+1 in our log, so moving
-			// back to replicating state is not useful; besides pr.PendingSnapshot
-			// would prevent it.
+			// back to replicating state is not useful.
 			if pr.MaybeUpdate(m.Index) || (pr.Match == m.Index && pr.State == tracker.StateProbe) {
 				switch {
 				case pr.State == tracker.StateProbe:
 					pr.BecomeReplicate()
-				case pr.State == tracker.StateSnapshot && pr.Match+1 >= r.raftLog.firstIndex():
-					// Note that we don't take into account PendingSnapshot to
-					// enter this branch. No matter at which index a snapshot
-					// was actually applied, as long as this allows catching up
-					// the follower from the log, we will accept it. This gives
-					// systems more flexibility in how they implement snapshots;
-					// see the comments on PendingSnapshot.
+				case pr.State == tracker.StateSnapshot && pr.Next >= r.raftLog.firstIndex():
+					// Transition from StateSnapshot to StateProbe and then to StateReplicate
+					// when the follower's `Next` index is greater than or equal to the leader's
+					// first log index. This ensures that the follower can catch up using the
+					// leader's log entries, resuming regular replication.
 					r.logger.Debugf("%x recovered from needing snapshot, resumed sending replication messages to %x [%s]", r.id, m.From, pr)
 					// Transition back to replicating state via probing state
 					// (which takes the snapshot into account). If we didn't
@@ -1605,15 +1602,28 @@ func stepLeader(r *raft, m pb.Message) error {
 		}
 	case pb.MsgSnapStatus:
 		if pr.State != tracker.StateSnapshot {
+			r.logger.Debugf("%x ignoring MsgSnapStatus from %x because state is %s, not StateSnapshot", r.id, m.From, pr.State)
 			return nil
 		}
 		if !m.Reject {
-			pr.BecomeProbe()
-			r.logger.Debugf("%x snapshot succeeded, resumed sending replication messages to %x [%s]", r.id, m.From, pr)
+			pr.OnSnapshotApplied(m.AppliedSnapshotIndex)
+
+			if pr.Match+1 >= r.raftLog.lastIndex() {
+				// Check if the follower is caught up with the leader's log.
+				// We compare pr.Match+1 (the next index to send) with lastIndex instead of
+				// just pr.Match >= lastIndex because the leader may have an empty entry
+				// appended when it first became leader (see becomeLeader).
+				// If pr.Match+1 >= lastIndex, the follower has all entries that the leader
+				// can send, so we can transition directly to StateReplicate.
+				pr.BecomeReplicate()
+				r.logger.Debugf("%x snapshot succeeded, transitioned to StateReplicate for %x [%s]", r.id, m.From, pr)
+			} else {
+				pr.BecomeProbe()
+				r.logger.Debugf("%x snapshot succeeded, resumed probing for %x [%s]", r.id, m.From, pr)
+			}
 		} else {
 			// NB: the order here matters or we'll be probing erroneously from
 			// the snapshot index, but the snapshot never applied.
-			pr.PendingSnapshot = 0
 			pr.BecomeProbe()
 			r.logger.Debugf("%x snapshot failed, resumed sending replication messages to %x [%s]", r.id, m.From, pr)
 		}
