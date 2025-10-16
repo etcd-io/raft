@@ -2,68 +2,38 @@
 # in-flight state exceeds the configured limits. This is a regression test for
 # the issue fixed by https://github.com/etcd-io/etcd/pull/14633.
 
-# Turn off output during the setup of the test.
-log-level none
-----
-ok
-
 # Start with 3 nodes, with a limited in-flight capacity.
+log-level none
 add-nodes 3 voters=(1,2,3) index=10 inflight=3
-----
-ok
-
 campaign 1
-----
-ok
-
 stabilize
 ----
 ok
 
-# Propose 3 entries.
+# Propose 3 entries, store them, and send proposals.
 propose 1 prop_1_12
-----
-ok
-
 propose 1 prop_1_13
-----
-ok
-
 propose 1 prop_1_14
-----
-ok
-
-# Store entries and send proposals.
 process-ready 1
 ----
 ok
 
-# Re-enable log messages.
-log-level debug
-----
-ok
-
 # Expect that in-flight tracking to nodes 2 and 3 is saturated.
+log-level debug
 status 1
+log-level none
 ----
 1: StateReplicate match=14 next=15
 2: StateReplicate match=11 next=15 paused inflight=3[full]
 3: StateReplicate match=11 next=15 paused inflight=3[full]
-
-log-level none
-----
-ok
 
 # Commit entries between nodes 1 and 2.
 stabilize 1 2
 ----
 ok
 
-log-level debug
-----
-ok
-
 # Expect that the entries are committed and stored on nodes 1 and 2.
+log-level debug
 status 1
 ----
 1: StateReplicate match=14 next=15
@@ -77,16 +47,9 @@ dropped: 1->3 MsgApp Term:1 Log:1/11 Commit:11 Entries:[1/12 EntryNormal "prop_1
 dropped: 1->3 MsgApp Term:1 Log:1/12 Commit:11 Entries:[1/13 EntryNormal "prop_1_13"]
 dropped: 1->3 MsgApp Term:1 Log:1/13 Commit:11 Entries:[1/14 EntryNormal "prop_1_14"]
 
-
 # Repeat committing 3 entries.
 propose 1 prop_1_15
-----
-ok
-
 propose 1 prop_1_16
-----
-ok
-
 propose 1 prop_1_17
 ----
 ok
@@ -98,20 +61,14 @@ status 1
 2: StateReplicate match=14 next=18 paused inflight=3[full]
 3: StateReplicate match=11 next=15 paused inflight=3[full]
 
-log-level none
-----
-ok
-
 # Commit entries between nodes 1 and 2 again.
+log-level none
 stabilize 1 2
 ----
 ok
 
-log-level debug
-----
-ok
-
 # Expect that the entries are committed and stored only on nodes 1 and 2.
+log-level debug
 status 1
 ----
 1: StateReplicate match=17 next=18
@@ -120,19 +77,14 @@ status 1
 
 # Make a heartbeat roundtrip.
 tick-heartbeat 1
-----
-ok
-
 stabilize 1
+stabilize 2 3
 ----
 > 1 handling Ready
   Ready MustSync=false:
   Messages:
   1->2 MsgHeartbeat Term:1 Log:0/0 Commit:17
   1->3 MsgHeartbeat Term:1 Log:0/0 Commit:11
-
-stabilize 2 3
-----
 > 2 receiving messages
   1->2 MsgHeartbeat Term:1 Log:0/0 Commit:17
 > 3 receiving messages
@@ -170,19 +122,10 @@ stabilize 3
   Messages:
   3->1 MsgAppResp Term:1 Log:1/14 Rejected (Hint: 11)
 
-log-level none
-----
-ok
-
-stabilize
-----
-ok
-
-log-level debug
-----
-ok
-
 # Eventually all nodes catch up on the committed state.
+log-level none
+stabilize
+log-level debug
 status 1
 ----
 1: StateReplicate match=17 next=18
