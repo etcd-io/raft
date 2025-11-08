@@ -112,10 +112,14 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
 	}
 
 	elem := uc.lruList.Back()
-	if elem == nil || currIdx-entry.lastIdx <= uint64(uc.capacity) {
+	if elem == nil {
 		return
 	}
 	entry := elem.Value.(*cacheEntry)
+
+    if currIdx-entry.lastIdx <= uint64(uc.capacity) {
+        return
+    }
 
 
 	fmt.Printf("[evictLRU] index=%d evicting ID=%d lenCache:%d, lastIdx=%d capacity=%d len evicted=%d\n", currIdx, entry.id, len(uc.cache), entry.lastIdx, uc.capacity, len(uc.evicted))
