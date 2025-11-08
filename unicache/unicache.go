@@ -107,15 +107,16 @@ func (uc *uniCache) addToLRU(cacheEntry *cacheEntry) {
 }
 
 func (uc *uniCache) evictLRU(currIdx uint64) {
+	if len(uc.cache) < uc.capacity {
+		return
+	}
+
 	elem := uc.lruList.Back()
-	if elem == nil {
+	if elem == nil || currIdx-entry.lastIdx <= uint64(uc.capacity) {
 		return
 	}
 	entry := elem.Value.(*cacheEntry)
 
-	if len(uc.cache) < uc.capacity && currIdx-entry.lastIdx <= uint64(uc.capacity) {
-		return
-	}
 
 	fmt.Printf("[evictLRU] index=%d evicting ID=%d lenCache:%d, lastIdx=%d capacity=%d len evicted=%d\n", currIdx, entry.id, len(uc.cache), entry.lastIdx, uc.capacity, len(uc.evicted))
 
