@@ -122,7 +122,7 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
     }
 
 
-	fmt.Printf("[evictLRU] index=%d evicting ID=%d lenCache:%d, lastIdx=%d capacity=%d len evicted=%d\n", currIdx, entry.id, len(uc.cache), entry.lastIdx, uc.capacity, len(uc.evicted))
+	//fmt.Printf("[evictLRU] index=%d evicting ID=%d lenCache:%d, lastIdx=%d capacity=%d len evicted=%d\n", currIdx, entry.id, len(uc.cache), entry.lastIdx, uc.capacity, len(uc.evicted))
 
 	minCommit := int(uc.minCacheVersion())
 
