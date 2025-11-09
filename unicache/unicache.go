@@ -158,7 +158,7 @@ func (uc *uniCache) PurgeEvicted(appendCommitGap uint64) {
 	}
 
 	// drop from the front until we’re down to 'window' elements
-	for uc.evictOrder.Len() > int(window + (minc - appendCommitGap) {
+	for uc.evictOrder.Len() > int(window + (minc - appendCommitGap)) {
 		front := uc.evictOrder.Front()
 		if front == nil {
 			break
