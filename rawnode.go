@@ -176,7 +176,7 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 		}
 
 		if r.lead == r.id && len(rd.Entries) > 0 {
-			rn.raft.uniCache.PurgeEvicted(rd.Entries[len(rd.Entries)-1].Index - rd.CommittedEntries[len(rd.Entries)-1].Index)
+			rn.raft.uniCache.PurgeEvicted(rd.Entries[len(rd.Entries)-1].Index - rd.CommittedEntries[len(rd.CommittedEntries)-1].Index)
 		}
 	}
 
