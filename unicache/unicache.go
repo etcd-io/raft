@@ -24,7 +24,7 @@ type UniCache interface {
 	GetNextId() uint32
 	PrintCache()
 	UpdateCache(entry pb.Entry) (pb.Entry, bool)
-	PurgeEvicted(idx uint64)
+	PurgeEvicted(appendCommitGap uint64)
 	CacheHits() uint64
 	ResetCacheHits() uint64
 }
@@ -143,7 +143,7 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
 	uc.lruList.Remove(elem)
 }
 
-func (uc *uniCache) PurgeEvicted(currIdx uint64) {
+func (uc *uniCache) PurgeEvicted(appendCommitGap uint64) {
 	uc.mu.Lock()
 	defer uc.mu.Unlock()
 	// how many entries could still be needed?
@@ -158,7 +158,7 @@ func (uc *uniCache) PurgeEvicted(currIdx uint64) {
 	}
 
 	// drop from the front until we’re down to 'window' elements
-	for uc.evictOrder.Len() > int(window) {
+	for uc.evictOrder.Len() > int(window + appendCommitGap) {
 		front := uc.evictOrder.Front()
 		if front == nil {
 			break
