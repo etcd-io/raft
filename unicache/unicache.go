@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"sync/atomic"
 
@@ -18,7 +19,7 @@ const maxCacheSize = 1000
 // UniCache defines methods for encoding/decoding entries with key caching.
 type UniCache interface {
 	NewUniCache(maxCommit *uint64, minCacheVersion func() uint64, capacity int) UniCache
-	EncodeData(data []byte) ([]byte, uint32)
+	EncodeData(data []byte, currCacheIdx uint64) ([]byte, uint32)
 	DecodeEntry(entry pb.Entry) (pb.Entry, bool)
 	SafeEncode(data []byte, appendIdx uint64, encodedID uint32) ([]byte, []byte)
 	GetNextId() uint32
@@ -27,6 +28,7 @@ type UniCache interface {
 	PurgeEvicted(appendCommitGap uint64)
 	CacheHits() uint64
 	ResetCacheHits() uint64
+	GetMinCacheIdx(currMinIdx uint64) uint64
 }
 
 type cacheEntry struct {
@@ -53,7 +55,8 @@ type uniCache struct {
 	maxCommit       *uint64
 	minCacheVersion func() uint64
 
-	cachehits uint64
+	cachehits    uint64
+	lastInFlight uint64
 }
 
 // NewUniCache constructs a UniCache with simple LRU caching.
@@ -74,7 +77,8 @@ func NewUniCache(maxCommit *uint64, minCacheVersion func() uint64, capacity int)
 		maxCommit:       maxCommit,
 		minCacheVersion: minCacheVersion,
 
-		cachehits: uint64(0),
+		cachehits:    uint64(0),
+		lastInFlight: math.MaxUint64,
 	}
 }
 
@@ -90,6 +94,13 @@ func (uc *uniCache) ResetCacheHits() uint64 {
 // NewUniCache implements the UniCache interface.
 func (uc *uniCache) NewUniCache(maxCommit *uint64, minCacheVersion func() uint64, capacity int) UniCache {
 	return NewUniCache(maxCommit, minCacheVersion, capacity)
+}
+
+func (uc *uniCache) GetMinCacheIdx(currMinIdx uint64) uint64 {
+	if uc.lastInFlight == math.MaxUint64 {
+		return currMinIdx
+	}
+	return uc.lastInFlight
 }
 
 func (uc *uniCache) updateLRU(id uint32) {
@@ -117,10 +128,9 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
 	}
 	entry := elem.Value.(*cacheEntry)
 
-    if currIdx-entry.lastIdx < uint64(uc.capacity) {
-        return
-    }
-
+	if currIdx-entry.lastIdx < uint64(uc.capacity) {
+		return
+	}
 
 	//fmt.Printf("[evictLRU] index=%d evicting ID=%d lenCache:%d, lastIdx=%d capacity=%d len evicted=%d\n", currIdx, entry.id, len(uc.cache), entry.lastIdx, uc.capacity, len(uc.evicted))
 
@@ -158,7 +168,7 @@ func (uc *uniCache) PurgeEvicted(appendCommitGap uint64) {
 	}
 
 	// drop from the front until we’re down to 'window' elements
-	for uc.evictOrder.Len() > int(window + (appendCommitGap - minC)) {
+	for uc.evictOrder.Len() > int(window+(appendCommitGap-minC)) {
 		front := uc.evictOrder.Front()
 		if front == nil {
 			break
@@ -201,7 +211,7 @@ func (uc *uniCache) SafeEncode(data []byte, appendIdx uint64, encodedID uint32) 
 	if ok {
 		if appendIdx-elem.lastIdx <= uint64(uc.capacity) && uc.minCacheVersion() >= elem.addedIdx {
 			atomic.AddUint64(&uc.cachehits, 1)
-			//fmt.Printf("[SafeEncode] index=%d cachehits=%d appendIdx=%d lastIdx=%d minCachedIdx=%d\n", appendIdx, cachehits, appendIdx, elem.lastIdx, uc.minCacheVersion())
+			//fmt.Printf("[SafeEncode] index=%d cachehits=%d appendIdx=%d lastIdx=%d minCachedIdx=%d\n", appendIdx, uc.cachehits, appendIdx, elem.lastIdx, uc.minCacheVersion())
 
 			fullData, err := ReplaceProtoField(data, cachedFieldNumber, elem.key, protowire.BytesType)
 			if err == nil {
@@ -225,12 +235,12 @@ func (uc *uniCache) SafeEncode(data []byte, appendIdx uint64, encodedID uint32) 
 		}
 		//fmt.Println("[SafeEncode] evicted restore failed:", err)
 	}
-    fmt.Printf("[SafeEncode] index=%d didnt find have data for for ID=%d, capacity=%d, cache size=%d, evicted size=%d, last element addedIdx=%d, nextId=%d\n",
-        appendIdx, encodedID, uc.capacity, len(uc.cache), len(uc.evicted), uc.cache[uint32(len(uc.cache)-1)].addedIdx, uc.nextID)
+	fmt.Printf("[SafeEncode] index=%d didnt find have data for for ID=%d, capacity=%d, cache size=%d, evicted size=%d, last element addedIdx=%d, nextId=%d\n",
+		appendIdx, encodedID, uc.capacity, len(uc.cache), len(uc.evicted), uc.cache[uint32(len(uc.cache)-1)].addedIdx, uc.nextID)
 	return data, nil
 }
 
-func (uc *uniCache) EncodeData(data []byte) ([]byte, uint32) {
+func (uc *uniCache) EncodeData(data []byte, currCacheIdx uint64) ([]byte, uint32) {
 	if len(data) == 0 {
 		return data, 0
 	}
@@ -261,6 +271,7 @@ func (uc *uniCache) EncodeData(data []byte) ([]byte, uint32) {
 	encodedID := protowire.AppendVarint(nil, uint64(id))
 	newData, err := ReplaceProtoField(data, cachedFieldNumber, encodedID, protowire.VarintType)
 	if err == nil {
+		atomic.StoreUint64(&uc.lastInFlight, currCacheIdx)
 		return newData, id
 	}
 	return data, 0
@@ -374,6 +385,10 @@ func (uc *uniCache) UpdateCache(entry pb.Entry) (pb.Entry, bool) {
 				//entry.Index, id, ent.lastIdx, entry.Index, string(keyField))
 				ent.lastIdx = entry.Index
 				uc.updateLRU(id)
+				if uc.lastInFlight <= entry.Index {
+					//fmt.Printf("[UpdateCache] index=%d updating key ID %d prevIndex=%d newIndex=%d keyHash=%x\n",
+					atomic.StoreUint64(&uc.lastInFlight, math.MaxUint64)
+				}
 			}
 		}
 		return entry, true

@@ -171,7 +171,8 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 					panic(fmt.Sprintf("cache update failed for index %d with data: %d", rd.CommittedEntries[i].Index, rd.CommittedEntries[i].Data))
 				}
 				rd.CommittedEntries[i] = decoded
-				rn.raft.lastCacheIdx = rd.CommittedEntries[i].Index
+				// TODO: last cache idx can be set only once? Can it be set to Min(CommitIdx, MinInflightIdx)? In that case where update MinInflightIdx?
+				rn.raft.lastCacheIdx = rn.raft.uniCache.GetMinCacheIdx(rd.CommittedEntries[i].Index)
 			}
 		}
 
