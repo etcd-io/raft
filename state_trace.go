@@ -30,6 +30,7 @@ type stateMachineEventType int
 
 const (
 	rsmInitState stateMachineEventType = iota
+	rsmBootstrap
 	rsmBecomeCandidate
 	rsmBecomeFollower
 	rsmBecomeLeader
@@ -38,6 +39,7 @@ const (
 	rsmChangeConf
 	rsmApplyConfChange
 	rsmReady
+	rsmAdvance
 	rsmSendAppendEntriesRequest
 	rsmReceiveAppendEntriesRequest
 	rsmSendAppendEntriesResponse
@@ -53,6 +55,7 @@ const (
 func (e stateMachineEventType) String() string {
 	return []string{
 		"InitState",
+		"Bootstrap",
 		"BecomeCandidate",
 		"BecomeFollower",
 		"BecomeLeader",
@@ -61,6 +64,7 @@ func (e stateMachineEventType) String() string {
 		"ChangeConf",
 		"ApplyConfChange",
 		"Ready",
+		"Advance",
 		"SendAppendEntriesRequest",
 		"ReceiveAppendEntriesRequest",
 		"SendAppendEntriesResponse",
@@ -86,6 +90,7 @@ type TracingEvent struct {
 	State      TracingState       `json:"state"`
 	Role       string             `json:"role"`
 	LogSize    uint64             `json:"log"`
+	Applied    uint64             `json:"applied"`
 	Conf       [2][]string        `json:"conf"`
 	Message    *TracingMessage    `json:"msg,omitempty"`
 	ConfChange *TracingConfChange `json:"cc,omitempty"`
@@ -173,6 +178,7 @@ func traceEvent(evt stateMachineEventType, r *raft, m *raftpb.Message, prop map[
 		NodeID:     strconv.FormatUint(r.id, 10),
 		State:      makeTracingState(r),
 		LogSize:    r.raftLog.lastIndex(),
+		Applied:    r.raftLog.applied,
 		Conf:       [2][]string{formatConf(r.trk.Voters[0].Slice()), formatConf(r.trk.Voters[1].Slice())},
 		Role:       r.state.String(),
 		Message:    makeTracingMessage(m),
@@ -206,8 +212,16 @@ func traceInitState(r *raft) {
 	traceNodeEvent(rsmInitState, r)
 }
 
+func traceBootstrap(r *raft) {
+	traceNodeEvent(rsmBootstrap, r)
+}
+
 func traceReady(r *raft) {
 	traceNodeEvent(rsmReady, r)
+}
+
+func traceAdvance(r *raft) {
+	traceNodeEvent(rsmAdvance, r)
 }
 
 func traceCommit(r *raft) {
