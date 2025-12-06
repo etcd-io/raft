@@ -11,7 +11,9 @@ import (
 
 // TestLRUEviction ensures that the LRU cache never grows beyond its capacity.
 func TestLRUEviction(t *testing.T) {
-	uc, ok := NewUniCache().(*uniCache)
+	maxC := uint64(0)
+	minC := func() uint64 { return 0 }
+	uc, ok := NewUniCache(&maxC, minC, 1000).(*uniCache)
 	if !ok {
 		t.Fatal("failed to cast UniCache to *uniCache")
 	}
@@ -21,9 +23,9 @@ func TestLRUEviction(t *testing.T) {
 	for i := 0; i < cap+50; i++ {
 		key := []byte(fmt.Sprintf("key-%d", i))
 		// Simulate encoding to populate cache
-		data := uc.EncodeData(encodeProtoField(1, key))
+		data, _ := uc.EncodeData(encodeProtoField(1, key), 0)
 		// Force an entry with unique ID into the cache
-		uc.DecodeEntry(makeEntry(data, uint64(i+1)), false)
+		uc.DecodeEntry(makeEntry(data, uint64(i+1)))
 	}
 
 	if len(uc.cache) != cap {
@@ -33,7 +35,12 @@ func TestLRUEviction(t *testing.T) {
 
 // TestLRUConcurrency runs EncodeData and DecodeEntry in parallel to detect races.
 func TestLRUConcurrency(t *testing.T) {
-	uc := NewUniCache()
+	maxC := uint64(0)
+	minC := func() uint64 { return 0 }
+	uc, ok := NewUniCache(&maxC, minC, 1000).(*uniCache)
+	if !ok {
+		t.Fatal("failed to cast UniCache to *uniCache")
+	}
 	var wg sync.WaitGroup
 	goroutines := 200
 	for i := 0; i < goroutines; i++ {
@@ -43,10 +50,10 @@ func TestLRUConcurrency(t *testing.T) {
 			for j := 0; j < 1000; j++ {
 				key := []byte(fmt.Sprintf("goroutine-%d-key-%d", id, j%1000))
 				// Simulate client data with a cache field
-				data := uc.EncodeData(encodeProtoField(cachedFieldNumber, key))
+				data, _ := uc.EncodeData(encodeProtoField(cachedFieldNumber, key), 0)
 				// Wrap into an Entry for DecodeEntry
 				entry := makeEntry(data, uint64(j+1))
-				uc.DecodeEntry(entry, true)
+				uc.DecodeEntry(entry)
 			}
 		}(i)
 	}
@@ -54,7 +61,12 @@ func TestLRUConcurrency(t *testing.T) {
 }
 
 func TestLRUHeavyConcurrency(t *testing.T) {
-	uc := NewUniCache()
+	maxC := uint64(0)
+	minC := func() uint64 { return 0 }
+	uc, ok := NewUniCache(&maxC, minC, 1000).(*uniCache)
+	if !ok {
+		t.Fatal("failed to cast UniCache to *uniCache")
+	}
 	var wg sync.WaitGroup
 	const G = 200
 	const I = 10000
@@ -64,9 +76,9 @@ func TestLRUHeavyConcurrency(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < I; j++ {
 				key := []byte(fmt.Sprintf("g%d-key-%d", id, j%500))
-				data := uc.EncodeData(encodeProtoField(cachedFieldNumber, key))
+				data, _ := uc.EncodeData(encodeProtoField(cachedFieldNumber, key), 0)
 				entry := makeEntry(data, uint64(j+1))
-				uc.DecodeEntry(entry, true)
+				uc.DecodeEntry(entry)
 			}
 		}(i)
 	}
