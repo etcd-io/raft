@@ -22,11 +22,13 @@ import (
 )
 
 func (env *InteractionEnv) handleSetRandomizedElectionTimeout(
-	t *testing.T, d datadriven.TestData,
+	t *testing.T, args []datadriven.CmdArg,
 ) error {
-	idx := firstAsNodeIdx(t, d)
+	idx := firstAsNodeIdx(t, args)
 	var timeout int
-	d.ScanArgs(t, "timeout", &timeout)
+	if err := scanArgs(args, "timeout", &timeout); err != nil {
+		t.Fatal(err) // FIXME: TestData.Fatalf(t, err)
+	}
 	require.NotZero(t, timeout)
 
 	env.Options.SetRandomizedElectionTimeout(env.Nodes[idx].RawNode, timeout)

@@ -28,61 +28,34 @@
 # Set up the log configuration. This is mostly unintersting, but the order of
 # each leadership change and the nodes that are allowed to hear about them is
 # very important. Most readers of this test can skip this section.
+#
+# Start with seven nodes. Elect 1 as the leader.
 log-level none
-----
-ok
-
-## Start with seven nodes.
 add-nodes 7 voters=(1,2,3,4,5,6,7) index=10
-----
-ok
-
-## Create term 1 entries.
 campaign 1
-----
-ok
-
 stabilize
 ----
 ok
 
 propose 1 prop_1_12
-----
-ok
-
 propose 1 prop_1_13
-----
-ok
-
 stabilize
 ----
 ok
 
 ## Create term 2 entries.
 campaign 2
-----
-ok
-
 stabilize 2
 ----
 ok
 
 stabilize 6
-----
-ok
-
 stabilize 2 5 7
 ----
 ok
 
 propose 2 prop_2_15
-----
-ok
-
 propose 2 prop_2_16
-----
-ok
-
 stabilize 2 7
 ----
 ok
@@ -93,37 +66,16 @@ ok
 
 ## Create term 3 entries.
 campaign 7
-----
-ok
-
 stabilize 7
-----
-ok
-
 stabilize 1 2 3 4 5 6
 ----
 ok
 
 stabilize 7
-----
-ok
-
 propose 7 prop_3_18
-----
-ok
-
 propose 7 prop_3_19
-----
-ok
-
 propose 7 prop_3_20
-----
-ok
-
 propose 7 prop_3_21
-----
-ok
-
 stabilize 7
 ----
 ok
@@ -134,29 +86,14 @@ ok
 
 ## Create term 4 entries.
 campaign 6
-----
-ok
-
 stabilize 1 2 3 4 5 6
 ----
 ok
 
 propose 6 prop_4_15
-----
-ok
-
 stabilize 1 2 4 5 6
-----
-ok
-
 propose 6 prop_4_16
-----
-ok
-
 propose 6 prop_4_17
-----
-ok
-
 stabilize 6
 ----
 ok
@@ -167,17 +104,8 @@ ok
 
 ## Create term 5 entries.
 campaign 5
-----
-ok
-
 stabilize 1 2 4 5
-----
-ok
-
 propose 5 prop_5_17
-----
-ok
-
 stabilize 1 2 4 5
 ----
 ok
@@ -188,33 +116,12 @@ ok
 
 ## Create term 6 entries.
 campaign 4
-----
-ok
-
 stabilize 1 2 4 5
-----
-ok
-
 propose 4 prop_6_19
-----
-ok
-
 stabilize 1 2 4
-----
-ok
-
 propose 4 prop_6_20
-----
-ok
-
 stabilize 1 4
-----
-ok
-
 propose 4 prop_6_21
-----
-ok
-
 stabilize 4
 ----
 ok
@@ -225,33 +132,12 @@ ok
 
 ## Create term 7 entries.
 campaign 5
-----
-ok
-
 stabilize 5
-----
-ok
-
 stabilize 1 3 6 7
-----
-ok
-
 stabilize 5
-----
-ok
-
 propose 5 prop_7_20
-----
-ok
-
 propose 5 prop_7_21
-----
-ok
-
 propose 5 prop_7_22
-----
-ok
-
 stabilize 5
 ----
 ok
@@ -263,9 +149,6 @@ ok
 
 # Show the Raft log from each node.
 log-level info
-----
-ok
-
 raft-log 1
 ----
 1/11 EntryNormal ""

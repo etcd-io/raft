@@ -1,24 +1,12 @@
 log-level none
-----
-ok
-
 add-nodes 4 voters=(1,2,3) learners=(4) index=10
-----
-ok
-
 campaign 1
-----
-ok
-
 stabilize
 ----
 ok
 
-log-level debug
-----
-ok
-
 # ForgetLeader is a noop on the leader.
+log-level debug
 forget-leader 1
 ----
 ok
@@ -68,9 +56,6 @@ raft-state
 
 # When receiving a heartbeat from the leader, they revert to followers.
 tick-heartbeat 1
-----
-ok
-
 stabilize
 ----
 > 1 handling Ready
@@ -162,9 +147,6 @@ set-randomized-election-timeout 2 timeout=3
 ok
 
 tick-heartbeat 2
-----
-ok
-
 tick-heartbeat 2
 ----
 ok
