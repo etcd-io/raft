@@ -1298,6 +1298,10 @@ func stepLeader(r *raft, m pb.Message) error {
 			return ErrProposalDropped
 		}
 
+		// Track if any ConfChange was rejected so we can return an error
+		// while still appending the noop to maintain log consistency.
+		var confChangeRejected bool
+
 		for i := range m.Entries {
 			e := &m.Entries[i]
 			var cc pb.ConfChangeI
@@ -1330,7 +1334,10 @@ func stepLeader(r *raft, m pb.Message) error {
 
 				if failedCheck != "" && !r.disableConfChangeValidation {
 					r.logger.Infof("%x ignoring conf change %v at config %s: %s", r.id, cc, r.trk.Config, failedCheck)
+					// Convert to noop to maintain log consistency, but mark as rejected
+					// so we can return an error to notify the caller.
 					m.Entries[i] = pb.Entry{Type: pb.EntryNormal}
+					confChangeRejected = true
 				} else {
 					r.pendingConfIndex = r.raftLog.lastIndex() + uint64(i) + 1
 					traceChangeConfEvent(cc, r)
@@ -1342,6 +1349,11 @@ func stepLeader(r *raft, m pb.Message) error {
 			return ErrProposalDropped
 		}
 		r.bcastAppend()
+		// Return error if any ConfChange was rejected, so the caller knows
+		// the config change didn't take effect (even though a noop was appended).
+		if confChangeRejected {
+			return ErrProposalDropped
+		}
 		return nil
 	case pb.MsgReadIndex:
 		// only one voting member (the leader) in the cluster
