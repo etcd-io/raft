@@ -76,9 +76,11 @@ func (c MajorityConfig) Describe(l AckedIndexer) string {
 	})
 
 	// Populate .bar.
-	for i := range info {
-		if i > 0 && info[i-1].idx < info[i].idx {
+	for i := 1; i < len(info); i++ {
+		if info[i-1].idx < info[i].idx {
 			info[i].bar = i
+		} else {
+			info[i].bar = info[i-1].bar
 		}
 	}
 
