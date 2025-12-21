@@ -1963,6 +1963,8 @@ func (r *raft) applyConfChange(cc pb.ConfChangeV2) pb.ConfState {
 		panic(err)
 	}
 
+	traceConfChangeEvent(cfg, r)
+
 	return r.switchToConfig(cfg, trk)
 }
 
@@ -1973,8 +1975,6 @@ func (r *raft) applyConfChange(cc pb.ConfChangeV2) pb.ConfState {
 //
 // The inputs usually result from restoring a ConfState or applying a ConfChange.
 func (r *raft) switchToConfig(cfg tracker.Config, trk tracker.ProgressMap) pb.ConfState {
-	traceConfChangeEvent(cfg, r)
-
 	r.trk.Config = cfg
 	r.trk.Progress = trk
 

@@ -14,7 +14,7 @@
 \* limitations under the License.
 \*
 
-EXTENDS etcdraft, Json, IOUtils, Sequences, TLC
+EXTENDS etcdraft_control, Json, IOUtils, Sequences, TLC
 
 \* raft.pb.go enum MessageType
 RaftMsgType ==
@@ -45,7 +45,7 @@ OriginTraceLog ==
     SelectSeq(ndJsonDeserialize(JsonFile), LAMBDA l: "tag" \in DOMAIN l /\ l.tag = "trace")
 
 TraceLog ==
-    TLCEval(IF "MAX_TRACE" \in DOMAIN IOEnv THEN SubSeq(OriginTraceLog, 1, atoi(IOEnv.MAX_TRACE)) ELSE OriginTraceLog)
+    TLCEval(IF "MAX_TRACE" \in DOMAIN IOEnv THEN SubSeq(OriginTraceLog, 1, Min({Len(OriginTraceLog), atoi(IOEnv.MAX_TRACE)})) ELSE OriginTraceLog)
 
 TraceServer == TLCEval(FoldSeq(
     LAMBDA x, y: y \cup IF  /\ x.event.name = "ChangeConf" 
@@ -54,40 +54,33 @@ TraceServer == TLCEval(FoldSeq(
                             THEN {x.event.nid, x.event.prop.cc.changes[1].nid} 
                             ELSE {x.event.nid},
     {}, TraceLog))
-        
-BootstrapLogIndicesForServer(i) ==
-    LET 
-        FirstBootstrapLogIndex == SelectInSeq(TraceLog, LAMBDA x: x.event.nid = i /\ x.event.name \in {"InitState", "BecomeFollower", "ApplyConfChange"})
-        FirstNonBootstrapLogIndex == SelectInSeq(TraceLog, LAMBDA x: x.event.nid = i /\ x.event.name \notin {"InitState", "BecomeFollower", "ApplyConfChange"})
-        LastBootstrapLogIndexUpperBound == IF FirstNonBootstrapLogIndex = 0 THEN Len(TraceLog) ELSE FirstNonBootstrapLogIndex-1
-    IN 
-        { k \in FirstBootstrapLogIndex..LastBootstrapLogIndexUpperBound: TraceLog[k].event.nid = i }
-            
-BootstrapLogIndices == UNION { BootstrapLogIndicesForServer(i): i \in Server }
 
-LastBootstrapLog == [ i \in Server |-> TraceLog[Max(BootstrapLogIndicesForServer(i))] ]
-
-BootstrappedConfig(i) == 
-    IF LastBootstrapLog[i].event.name = "ApplyConfChange" THEN 
-        ToSet(LastBootstrapLog[i].event.prop.cc.newconf)
-    ELSE 
-        ToSet(LastBootstrapLog[i].event.conf[1])
-
-TraceInitServer == BootstrappedConfig(TraceLog[1].event.nid)
+BootstrapIndex == [ i \in Server |-> SelectInSeq(TraceLog, LAMBDA  x: x.event.nid = i /\ x.event.name = "Bootstrap") ]
+TraceInitServer == { i \in Server : BootstrapIndex[i] > 0 }
 ASSUME TraceInitServer \subseteq TraceServer   
+BootstrapEntries(i) == FoldSeq(
+    LAMBDA x, y: Append(y, [ term |-> 1, 
+                             type |-> "ConfigEntry", 
+                             value |-> [ newconf |-> ToSet(TraceLog[x].event.prop.cc.newconf), learners |-> {}] ]),
+    <<>>, 
+    SetToSortSeq({j \in DOMAIN TraceLog : /\ j < BootstrapIndex[i] 
+                                          /\ TraceLog[j].event.nid = i 
+                                          /\ TraceLog[j].event.name = "ApplyConfChange"}, <) ) 
 
-TraceInitServerVars == /\ currentTerm = [i \in Server |-> LastBootstrapLog[i].event.state.term]
-                       /\ state = [i \in Server |-> LastBootstrapLog[i].event.role]
-                       /\ votedFor = [i \in Server |-> LastBootstrapLog[i].event.state.vote]
-TraceInitLogVars    == /\ log          = [i \in Server |-> [j \in 1..LastBootstrapLog[i].event.log |-> [ term |-> 1, type |-> "ConfigEntry", value |-> [newconf |-> BootstrappedConfig(i), learners |-> {}]]]]
-                       /\ commitIndex  = [i \in Server |-> LastBootstrapLog[i].event.state.commit]
+TraceInitServerVars == /\ currentTerm = [i \in Server |-> IF i \in InitServer THEN 1 ELSE 0]
+                       /\ state = [i \in Server |-> Follower]
+                       /\ votedFor = [i \in Server |-> Nil]
+TraceInitLogVars    == /\ log          = [i \in Server |-> BootstrapEntries(i)]
+                       /\ commitIndex  = [i \in Server |-> Len(log[i])]
+                       /\ applied      = [i \in Server |-> 0]
 TraceInitConfigVars == 
-    /\ config = [i \in Server |-> [ jointConfig |-> <<BootstrappedConfig(i), {}>>, learners |-> {}] ]
-    /\ reconfigCount = 0 
+    /\ config = [i \in Server |-> [ jointConfig |-> <<IF i \in InitServer THEN ToSet(TraceLog[BootstrapIndex[i]].event.conf[1]) ELSE {}, {}>>, learners |-> {}] ]
+    /\ appliedConfChange = [i \in Server |-> Len(log[i])]
                         
 
 -------------------------------------------------------------------------------------
-ConfFromLog(l) == << ToSet(l.event.conf[1]), ToSet(l.event.conf[2]) >>
+ConfFromTrace(l) == << ToSet(l.event.conf[1]), ToSet(l.event.conf[2]) >>
+NewConfFromTrace(l) == << ToSet(l.event.prop.cc.newconf), {} >>
 
 OneMoreMessage(msg) ==
     \/ msg \notin DOMAIN pendingMessages /\ msg \in DOMAIN pendingMessages' /\ pendingMessages'[msg] = 1
@@ -99,31 +92,22 @@ OneLessMessage(msg) ==
 
 -------------------------------------------------------------------------------------
 
+\* In some state, we will restrict the state exploration to only follow the actions in
+\* constrainedBehavior. This is to reduce state space to be explored.
+VARIABLE constrainedBehavior
+
+Ready_PersistState_SendMessages_Behavior(i) == 
+    << 
+        << "Ready",         <<i>> >>, 
+        << "PersistState",  <<i>> >>, 
+        << "SendMessages",  <<i>> >> 
+    >>
+
 VARIABLE l
+
+mcVars == <<vars, l, constrainedBehavior>>
+
 logline == TraceLog[l]
-VARIABLE pl
-
-
-TraceInit ==
-    /\ l = 1
-    /\ pl = 0
-    /\ logline = TraceLog[l]
-    /\ Init
-
-StepToNextTrace == 
-    /\ l' = l+1
-    /\ pl' = l
-    /\ l % (Len(TraceLog) \div 100) = 0 => PrintT(<< "Progress %:", (l * 100) \div Len(TraceLog)>>)
-    /\ l' > Len(TraceLog) => PrintT(<< "Progress %:", 100>>)
-    
-StepToNextTraceIfMessageIsProcessed(msg) ==
-    IF OneLessMessage(msg) 
-        THEN StepToNextTrace
-        ELSE
-            /\ pl' = l 
-            /\ UNCHANGED <<l>>
-
--------------------------------------------------------------------------------------
 
 LoglineIsEvent(e) ==
     /\ l <= Len(TraceLog)
@@ -187,116 +171,7 @@ LoglineIsRequestVoteResponse(m) ==
     /\ m.mterm = logline.event.msg.term
     /\ m.mvoteGranted = ~logline.event.msg.reject
 
-ValidatePreStates(i) ==
-    \* only validate upon first visit of the logline
-    pl = l - 1 =>   /\ currentTerm[i] = logline.event.state.term
-                    /\ state[i] = logline.event.role
-                    /\ votedFor[i] = logline.event.state.vote
-                    /\ Len(log[i]) = logline.event.log
-                    /\ commitIndex[i] = logline.event.state.commit
-                    /\ config[i].jointConfig = ConfFromLog(logline)
-
-ValidatePostStates(i) ==
-    /\ currentTerm'[i] = logline.event.state.term
-    /\ state'[i] = logline.event.role
-    /\ votedFor'[i] = logline.event.state.vote
-    /\ Len(log'[i]) = logline.event.log
-    /\ commitIndex'[i] = logline.event.state.commit
-    /\ config'[i].jointConfig = ConfFromLog(logline)
-
-\* perform RequestVote transition if logline indicates so
-ValidateAfterRequestVote(i, j) == 
-    /\ ValidatePostStates(i)
-    /\ \E m \in DOMAIN pendingMessages':
-       /\ \/ LoglineIsRequestVoteRequest(m)
-          \/ /\ LoglineIsRequestVoteResponse(m)
-             /\ m.msource = m.mdest
-       /\ OneMoreMessage(m)
-
-RequestVoteIfLogged(i, j) ==
-    /\ \/ LoglineIsMessageEvent("SendRequestVoteRequest", i, j)
-       \* etcd candidate sends MsgVoteResp to itself upon compain starting
-       \/ /\ LoglineIsMessageEvent("SendRequestVoteResponse", i, j)
-          /\ i = j 
-    /\ RequestVote(i, j)
-    /\ ValidateAfterRequestVote(i, j)   
-
-\* perform BecomeLeader transition if logline indicates so
-ValidateAfterBecomeLeader(i) == 
-    /\ ValidatePostStates(i)
-    /\ logline.event.role = "StateLeader"
-    /\ state'[i] = Leader
-    
-BecomeLeaderIfLogged(i) ==
-    /\ LoglineIsNodeEvent("BecomeLeader", i)
-    /\ BecomeLeader(i)
-    /\ ValidateAfterBecomeLeader(i)
-
-\* perform ClientRequest transition if logline indicates so
-ClientRequestIfLogged(i, v) == 
-    /\ LoglineIsNodeEvent("Replicate", i)
-    /\ ClientRequest(i, v)
-
-\* perform AdvanceCommitIndex transition if logline indicates so
-ValidateAfterAdvanceCommitIndex(i) ==
-    /\ ValidatePostStates(i)
-    /\ logline.event.role = "StateLeader"
-    /\ state[i] = Leader
-
-AdvanceCommitIndexIfLogged(i) ==
-    /\ LoglineIsNodeEvent("Commit", i)
-    /\ AdvanceCommitIndex(i)
-    /\ ValidateAfterAdvanceCommitIndex(i)    
-
-\* perform AppendEntries transition if logline indicates so
-ValidateAfterAppendEntries(i, j) ==
-    /\ ValidatePostStates(i)
-    /\ \E msg \in DOMAIN pendingMessages':
-        /\ LoglineIsAppendEntriesRequest(msg)
-        /\ OneMoreMessage(msg)
-
-ValidateAfterHeartbeat(i, j) ==
-    /\ ValidatePostStates(i)
-    /\ \E msg \in DOMAIN pendingMessages':
-        /\ LoglineIsAppendEntriesRequest(msg)
-        /\ OneMoreMessage(msg)
-
-ValidateAfterAppendEntriesToSelf(i) ==
-    /\ ValidatePostStates(i)
-    /\ \E msg \in DOMAIN pendingMessages':
-        /\ LoglineIsAppendEntriesResponse(msg)
-        /\ msg.msource = msg.mdest
-        \* There is now one more message of this type.
-        /\ OneMoreMessage(msg)
-
-AppendEntriesIfLogged(i, j, range) == 
-    /\ LoglineIsMessageEvent("SendAppendEntriesRequest", i, j)
-    /\ logline.event.msg.type = "MsgApp"
-    /\ range[1] = logline.event.msg.index + 1
-    /\ range[2] = range[1] + logline.event.msg.entries
-    /\ AppendEntries(i, j, range)
-    /\ ValidateAfterAppendEntries(i, j)
-
-HeartbeatIfLogged(i, j) ==
-    /\ LoglineIsMessageEvent("SendAppendEntriesRequest", i, j)
-    /\ logline.event.msg.type = "MsgHeartbeat"
-    /\ Heartbeat(i, j)
-    /\ ValidateAfterAppendEntries(i, j)
-
-SendSnapshotIfLogged(i, j, index) ==
-    /\ LoglineIsMessageEvent("SendAppendEntriesRequest", i, j)
-    /\ logline.event.msg.type = "MsgSnap"
-    /\ index = logline.event.msg.entries
-    /\ SendSnapshot(i, j, index)
-    /\ ValidateAfterAppendEntries(i, j)
-
-AppendEntriesToSelfIfLogged(i) ==
-    /\ LoglineIsMessageEvent("SendAppendEntriesResponse", i, i)
-    /\ AppendEntriesToSelf(i)
-    /\ ValidateAfterAppendEntriesToSelf(i)
-
 ReceiveMessageTraceNames == { "ReceiveAppendEntriesRequest", "ReceiveAppendEntriesResponse", "ReceiveRequestVoteRequest", "ReceiveRequestVoteResponse", "ReceiveSnapshot" }
-\* perform Receive transition if logline indicates so
 LoglineIsReceivedMessage(m) ==
     \/ /\ LoglineIsEvent("ReceiveAppendEntriesRequest")
        /\ LoglineIsAppendEntriesRequest(m)
@@ -308,60 +183,6 @@ LoglineIsReceivedMessage(m) ==
        /\ LoglineIsRequestVoteResponse(m)
     \/ /\ LoglineIsEvent("ReceiveSnapshot")
        /\ LoglineIsAppendEntriesRequest(m)
-
-ReceiveIfLogged(m) == 
-    /\ LoglineIsReceivedMessage(m)
-    /\ ValidatePreStates(m.mdest)
-    /\ Receive(m)
-    
-\* perform Timeout transition if logline indicates so
-ValidateAfterTimeout(i) == 
-    /\ logline.event.role = "StateCandidate"
-    /\ logline.event.nid = i
-    /\ state'[i] = Candidate
-    /\ currentTerm'[i] = logline.event.state.term
-
-TimeoutIfLogged(i) ==
-    /\ LoglineIsNodeEvent("BecomeCandidate", i)
-    /\ Timeout(i)
-    /\ ValidateAfterTimeout(i)    
-
-\* perform AddNewServer transition if logline indicates so
-AddNewServerIfLogged(i, j) ==
-    /\ LoglineIsNodeEvent("ChangeConf", i)
-    /\ Len(logline.event.prop.cc.changes) = 1
-    /\ logline.event.prop.cc.changes[1].action = "AddNewServer"
-    /\ logline.event.prop.cc.changes[1].nid = j
-    /\ AddNewServer(i, j)
-
-\* perform AddLearner transition if logline indicates so
-AddLearnerIfLogged(i, j) ==
-    /\ LoglineIsNodeEvent("ChangeConf", i)
-    /\ Len(logline.event.prop.cc.changes) = 1
-    /\ logline.event.prop.cc.changes[1].action = "AddLearner"
-    /\ logline.event.prop.cc.changes[1].nid = j
-    /\ AddLearner(i, j)
-
-\* perform DeleteServer transition if logline indicates so
-DeleteServerIfLogged(i, j) ==
-    /\ LoglineIsNodeEvent("ChangeConf", i)
-    /\ Len(logline.event.prop.cc.changes) = 1
-    /\ logline.event.prop.cc.changes[1].action = "RemoveServer"
-    /\ logline.event.prop.cc.changes[1].nid = j
-    /\ DeleteServer(i, j)
-    
-ApplySimpleConfChangeIfLogged(i) ==
-    /\ LoglineIsNodeEvent("ApplyConfChange", i)
-    /\ ApplySimpleConfChange(i)
-
-ReadyIfLogged(i) ==
-    /\ LoglineIsNodeEvent("Ready", i)
-    /\ Ready(i)
-
-RestartIfLogged(i) ==
-    /\ LoglineIsNodeEvent("InitState", i)
-    /\ Restart(i)
-    /\ ValidatePostStates(i)
 
 LoglineIsBecomeFollowerInUpdateTermOrReturnToFollower ==
     /\ LoglineIsEvent("BecomeFollower")
@@ -377,74 +198,177 @@ LoglineIsBecomeFollowerInUpdateTermOrReturnToFollower ==
                   /\ TraceLog[k].event.msg.term = logline.event.state.term
                   /\ TraceLog[k].event.role = Candidate
 
-StepDownToFollowerIfLogged(i) ==
+TraceIsRequestVote(i, j) ==
+    \/ LoglineIsMessageEvent("SendRequestVoteRequest", i, j)
+    \* etcd candidate sends MsgVoteResp to itself upon compain starting
+    \/ /\ LoglineIsMessageEvent("SendRequestVoteResponse", i, j)
+       /\ i = j 
+TraceIsBecomeLeader(i) == LoglineIsNodeEvent("BecomeLeader", i)
+TraceIsClientRequest(i, v) == LoglineIsNodeEvent("Replicate", i)
+TraceIsAdvanceCommitIndex(i) == LoglineIsNodeEvent("Commit", i)
+TraceIsAppendEntries(i, j, range) == 
+    /\ LoglineIsMessageEvent("SendAppendEntriesRequest", i, j) 
+    /\ logline.event.msg.type = "MsgApp"
+    /\ range[1] = logline.event.msg.index + 1
+    /\ range[2] = range[1] + logline.event.msg.entries
+TraceIsHeartbeat(i, j) ==
+    /\ LoglineIsMessageEvent("SendAppendEntriesRequest", i, j)
+    /\ logline.event.msg.type = "MsgHeartbeat"
+TraceIsSendSnapshot(i, j, index) ==
+    /\ LoglineIsMessageEvent("SendAppendEntriesRequest", i, j)
+    /\ logline.event.msg.type = "MsgSnap"
+    /\ index = logline.event.msg.entries
+TraceIsAppendEntriesToSelf(i) == LoglineIsMessageEvent("SendAppendEntriesResponse", i, i)
+TraceIsTimeout(i) == LoglineIsNodeEvent("BecomeCandidate", i)
+TraceIsAddNewServer(i, j) ==
+    /\ LoglineIsNodeEvent("ChangeConf", i)
+    /\ Len(logline.event.prop.cc.changes) = 1
+    /\ logline.event.prop.cc.changes[1].action = "AddNewServer"
+    /\ logline.event.prop.cc.changes[1].nid = j
+TraceIsAddLearner(i, j) ==
+    /\ LoglineIsNodeEvent("ChangeConf", i)
+    /\ Len(logline.event.prop.cc.changes) = 1
+    /\ logline.event.prop.cc.changes[1].action = "AddLearner"
+    /\ logline.event.prop.cc.changes[1].nid = j
+TraceIsDeleteServer(i, j) ==
+    /\ LoglineIsNodeEvent("ChangeConf", i)
+    /\ Len(logline.event.prop.cc.changes) = 1
+    /\ logline.event.prop.cc.changes[1].action = "RemoveServer"
+    /\ logline.event.prop.cc.changes[1].nid = j
+TraceIsApplyConfChange(i) == LoglineIsNodeEvent("ApplyConfChange", i)
+TraceIsRestart(i) == LoglineIsNodeEvent("InitState", i)
+TraceIsStepDownToFollower(i) == 
     /\ LoglineIsNodeEvent("BecomeFollower", i)
     /\ \lnot LoglineIsBecomeFollowerInUpdateTermOrReturnToFollower
-    /\ StepDownToFollower(i)
-    /\ ValidatePostStates(i)
+TraceIsReceive(m) == LoglineIsReceivedMessage(m)
 
-\* skip unused logs
-SkipUnusedLogline ==
-    /\ \/ /\ LoglineIsEvent("SendAppendEntriesResponse")
-          /\ logline.event.msg.from # logline.event.msg.to
-       \/ /\ LoglineIsEvent("SendRequestVoteResponse")
-          /\ logline.event.msg.from # logline.event.msg.to
-       \/ LoglineIsBecomeFollowerInUpdateTermOrReturnToFollower
-       \/ LoglineIsEvent("ReduceNextIndex") \* shall not be necessary when this is removed from raft
+\* We don't trace for PersistState and SendMessages. Though they can be in any place
+\* in ready phase, we can eliminate the nondeterministic by forcing the behavior sequence 
+\* as Ready->PersistState->SendMessages->...->Advance. Note that the sequence
+\* is not necessary same as the implementation because we always end up with same state after 
+\* Advance no matter when PersistState and SendMessages are performed. 
+\*
+\* For each Ready trace, we will walk 3 steps in the state machine: 
+\* Ready -> PersistState -> SendMessages
+\* Trace location variable l will be unchanged until SendMessages action is done.
+TraceIsReady(i) == LoglineIsNodeEvent("Ready", i)
+TraceIsAdvance(i) == LoglineIsNodeEvent("Advance", i)
+TraceIsUnused ==
+    \/ /\ l < Len(TraceLog) 
+       /\ l <= BootstrapIndex[logline.event.nid] 
+    \/ /\ LoglineIsEvent("SendAppendEntriesResponse")
+       /\ logline.event.msg.from # logline.event.msg.to
+    \/ /\ LoglineIsEvent("SendRequestVoteResponse")
+       /\ logline.event.msg.from # logline.event.msg.to
+    \/ LoglineIsBecomeFollowerInUpdateTermOrReturnToFollower
+    \/ LoglineIsEvent("ReduceNextIndex") \* shall not be necessary when this is removed from raft
+
+TraceIsEnabled(action, args) ==
+    IF TraceIsUnused THEN 
+        action = "Unused"
+    ELSE IF constrainedBehavior /= <<>> THEN
+        <<action, args>> = constrainedBehavior[1]
+    ELSE
+       CASE action = "RequestVote"          -> TraceIsRequestVote(args[1], args[2])
+         [] action = "BecomeLeader"         -> TraceIsBecomeLeader(args[1])
+         [] action = "ClientRequest"        -> TraceIsClientRequest(args[1], args[2])
+         [] action = "AdvanceCommitIndex"   -> TraceIsAdvanceCommitIndex(args[1])
+         [] action = "AppendEntries"        -> TraceIsAppendEntries(args[1], args[2], args[3])
+         [] action = "Heartbeat"            -> TraceIsHeartbeat(args[1], args[2])
+         [] action = "SendSnapshot"         -> TraceIsSendSnapshot(args[1], args[2], args[3])
+         [] action = "AppendEntriesToSelf"  -> TraceIsAppendEntriesToSelf(args[1])
+         [] action = "Timeout"              -> TraceIsTimeout(args[1])
+         [] action = "AddNewServer"         -> TraceIsAddNewServer(args[1], args[2])
+         [] action = "AddLearner"           -> TraceIsAddLearner(args[1], args[2])
+         [] action = "DeleteServer"         -> TraceIsDeleteServer(args[1], args[2])
+         [] action = "ApplyConfChange"      -> TraceIsApplyConfChange(args[1])
+         [] action = "Ready"                -> TraceIsReady(args[1])
+         [] action = "PersistState"         -> TRUE
+         [] action = "SendMessages"         -> TRUE
+         [] action = "Advance"              -> TraceIsAdvance(args[1])
+         [] action = "Restart"              -> TraceIsRestart(args[1])
+         [] action = "StepDownToFollower"   -> TraceIsStepDownToFollower(args[1])
+         [] action = "Receive"              -> TraceIsReceive(args[1])
+         [] action = "DuplicateMessage"     -> FALSE
+         [] action = "DropMessage"          -> FALSE
+         [] action = "Unused"               -> TRUE
+
+SpecActionsToInspectState == {
+    "RequestVote",
+    "BecomeLeader",
+    "AdvanceCommitIndex",
+    "AppendEntries",
+    "Heartbeat",
+    "SendSnapshot",
+    "AppendEntriesToSelf",
+    "Timeout",
+    "Restart",
+    "StepDownToFollower",
+    "Ready",
+    "Advance",
+    "ApplyConfChange"
+}
+ValidateTraceState(action, args) ==
+    LET i == logline.event.nid
+    IN  action \in SpecActionsToInspectState => 
+            /\ currentTerm'[i] = logline.event.state.term
+            /\ votedFor'[i] = logline.event.state.vote
+            /\ commitIndex'[i] = logline.event.state.commit
+            /\ state'[i] = logline.event.role    
+            /\ Len(log'[i]) = logline.event.log
+            /\ applied'[i] = logline.event.applied
+            /\ IF action = "ApplyConfChange" THEN 
+                    /\ config[i].jointConfig = ConfFromTrace(logline)
+                    /\ config'[i].jointConfig = NewConfFromTrace(logline)
+               ELSE 
+                    config'[i].jointConfig = ConfFromTrace(logline)
+
+NextConstrainedBehavior(action, args) ==
+    IF constrainedBehavior /= <<>> /\ <<action, args>> = constrainedBehavior[1] THEN
+        constrainedBehavior' = Tail(constrainedBehavior)
+    ELSE IF constrainedBehavior = <<>> /\ action = "Ready" THEN 
+        constrainedBehavior' = Ready_PersistState_SendMessages_Behavior(args[1])
+    ELSE 
+        UNCHANGED <<constrainedBehavior>>
+
+AdvanceTrace == 
+    /\ l' = l+1
+    /\ l % (Len(TraceLog) \div 100) = 0 => PrintT(<< "Progress %:", (l * 100) \div Len(TraceLog) >>) 
+    /\ l' > Len(TraceLog) => PrintT(<< "Progress %:", 100>>)
+
+StepTrace(action, args) ==
+    CASE action = "Receive" -> 
+        IF OneLessMessage(args[1]) THEN 
+            AdvanceTrace
+        ELSE 
+            UNCHANGED <<l>>
+      \* Trace log shall keep logline unchanged in Ready and PersistState, and step
+      \* to the next line after SendMessages action is done.
+      [] action \in {"Ready", "PersistState"} -> UNCHANGED <<l>>
+      [] OTHER -> AdvanceTrace
+
+TracePostAction(action, args) ==
+    /\ ValidateTraceState(action, args)
+    /\ NextConstrainedBehavior(action, args)
+    /\ StepTrace(action, args)
+
+-------------------------------------------------
+
+TraceInit ==
+    /\ l = 1
+    /\ constrainedBehavior = <<>>
+    /\ Init
+
+SkipUnusedAction == SpecAction("Unused", <<>>, LAMBDA act: 
+    /\ l <= Len(TraceLog)
     /\ UNCHANGED <<vars>>
-
-TraceNextNonReceiveActions ==
-    /\ \/ /\ LoglineIsEvents({"SendRequestVoteRequest", "SendRequestVoteResponse"}) 
-          /\ \E i,j \in Server : RequestVoteIfLogged(i, j)
-       \/ /\ LoglineIsEvent("BecomeLeader")
-          /\ \E i \in Server : BecomeLeaderIfLogged(i)
-       \/ /\ LoglineIsEvent("Replicate") 
-          /\ \E i \in Server : ClientRequestIfLogged(i, 0)
-       \/ /\ LoglineIsEvent("Commit") 
-          /\ \E i \in Server : AdvanceCommitIndexIfLogged(i)
-       \/ /\ LoglineIsEvent("SendAppendEntriesRequest") /\ logline.event.msg.type = "MsgApp"
-          /\ \E i,j \in Server : \E b,e \in matchIndex[i][j]+1..Len(log[i])+1 : AppendEntriesIfLogged(i, j, <<b,e>>)
-       \/ /\ LoglineIsEvent("SendAppendEntriesResponse") 
-          /\ \E i \in Server : AppendEntriesToSelfIfLogged(i)
-       \/ /\ LoglineIsEvent("SendAppendEntriesRequest")
-          /\ \E i,j \in Server : HeartbeatIfLogged(i, j) /\ logline.event.msg.type = "MsgHeartbeat"
-       \/ /\ LoglineIsEvent("SendAppendEntriesRequest") /\ logline.event.msg.type = "MsgSnap"
-          /\ \E i,j \in Server : \E index \in 1..commitIndex[i] : SendSnapshotIfLogged(i, j, index)
-       \/ /\ LoglineIsEvent("BecomeCandidate")
-          /\ \E i \in Server : TimeoutIfLogged(i)
-       \/ /\ LoglineIsEvent("ChangeConf") 
-          /\ \E i,j \in Server: AddNewServerIfLogged(i, j)
-       \/ /\ LoglineIsEvent("ChangeConf")
-          /\ \E i,j \in Server: AddLearnerIfLogged(i, j)
-       \/ /\ LoglineIsEvent("ChangeConf")
-          /\ \E i,j \in Server: DeleteServerIfLogged(i, j)
-       \/ /\ LoglineIsEvent("ApplyConfChange")
-          /\ \E i \in Server: ApplySimpleConfChangeIfLogged(i)
-       \/ /\ LoglineIsEvent("Ready")
-          /\ \E i \in Server: ReadyIfLogged(i)
-       \/ /\ LoglineIsEvent("InitState")
-          /\ \E i \in Server: RestartIfLogged(i)
-       \/ /\ LoglineIsEvent("BecomeFollower")
-          /\ \E i \in Server: StepDownToFollowerIfLogged(i)
-       \/ SkipUnusedLogline
-    /\ StepToNextTrace
-    
-TraceNextReceiveActions ==
-    /\ LoglineIsEvents(ReceiveMessageTraceNames)
-    /\ \E m \in DOMAIN messages : 
-        /\ ReceiveIfLogged(m)
-        /\ StepToNextTraceIfMessageIsProcessed(m)
+)
 
 TraceNext ==
-    \/ /\ l \in BootstrapLogIndices
-       /\ UNCHANGED <<vars>>
-       /\ StepToNextTrace
-    \/ /\ l \notin BootstrapLogIndices
-       /\ \/ TraceNextNonReceiveActions
-          \/ TraceNextReceiveActions
-    
-TraceSpec ==
-    TraceInit /\ [][TraceNext]_<<l, pl, vars>>
+    \/ Controlled_Next
+    \/ SkipUnusedAction      
+
+TraceSpec == TraceInit /\ [][TraceNext]_mcVars
 
 -------------------------------------------------------------------------------------
 
@@ -454,7 +378,7 @@ TraceView ==
      \* appears the second time in the trace.  Put differently,  TraceView  causes TLC to
      \* consider  s_i  and s_j  , where  i  and  j  are the positions of  s  in the trace,
      \* to be different states.
-    <<vars, l>>
+    mcVars
 
 -------------------------------------------------------------------------------------
 
@@ -468,10 +392,7 @@ TraceMatched ==
     \* If the queue is empty after generating all successors of the current state,
     \* and l is less than the length of the trace, then TLC failed to validate the trace.
     \*
-    [](l <= Len(TraceLog) => [](TLCGet("queue") = 1 \/ l > Len(TraceLog)))
-
-etcd == INSTANCE etcdraft
-etcdSpec == etcd!Init /\ [][etcd!NextDynamic]_etcd!vars
+    [](l <= Len(TraceLog) => [](TLCGet("queue") > 0 \/ l > Len(TraceLog)))
 
 ==================================================================================
 
