@@ -113,7 +113,7 @@ TraceInit ==
 StepToNextTrace == 
     /\ l' = l+1
     /\ pl' = l
-    /\ l % (Len(TraceLog) \div 100) = 0 => PrintT(<< "Progress %:", (l * 100) \div Len(TraceLog)>>)
+    /\ l % Max({1, Len(TraceLog) \div 100}) = 0 => PrintT(<< "Progress %:", (l * 100) \div Len(TraceLog)>>)
     /\ l' > Len(TraceLog) => PrintT(<< "Progress %:", 100>>)
     
 StepToNextTraceIfMessageIsProcessed(msg) ==
