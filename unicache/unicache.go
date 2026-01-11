@@ -158,23 +158,16 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
 	delete(uc.lruMap, entry.id)
 	uc.lruList.Remove(elem)
 
-	// Inline cleanup: purge old evicted entries based on addedIdx (log index)
-	// Keep entries added within last 3*capacity commits
-	// This is more predictable than count-based since log indexes are consistent
-	minKeepIdx := uint64(0)
-	if currIdx > uint64(uc.capacity*3) {
-		minKeepIdx = currIdx - uint64(uc.capacity*3)
-	}
-	for uc.evictOrder.Len() > 0 {
+	// Keep evicted cache VERY large to handle timing gaps between nodes
+	// Gap can be 30,000+ IDs when follower is far behind leader
+	// With 50*capacity we keep ~100,000 entries (~12MB memory)
+	maxEvicted := uc.capacity * 50
+	for len(uc.evicted) > maxEvicted {
 		front := uc.evictOrder.Front()
 		if front == nil {
 			break
 		}
 		e := front.Value.(*cacheEntry)
-		if e.addedIdx >= minKeepIdx {
-			// This entry is recent enough, stop purging
-			break
-		}
 		uc.evictOrder.Remove(front)
 		delete(uc.evicted, e.id)
 	}
@@ -184,21 +177,14 @@ func (uc *uniCache) PurgeEvicted(currIdx uint64) {
 	uc.mu.Lock()
 	defer uc.mu.Unlock()
 
-	// Purge evicted entries based on addedIdx (log index)
-	// Keep entries added within last 3*capacity commits
-	minKeepIdx := uint64(0)
-	if currIdx > uint64(uc.capacity*3) {
-		minKeepIdx = currIdx - uint64(uc.capacity*3)
-	}
-	for uc.evictOrder.Len() > 0 {
+	// Keep evicted cache large: 50*capacity (~100,000 entries)
+	maxEvicted := uc.capacity * 50
+	for len(uc.evicted) > maxEvicted {
 		front := uc.evictOrder.Front()
 		if front == nil {
 			break
 		}
 		e := front.Value.(*cacheEntry)
-		if e.addedIdx >= minKeepIdx {
-			break
-		}
 		uc.evictOrder.Remove(front)
 		delete(uc.evicted, e.id)
 	}
