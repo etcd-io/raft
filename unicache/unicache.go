@@ -157,24 +157,29 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
 	delete(uc.reverseCache, string(entry.key))
 	delete(uc.lruMap, entry.id)
 	uc.lruList.Remove(elem)
+
+	// Inline cleanup: keep evicted bounded to 2x capacity
+	maxEvicted := uc.capacity * 2
+	for len(uc.evicted) > maxEvicted {
+		front := uc.evictOrder.Front()
+		if front == nil {
+			break
+		}
+		e := front.Value.(*cacheEntry)
+		uc.evictOrder.Remove(front)
+		delete(uc.evicted, e.id)
+	}
 }
 
 func (uc *uniCache) PurgeEvicted(appendCommitGap uint64) {
 	uc.mu.Lock()
 	defer uc.mu.Unlock()
-	// how many entries could still be needed?
-	// (i.e. how far behind the slowest follower might lag)
-	// guard against wrap/negative
-	minC := uc.minCacheVersion()
-	var window uint64
-	if minC > uint64(uc.capacity) {
-		window = minC - uint64(uc.capacity)
-	} else {
-		window = 0
-	}
 
-	// drop from the front until we’re down to 'window' elements
-	for uc.evictOrder.Len() > int(window+(appendCommitGap-minC)) {
+	// Keep evicted entries bounded: max 2x cache capacity
+	// This prevents unbounded memory growth
+	maxEvicted := uc.capacity * 2
+
+	for len(uc.evicted) > maxEvicted {
 		front := uc.evictOrder.Front()
 		if front == nil {
 			break
