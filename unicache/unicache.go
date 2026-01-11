@@ -336,10 +336,14 @@ func (uc *uniCache) UpdateCache(entry pb.Entry) (pb.Entry, bool) {
 		return entry, true
 	}
 
-	// Fast path: check first byte - if it's VarintType tag, something is wrong
+	// If entry is encoded (VarintType), decode it first
+	// This happens on the leader which doesn't go through DecodeEntry
 	if entry.Data[0] == cachedFieldVarintTag {
-		fmt.Println("[UpdateCache] Got unexpected VARINT")
-		return entry, false
+		decoded, ok := uc.DecodeEntry(entry)
+		if !ok {
+			return entry, false
+		}
+		entry = decoded
 	}
 
 	// Fast path: if first byte is BytesType tag, we know the structure
