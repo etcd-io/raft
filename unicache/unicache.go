@@ -14,6 +14,12 @@ import (
 
 const cachedFieldNumber = 1
 
+// Precomputed protobuf tags for fast checking: tag = (field_number << 3) | wire_type
+const (
+	cachedFieldBytesTag  = byte((cachedFieldNumber << 3) | int(protowire.BytesType))  // 0x0A for field 1
+	cachedFieldVarintTag = byte((cachedFieldNumber << 3) | int(protowire.VarintType)) // 0x08 for field 1
+)
+
 const maxCacheSize = 1000
 
 // UniCache defines methods for encoding/decoding entries with key caching.
@@ -245,7 +251,7 @@ func (uc *uniCache) EncodeData(data []byte, currCacheIdx uint64) ([]byte, uint32
 		return data, 0
 	}
 
-	// Parse protobuf OUTSIDE the lock - this is the expensive part
+	// Parse protobuf OUTSIDE the lock
 	keyBytes, _, err := GetProtoFieldAndWireType(data, cachedFieldNumber)
 	if err != nil {
 		return data, 0
@@ -282,13 +288,18 @@ func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
 		return entry, true
 	}
 
-	// Parse protobuf OUTSIDE the lock
+	// Super-fast check: if first byte matches BytesType tag, data is NOT encoded
+	if entry.Data[0] == cachedFieldBytesTag {
+		return entry, true
+	}
+
+	// Only parse protobuf if we might need to decode (first byte is 0x08 = VarintType)
 	keyField, wireType, err := GetProtoFieldAndWireType(entry.Data, cachedFieldNumber)
 	if err != nil {
 		return entry, false
 	}
 
-	// Fast path for non-encoded entries (0% hit rate case) - no lock needed!
+	// Should not reach here at 0% hit rate, but keep as safety
 	if wireType == protowire.BytesType {
 		return entry, true
 	}
@@ -325,9 +336,7 @@ func (uc *uniCache) UpdateCache(entry pb.Entry) (pb.Entry, bool) {
 		return entry, true
 	}
 
-	uc.mu.Lock()
-	defer uc.mu.Unlock()
-
+	// Parse protobuf OUTSIDE the lock - this is the expensive part
 	keyField, wireType, err := GetProtoFieldAndWireType(entry.Data, cachedFieldNumber)
 	if err != nil {
 		return entry, false
@@ -335,36 +344,14 @@ func (uc *uniCache) UpdateCache(entry pb.Entry) (pb.Entry, bool) {
 
 	if wireType == protowire.VarintType {
 		fmt.Println("[UpdateCache] Got unexpected VARINT")
-		/*id, n := protowire.ConsumeVarint(keyField)
-		if n <= 0 {
-			return entry, false
-		}
-		elem, ok := uc.cache[uint32(id)]
+		return entry, false
+	}
 
-		if !ok {
-			fmt.Printf("[UpdateCache] index=%d ERROR key ID %d not in cache\n", entry.Index, id)
-			return entry, false
-		}
-
-		newData, err := ReplaceProtoField(entry.Data, cachedFieldNumber, elem.key, protowire.BytesType)
-		if err != nil {
-			fmt.Printf("[ReplaceProtoField error] id=%d key=%x wireType=BytesType err=%v\n",
-				id, elem.id, elem.key, err)
-			debug.PrintStack()
-			return entry, false
-		}
-		entry.Data = newData
-		uc.updateLRU(uint32(id), entry.Index)
-
-		if elem.lastIdx < entry.Index {
-			elem.lastIdx = entry.Index
-		}
-
-		return entry, true*/
-
-	} else if wireType == protowire.BytesType {
+	if wireType == protowire.BytesType {
 		keyStr := string(keyField)
 
+		// Only lock for the actual cache update
+		uc.mu.Lock()
 		if id, ok := uc.reverseCache[keyStr]; !ok {
 			newID := uc.nextID
 			uc.nextID++
@@ -377,22 +364,17 @@ func (uc *uniCache) UpdateCache(entry pb.Entry) (pb.Entry, bool) {
 			uc.cache[newID] = elem
 			uc.reverseCache[keyStr] = newID
 			uc.addToLRU(elem)
-
-			//fmt.Printf("[UpdateCache] index=%d LEARNED new key ID %d keyHash=%x\n",
-			//entry.Index, newID, string(keyField))
 		} else {
 			ent := uc.cache[id]
 			if ent.lastIdx < entry.Index {
-				//fmt.Printf("[UpdateCache] index=%d updating key ID %d prevIndex=%d newIndex=%d keyHash=%x\n",
-				//entry.Index, id, ent.lastIdx, entry.Index, string(keyField))
 				ent.lastIdx = entry.Index
 				uc.updateLRU(id)
 				if uc.lastInFlight <= entry.Index {
-					//fmt.Printf("[UpdateCache] index=%d updating key ID %d prevIndex=%d newIndex=%d keyHash=%x\n",
 					atomic.StoreUint64(&uc.lastInFlight, math.MaxUint64)
 				}
 			}
 		}
+		uc.mu.Unlock()
 		return entry, true
 	}
 
