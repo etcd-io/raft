@@ -265,12 +265,21 @@ func (uc *uniCache) EncodeData(data []byte, currCacheIdx uint64) ([]byte, uint32
 		uc.mu.RUnlock()
 		return data, 0
 	}
-	_, ok = uc.cache[id]
-	uc.mu.RUnlock()
-
+	elem, ok := uc.cache[id]
 	if !ok {
+		uc.mu.RUnlock()
 		return data, 0
 	}
+
+	// Safety margin: only encode entries that have been committed for a while
+	// This gives slower nodes time to process their Ready batches
+	// maxCommit is the local committed index
+	const safetyMargin = 100 // entries must be at least 100 indexes old
+	if *uc.maxCommit < elem.addedIdx+safetyMargin {
+		uc.mu.RUnlock()
+		return data, 0
+	}
+	uc.mu.RUnlock()
 
 	// Encoding also outside the lock
 	encodedID := protowire.AppendVarint(nil, uint64(id))
