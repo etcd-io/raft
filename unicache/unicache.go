@@ -336,49 +336,80 @@ func (uc *uniCache) UpdateCache(entry pb.Entry) (pb.Entry, bool) {
 		return entry, true
 	}
 
-	// Parse protobuf OUTSIDE the lock - this is the expensive part
+	// Fast path: check first byte - if it's VarintType tag, something is wrong
+	if entry.Data[0] == cachedFieldVarintTag {
+		fmt.Println("[UpdateCache] Got unexpected VARINT")
+		return entry, false
+	}
+
+	// Fast path: if first byte is BytesType tag, we know the structure
+	if entry.Data[0] != cachedFieldBytesTag {
+		return entry, false
+	}
+
+	// Parse protobuf OUTSIDE the lock
 	keyField, wireType, err := GetProtoFieldAndWireType(entry.Data, cachedFieldNumber)
 	if err != nil {
 		return entry, false
 	}
 
-	if wireType == protowire.VarintType {
-		fmt.Println("[UpdateCache] Got unexpected VARINT")
+	if wireType != protowire.BytesType {
 		return entry, false
 	}
 
-	if wireType == protowire.BytesType {
-		keyStr := string(keyField)
+	keyStr := string(keyField)
 
-		// Only lock for the actual cache update
+	// First, try read lock to check if key exists (common case for updates)
+	uc.mu.RLock()
+	id, exists := uc.reverseCache[keyStr]
+	if exists {
+		ent := uc.cache[id]
+		uc.mu.RUnlock()
+
+		// Key exists - only need write lock for brief update
 		uc.mu.Lock()
-		if id, ok := uc.reverseCache[keyStr]; !ok {
-			newID := uc.nextID
-			uc.nextID++
-			elem := &cacheEntry{
-				id:       newID,
-				key:      keyField,
-				lastIdx:  entry.Index,
-				addedIdx: entry.Index,
-			}
-			uc.cache[newID] = elem
-			uc.reverseCache[keyStr] = newID
-			uc.addToLRU(elem)
-		} else {
-			ent := uc.cache[id]
-			if ent.lastIdx < entry.Index {
-				ent.lastIdx = entry.Index
-				uc.updateLRU(id)
-				if uc.lastInFlight <= entry.Index {
-					atomic.StoreUint64(&uc.lastInFlight, math.MaxUint64)
-				}
+		if ent.lastIdx < entry.Index {
+			ent.lastIdx = entry.Index
+			uc.updateLRU(id)
+			if uc.lastInFlight <= entry.Index {
+				atomic.StoreUint64(&uc.lastInFlight, math.MaxUint64)
 			}
 		}
 		uc.mu.Unlock()
 		return entry, true
 	}
+	uc.mu.RUnlock()
 
-	return entry, false
+	// Key doesn't exist - need write lock to add
+	// Pre-allocate struct outside lock
+	newElem := &cacheEntry{
+		key:      keyField,
+		lastIdx:  entry.Index,
+		addedIdx: entry.Index,
+	}
+
+	uc.mu.Lock()
+	// Double-check in case another goroutine added it
+	if id, exists := uc.reverseCache[keyStr]; exists {
+		ent := uc.cache[id]
+		if ent.lastIdx < entry.Index {
+			ent.lastIdx = entry.Index
+			uc.updateLRU(id)
+		}
+		uc.mu.Unlock()
+		return entry, true
+	}
+
+	// Add new entry
+	newID := uc.nextID
+	uc.nextID++
+	newElem.id = newID
+	uc.cache[newID] = newElem
+	uc.reverseCache[keyStr] = newID
+	uc.addToLRU(newElem)
+	uc.mu.Unlock()
+
+	return entry, true
 }
 
 func ReplaceProtoField(data []byte, targetField int, newValue []byte, newWireType protowire.Type) ([]byte, error) {
