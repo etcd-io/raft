@@ -178,7 +178,7 @@ func (uc *uniCache) PurgeEvicted(currIdx uint64) {
 	defer uc.mu.Unlock()
 
 	// Keep evicted cache large: 50*capacity (~100,000 entries)
-	maxEvicted := uc.capacity * 50
+	maxEvicted := uc.capacity * 150
 	for len(uc.evicted) > maxEvicted {
 		front := uc.evictOrder.Front()
 		if front == nil {
