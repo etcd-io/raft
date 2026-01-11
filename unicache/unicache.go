@@ -274,7 +274,8 @@ func (uc *uniCache) EncodeData(data []byte, currCacheIdx uint64) ([]byte, uint32
 	// Safety margin: only encode entries that have been committed for a while
 	// This gives slower nodes time to process their Ready batches
 	// maxCommit is the local committed index
-	const safetyMargin = 100 // entries must be at least 100 indexes old
+	// Using a large margin because commit index and cache ID aren't 1:1
+	const safetyMargin = 5000 // entries must be at least 5000 indexes old
 	if *uc.maxCommit < elem.addedIdx+safetyMargin {
 		uc.mu.RUnlock()
 		return data, 0
