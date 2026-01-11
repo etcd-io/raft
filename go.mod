@@ -1,4 +1,4 @@
-module github.com/jedeland/raft
+module go.etcd.io/raft/v3
 
 go 1.23
 
