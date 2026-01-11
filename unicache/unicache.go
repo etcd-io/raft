@@ -235,8 +235,8 @@ func (uc *uniCache) SafeEncode(data []byte, appendIdx uint64, encodedID uint32) 
 		}
 		//fmt.Println("[SafeEncode] evicted restore failed:", err)
 	}
-	fmt.Printf("[SafeEncode] index=%d didnt find have data for for ID=%d, capacity=%d, cache size=%d, evicted size=%d, last element addedIdx=%d, nextId=%d\n",
-		appendIdx, encodedID, uc.capacity, len(uc.cache), len(uc.evicted), uc.cache[uint32(len(uc.cache)-1)].addedIdx, uc.nextID)
+	fmt.Printf("[SafeEncode] index=%d didnt find data for ID=%d, capacity=%d, cache size=%d, evicted size=%d, nextId=%d\n",
+		appendIdx, encodedID, uc.capacity, len(uc.cache), len(uc.evicted), uc.nextID)
 	return data, nil
 }
 
