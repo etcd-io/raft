@@ -245,29 +245,28 @@ func (uc *uniCache) EncodeData(data []byte, currCacheIdx uint64) ([]byte, uint32
 		return data, 0
 	}
 
-	uc.mu.RLock()
-	defer uc.mu.RUnlock()
-
+	// Parse protobuf OUTSIDE the lock - this is the expensive part
 	keyBytes, _, err := GetProtoFieldAndWireType(data, cachedFieldNumber)
-
 	if err != nil {
 		return data, 0
 	}
-
 	keyStr := string(keyBytes)
+
+	// Only lock for the map lookups (fast)
+	uc.mu.RLock()
 	id, ok := uc.reverseCache[keyStr]
-
 	if !ok {
-		//fmt.Println("[EncodeData] not in reversecache")
+		uc.mu.RUnlock()
 		return data, 0
 	}
-
 	_, ok = uc.cache[id]
+	uc.mu.RUnlock()
+
 	if !ok {
-		//fmt.Println("[EncodeData] not in cache")
 		return data, 0
 	}
 
+	// Encoding also outside the lock
 	encodedID := protowire.AppendVarint(nil, uint64(id))
 	newData, err := ReplaceProtoField(data, cachedFieldNumber, encodedID, protowire.VarintType)
 	if err == nil {
