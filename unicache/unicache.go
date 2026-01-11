@@ -279,7 +279,7 @@ func (uc *uniCache) EncodeData(data []byte, currCacheIdx uint64) ([]byte, uint32
 	// Only encode if id >= nextID - capacity (entry is in active cache)
 	// Leader will have entry in cache or evicted (safety net)
 	if uc.nextID > uint32(uc.capacity) {
-		minActiveID := uc.nextID - uint32(uc.capacity)
+		minActiveID := uc.nextID - uint32(uc.capacity/2)
 		if id < minActiveID {
 			uc.mu.RUnlock()
 			return data, 0
