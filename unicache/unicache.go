@@ -282,14 +282,13 @@ func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
 		return entry, true
 	}
 
-	uc.mu.RLock()
-	defer uc.mu.RUnlock()
-
+	// Parse protobuf OUTSIDE the lock
 	keyField, wireType, err := GetProtoFieldAndWireType(entry.Data, cachedFieldNumber)
 	if err != nil {
 		return entry, false
 	}
 
+	// Fast path for non-encoded entries (0% hit rate case) - no lock needed!
 	if wireType == protowire.BytesType {
 		return entry, true
 	}
@@ -299,19 +298,23 @@ func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
 		if n <= 0 {
 			return entry, false
 		}
+
+		// Only lock for cache lookup
+		uc.mu.RLock()
 		elem, ok := uc.cache[uint32(id)]
+		uc.mu.RUnlock()
 
 		if !ok {
 			fmt.Println("[decode cache] not in cache: ", id, "index", entry.Index)
 			return entry, false
 		}
+
+		// ReplaceProtoField outside the lock
 		newData, err := ReplaceProtoField(entry.Data, cachedFieldNumber, elem.key, protowire.BytesType)
 		if err != nil {
 			return entry, false
 		}
-		if err == nil {
-			entry.Data = newData
-		}
+		entry.Data = newData
 		return entry, true
 	}
 	return entry, true
