@@ -158,33 +158,47 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
 	delete(uc.lruMap, entry.id)
 	uc.lruList.Remove(elem)
 
-	// Inline cleanup: keep evicted bounded to 2x capacity
-	maxEvicted := uc.capacity * 2
-	for len(uc.evicted) > maxEvicted {
+	// Inline cleanup: purge old evicted entries based on addedIdx (log index)
+	// Keep entries added within last 3*capacity commits
+	// This is more predictable than count-based since log indexes are consistent
+	minKeepIdx := uint64(0)
+	if currIdx > uint64(uc.capacity*3) {
+		minKeepIdx = currIdx - uint64(uc.capacity*3)
+	}
+	for uc.evictOrder.Len() > 0 {
 		front := uc.evictOrder.Front()
 		if front == nil {
 			break
 		}
 		e := front.Value.(*cacheEntry)
+		if e.addedIdx >= minKeepIdx {
+			// This entry is recent enough, stop purging
+			break
+		}
 		uc.evictOrder.Remove(front)
 		delete(uc.evicted, e.id)
 	}
 }
 
-func (uc *uniCache) PurgeEvicted(appendCommitGap uint64) {
+func (uc *uniCache) PurgeEvicted(currIdx uint64) {
 	uc.mu.Lock()
 	defer uc.mu.Unlock()
 
-	// Keep evicted entries bounded: max 2x cache capacity
-	// This prevents unbounded memory growth
-	maxEvicted := uc.capacity * 2
-
-	for len(uc.evicted) > maxEvicted {
+	// Purge evicted entries based on addedIdx (log index)
+	// Keep entries added within last 3*capacity commits
+	minKeepIdx := uint64(0)
+	if currIdx > uint64(uc.capacity*3) {
+		minKeepIdx = currIdx - uint64(uc.capacity*3)
+	}
+	for uc.evictOrder.Len() > 0 {
 		front := uc.evictOrder.Front()
 		if front == nil {
 			break
 		}
 		e := front.Value.(*cacheEntry)
+		if e.addedIdx >= minKeepIdx {
+			break
+		}
 		uc.evictOrder.Remove(front)
 		delete(uc.evicted, e.id)
 	}
@@ -270,24 +284,24 @@ func (uc *uniCache) EncodeData(data []byte, currCacheIdx uint64) ([]byte, uint32
 		uc.mu.RUnlock()
 		return data, 0
 	}
-	elem, ok := uc.cache[id]
-	if !ok {
+	if _, exists := uc.cache[id]; !exists {
 		uc.mu.RUnlock()
 		return data, 0
 	}
 
-	// Safety margin: only encode entries that have been committed for a while
-	// This gives slower nodes time to process their Ready batches
-	// maxCommit is the local committed index
-	// Using a large margin because commit index and cache ID aren't 1:1
-	const safetyMargin = 5000 // entries must be at least 5000 indexes old
-	if *uc.maxCommit < elem.addedIdx+safetyMargin {
-		uc.mu.RUnlock()
-		return data, 0
+	// Safety check: ID must be in active cache range
+	// Only encode if id >= nextID - capacity (entry is in active cache)
+	// Leader will have entry in cache or evicted (safety net)
+	if uc.nextID > uint32(uc.capacity) {
+		minActiveID := uc.nextID - uint32(uc.capacity)
+		if id < minActiveID {
+			uc.mu.RUnlock()
+			return data, 0
+		}
 	}
 	uc.mu.RUnlock()
 
-	// Encoding also outside the lock
+	// Encoding outside the lock
 	encodedID := protowire.AppendVarint(nil, uint64(id))
 	newData, err := ReplaceProtoField(data, cachedFieldNumber, encodedID, protowire.VarintType)
 	if err == nil {
