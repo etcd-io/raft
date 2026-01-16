@@ -31,6 +31,7 @@ type UniCache interface {
 	GetNextId() uint32
 	PrintCache()
 	UpdateCache(entry pb.Entry) (pb.Entry, bool)
+	BatchUpdateCache(entries []pb.Entry) ([]pb.Entry, bool)
 	PurgeEvicted(appendCommitGap uint64)
 	CacheHits() uint64
 	ResetCacheHits() uint64
@@ -124,7 +125,7 @@ func (uc *uniCache) addToLRU(cacheEntry *cacheEntry) {
 }
 
 func (uc *uniCache) evictLRU(currIdx uint64) {
-	if len(uc.cache) < uc.capacity {
+	if len(uc.cache) <= uc.capacity {
 		return
 	}
 
@@ -157,20 +158,6 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
 	delete(uc.reverseCache, string(entry.key))
 	delete(uc.lruMap, entry.id)
 	uc.lruList.Remove(elem)
-
-	// Keep evicted cache VERY large to handle timing gaps between nodes
-	// Gap can be 30,000+ IDs when follower is far behind leader
-	// With 50*capacity we keep ~100,000 entries (~12MB memory)
-	maxEvicted := uc.capacity * 50
-	for len(uc.evicted) > maxEvicted {
-		front := uc.evictOrder.Front()
-		if front == nil {
-			break
-		}
-		e := front.Value.(*cacheEntry)
-		uc.evictOrder.Remove(front)
-		delete(uc.evicted, e.id)
-	}
 }
 
 func (uc *uniCache) PurgeEvicted(currIdx uint64) {
@@ -332,6 +319,7 @@ func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
 
 		if !ok {
 			fmt.Println("[decode cache] not in cache: ", id, "index", entry.Index)
+			fmt.Println("[decode cache] not in cache: ", entry.Type)
 			return entry, false
 		}
 
@@ -429,6 +417,91 @@ func (uc *uniCache) UpdateCache(entry pb.Entry) (pb.Entry, bool) {
 	uc.mu.Unlock()
 
 	return entry, true
+}
+
+func (uc *uniCache) BatchUpdateCache(entries []pb.Entry) ([]pb.Entry, bool) {
+	// 1. PRE-PROCESSING (Outside the lock)
+	// We store the keys we extracted so we don't re-parse them inside the lock.
+	type preparedData struct {
+		entry    pb.Entry
+		keyStr   string
+		keyField []byte
+	}
+	prepared := make([]preparedData, 0, len(entries))
+
+	for _, entry := range entries {
+		// Empty data is a no-op, but valid
+		if len(entry.Data) == 0 || entry.Type != pb.EntryNormal {
+			prepared = append(prepared, preparedData{entry: entry})
+			continue
+		}
+
+		currentEntry := entry
+		// Handle Varint encoding
+		if entry.Data[0] == cachedFieldVarintTag {
+			decoded, ok := uc.DecodeEntry(entry)
+			if !ok {
+				return nil, false
+			}
+			currentEntry = decoded
+		}
+
+		// Validation checks
+		if currentEntry.Data[0] != cachedFieldBytesTag {
+			return nil, false
+		}
+
+		keyField, wireType, err := GetProtoFieldAndWireType(currentEntry.Data, cachedFieldNumber)
+		if err != nil || wireType != protowire.BytesType {
+			return nil, false
+		}
+
+		prepared = append(prepared, preparedData{
+			entry:    currentEntry,
+			keyStr:   string(keyField),
+			keyField: keyField,
+		})
+	}
+
+	// 2. BATCH UPDATE (Inside the lock)
+	uc.mu.Lock()
+	defer uc.mu.Unlock()
+
+	for _, p := range prepared {
+		// Skip if there's no key (empty data case)
+		if p.keyStr == "" {
+			continue
+		}
+
+		if id, exists := uc.reverseCache[p.keyStr]; exists {
+			// Update existing entry
+			ent := uc.cache[id]
+			if ent.lastIdx < p.entry.Index {
+				ent.lastIdx = p.entry.Index
+				uc.updateLRU(id)
+				if uc.lastInFlight <= p.entry.Index {
+					atomic.StoreUint64(&uc.lastInFlight, math.MaxUint64)
+				}
+			}
+		} else {
+			// Add new entry to cache
+			newID := uc.nextID
+			uc.nextID++
+
+			newElem := &cacheEntry{
+				id:       newID,
+				key:      p.keyField,
+				lastIdx:  p.entry.Index,
+				addedIdx: p.entry.Index,
+			}
+
+			uc.cache[newID] = newElem
+			uc.reverseCache[p.keyStr] = newID
+			uc.addToLRU(newElem)
+		}
+	}
+
+	return entries, true
 }
 
 func ReplaceProtoField(data []byte, targetField int, newValue []byte, newWireType protowire.Type) ([]byte, error) {

@@ -1841,9 +1841,6 @@ func logSliceFromMsgApp(m *pb.Message) logSlice {
 	}
 }
 
-// TODO: UniCache: decode encoded messages before appending
-// Also, if log is not matching leaders, check if we have
-// appended entries that were never committed(?)
 func (r *raft) handleAppendEntries(m pb.Message) {
 	for i := range m.Entries {
 		if m.Entries[i].Type == pb.EntryNormal {

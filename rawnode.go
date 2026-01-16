@@ -163,19 +163,15 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 	}
 	rd.MustSync = MustSync(r.hardState(), rn.prevHardSt, len(rd.Entries))
 
-	if rn.raft.uniCache != nil {
-		for i := range rd.CommittedEntries {
-			if rd.CommittedEntries[i].Type == pb.EntryNormal && rd.CommittedEntries[i].Index > rn.raft.lastCacheIdx {
-				decoded, ok := rn.raft.uniCache.UpdateCache(rd.CommittedEntries[i])
-				if !ok {
-					panic(fmt.Sprintf("cache update failed for index %d with data: %d", rd.CommittedEntries[i].Index, rd.CommittedEntries[i].Data))
-				}
-				rd.CommittedEntries[i] = decoded
-				// TODO: last cache idx can be set only once? Can it be set to Min(CommitIdx, MinInflightIdx)? In that case where update MinInflightIdx?
-				rn.raft.lastCacheIdx = rn.raft.uniCache.GetMinCacheIdx(rd.CommittedEntries[i].Index)
-			}
+	if rn.raft.uniCache != nil && shouldUpdateCache(rd, *rn) {
+		decoded, ok := rn.raft.uniCache.BatchUpdateCache(rd.CommittedEntries)
+		if !ok {
+			panic(fmt.Sprintf("cache update failed for index %d with data: %s",
+				rd.CommittedEntries[len(rd.CommittedEntries)-1].Index, string(rd.CommittedEntries[len(rd.CommittedEntries)-1].Data)))
 		}
+		rd.CommittedEntries = decoded
 
+		rn.raft.lastCacheIdx = rn.raft.uniCache.GetMinCacheIdx(rd.CommittedEntries[len(rd.CommittedEntries)-1].Index)
 		if r.lead == r.id && len(rd.Entries) > 0 && len(rd.CommittedEntries) > 0 {
 			rn.raft.uniCache.PurgeEvicted(rd.Entries[len(rd.Entries)-1].Index)
 		}
@@ -205,6 +201,10 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 	}
 
 	return rd
+}
+
+func shouldUpdateCache(rd Ready, rn RawNode) bool {
+	return len(rd.CommittedEntries) > 0 && rd.CommittedEntries[len(rd.CommittedEntries)-1].Index > rn.raft.lastCacheIdx
 }
 
 // MustSync returns true if the hard state and count of Raft entries indicate
