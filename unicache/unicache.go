@@ -136,7 +136,7 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
 	}
 	entry := elem.Value.(*cacheEntry)
 
-	if currIdx-entry.lastIdx < uint64(uc.capacity) {
+	if currIdx-entry.lastIdx <= uint64(uc.capacity) {
 		return
 	}
 
