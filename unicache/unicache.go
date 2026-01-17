@@ -28,6 +28,7 @@ type UniCache interface {
 	EncodeData(data []byte, currCacheIdx uint64) ([]byte, uint32)
 	DecodeEntry(entry pb.Entry) (pb.Entry, bool)
 	SafeEncode(data []byte, appendIdx uint64, encodedID uint32) ([]byte, []byte)
+	BatchSafeEncode(entries []pb.Entry) (fullData [][]byte, logData [][]byte)
 	GetNextId() uint32
 	PrintCache()
 	UpdateCache(entry pb.Entry) (pb.Entry, bool)
@@ -238,6 +239,66 @@ func (uc *uniCache) SafeEncode(data []byte, appendIdx uint64, encodedID uint32) 
 	return data, nil
 }
 
+func (uc *uniCache) BatchSafeEncode(entries []pb.Entry) (fullData [][]byte, logData [][]byte) {
+	fullData = make([][]byte, len(entries))
+	logData = make([][]byte, len(entries))
+
+	uc.mu.RLock()
+	minVer := uc.minCacheVersion()
+	capLimit := uint64(uc.capacity)
+
+	keys := make([][]byte, len(entries))
+	isSafeHit := make([]bool, len(entries))
+	var hits uint64
+
+	for i := range entries {
+		id := entries[i].EncodedID
+		if len(entries[i].Data) == 0 || id == 0 {
+			continue
+		}
+
+		var entry *cacheEntry
+		if e, ok := uc.cache[id]; ok {
+			entry = e
+			// Logic: Is it safe to send the tiny ID to followers?
+			if entries[i].Index-e.lastIdx <= capLimit && minVer >= e.addedIdx {
+				isSafeHit[i] = true
+				hits++
+			}
+		} else if ev, ok := uc.evicted[id]; ok {
+			entry = ev.Value.(*cacheEntry)
+			// Evicted entries are NEVER safe hits; they MUST be restored for followers
+		}
+
+		if entry != nil {
+			keys[i] = entry.key
+		}
+	}
+	uc.mu.RUnlock()
+
+	if hits > 0 {
+		atomic.AddUint64(&uc.cachehits, hits)
+	}
+
+	// 2. Transform OUTSIDE the lock
+	for i := range keys {
+		if keys[i] == nil {
+			continue
+		}
+
+		newData, err := ReplaceProtoField(entries[i].Data, cachedFieldNumber, keys[i], protowire.BytesType)
+		if err == nil {
+			fullData[i] = newData
+			// If it WASN'T a safe hit, the log needs the full data too
+			if !isSafeHit[i] {
+				logData[i] = newData
+			}
+		}
+	}
+
+	return fullData, logData
+}
+
 func (uc *uniCache) EncodeData(data []byte, currCacheIdx uint64) ([]byte, uint32) {
 	if len(data) == 0 {
 		return data, 0
@@ -318,8 +379,7 @@ func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
 		uc.mu.RUnlock()
 
 		if !ok {
-			fmt.Println("[decode cache] not in cache: ", id, "index", entry.Index)
-			fmt.Println("[decode cache] not in cache: ", entry.Type)
+			fmt.Println("[decode cache] not in cache: ", id, "index", entry.Index, "type ", entry.Type)
 			return entry, false
 		}
 

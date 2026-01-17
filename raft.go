@@ -838,23 +838,33 @@ func (r *raft) reset(term uint64) {
 
 func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 	li := r.raftLog.lastIndex()
-	encEnts := make([]pb.Entry, len(es))
 	for i := range es {
 		es[i].Term = r.Term
 		es[i].Index = li + 1 + uint64(i)
+	}
 
-		if r.uniCache != nil {
-			var fullData []byte
-			enc := es[i]
-			enc.Data, fullData = r.uniCache.SafeEncode(enc.Data, enc.Index, enc.EncodedID)
-			encEnts[i] = enc
-			if fullData != nil {
-				es[i].Data = fullData
+	if r.uniCache != nil {
+		fullData, logData := r.uniCache.BatchSafeEncode(es)
+
+		encEnts := make([]pb.Entry, len(es))
+		for i := range es {
+			encEnts[i] = es[i]
+
+			// 1. Always update local state if we found the key
+			if fullData[i] != nil {
+				es[i].Data = fullData[i]
+			}
+
+			// 2. Update the log entry IF it was a forced restoration
+			if logData[i] != nil {
+				encEnts[i].Data = logData[i]
+				// Optionally: encEnts[i].EncodedID = 0
+				// to signal to followers this is a standard entry
 			}
 		}
-	}
-	if len(encEnts) > 0 {
 		r.pend.TruncateAndAppend(encEnts)
+	} else {
+		r.pend.TruncateAndAppend(es)
 	}
 
 	// Track the size of this uncommitted proposal.
