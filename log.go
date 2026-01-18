@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	pb "go.etcd.io/raft/v3/raftpb"
+	"go.etcd.io/raft/v3/unicache"
 )
 
 type raftLog struct {
@@ -59,6 +60,9 @@ type raftLog struct {
 	// applyingEntsPaused is true when entry application has been paused until
 	// enough progress is acknowledged.
 	applyingEntsPaused bool
+
+	// UniCache module
+	uniCache unicache.UniCache
 }
 
 // newLog returns log using the given storage and default options. It
@@ -320,6 +324,34 @@ func (l *raftLog) lastIndex() uint64 {
 func (l *raftLog) commitTo(tocommit uint64) {
 	// never decrease commit
 	if l.committed < tocommit {
+		// Synchronously update the UniCache dictionary.
+		// This ensures that as soon as an entry is marked "committed",
+		// the leader recognizes its ID for any subsequent proposals.
+		if l.uniCache != nil {
+			// We need the entries from (current committed + 1) up to (new commit index)
+			// We trust the log slice to be valid here because we check bounds below.
+			entries, err := l.slice(l.committed+1, tocommit+1, noLimit)
+			if err == nil {
+				// Update the cache immediately.
+				// Note: We ignore the return values because we are only updating internal state,
+				// not transforming the entries for the application (that happens later in Ready).
+				l.uniCache.BatchUpdateCache(entries)
+
+				// Update the last "safe" cache index reference for the leader
+				if len(entries) > 0 {
+					lastIdx := entries[len(entries)-1].Index
+					// If your uniCache struct is accessible via raftLog, update the tracker.
+					// You might need to expose a method on raftLog or access the raft struct if possible.
+					// However, strictly speaking, just updating the map is enough to fix the panic.
+
+					// Optional: Trigger eviction cleanup if you are the leader (or everyone)
+					l.uniCache.PurgeEvicted(lastIdx)
+				}
+			} else {
+				l.logger.Panicf("uniCache failed to load committed entries [%d-%d]: %v", l.committed+1, tocommit, err)
+			}
+		}
+
 		if l.lastIndex() < tocommit {
 			l.logger.Panicf("tocommit(%d) is out of range [lastIndex(%d)]. Was the raft log corrupted, truncated, or lost?", tocommit, l.lastIndex())
 		}

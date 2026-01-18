@@ -471,17 +471,15 @@ func (n *node) Tick() {
 func (n *node) Campaign(ctx context.Context) error { return n.step(ctx, pb.Message{Type: pb.MsgHup}) }
 
 func (n *node) CacheHits() uint64 {
-	return n.rn.raft.uniCache.CacheHits()
+	return n.rn.raft.raftLog.uniCache.CacheHits()
 }
 
 func (n *node) ResetCacheHits() uint64 {
-	return n.rn.raft.uniCache.ResetCacheHits()
+	return n.rn.raft.raftLog.uniCache.ResetCacheHits()
 }
 
 func (n *node) Propose(ctx context.Context, data []byte) error {
-	var encodedID = uint32(0)
-	data, encodedID = n.rn.raft.uniCache.EncodeData(data, n.rn.raft.lastCacheIdx)
-	return n.stepWait(ctx, pb.Message{Type: pb.MsgProp, Entries: []pb.Entry{{Data: data, EncodedID: encodedID}}})
+	return n.stepWait(ctx, pb.Message{Type: pb.MsgProp, Entries: []pb.Entry{{Data: data}}})
 }
 
 func (n *node) Step(ctx context.Context, m pb.Message) error {

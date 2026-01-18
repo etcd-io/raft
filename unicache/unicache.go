@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sync"
 	"sync/atomic"
 
 	pb "go.etcd.io/raft/v3/raftpb"
@@ -24,13 +23,12 @@ const maxCacheSize = 1000
 
 // UniCache defines methods for encoding/decoding entries with key caching.
 type UniCache interface {
-	NewUniCache(maxCommit *uint64, minCacheVersion func() uint64, capacity int) UniCache
+	NewUniCache(minCacheVersion func() uint64, capacity int) UniCache
 	EncodeData(data []byte, currCacheIdx uint64) ([]byte, uint32)
 	DecodeEntry(entry pb.Entry) (pb.Entry, bool)
 	SafeEncode(data []byte, appendIdx uint64, encodedID uint32) ([]byte, []byte)
 	BatchSafeEncode(entries []pb.Entry) (fullData [][]byte, logData [][]byte)
 	GetNextId() uint32
-	PrintCache()
 	UpdateCache(entry pb.Entry) (pb.Entry, bool)
 	BatchUpdateCache(entries []pb.Entry) ([]pb.Entry, bool)
 	PurgeEvicted(appendCommitGap uint64)
@@ -47,8 +45,6 @@ type cacheEntry struct {
 }
 
 type uniCache struct {
-	mu sync.RWMutex
-
 	cache        map[uint32]*cacheEntry
 	reverseCache map[string]uint32
 	nextID       uint32
@@ -68,7 +64,7 @@ type uniCache struct {
 }
 
 // NewUniCache constructs a UniCache with simple LRU caching.
-func NewUniCache(maxCommit *uint64, minCacheVersion func() uint64, capacity int) UniCache {
+func NewUniCache(minCacheVersion func() uint64, capacity int) UniCache {
 	return &uniCache{
 		cache:        make(map[uint32]*cacheEntry),
 		reverseCache: make(map[string]uint32),
@@ -82,7 +78,6 @@ func NewUniCache(maxCommit *uint64, minCacheVersion func() uint64, capacity int)
 		evicted:    make(map[uint32]*list.Element),
 		evictOrder: list.New(),
 
-		maxCommit:       maxCommit,
 		minCacheVersion: minCacheVersion,
 
 		cachehits:    uint64(0),
@@ -100,8 +95,8 @@ func (uc *uniCache) ResetCacheHits() uint64 {
 }
 
 // NewUniCache implements the UniCache interface.
-func (uc *uniCache) NewUniCache(maxCommit *uint64, minCacheVersion func() uint64, capacity int) UniCache {
-	return NewUniCache(maxCommit, minCacheVersion, capacity)
+func (uc *uniCache) NewUniCache(minCacheVersion func() uint64, capacity int) UniCache {
+	return NewUniCache(minCacheVersion, capacity)
 }
 
 func (uc *uniCache) GetMinCacheIdx(currMinIdx uint64) uint64 {
@@ -162,9 +157,6 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
 }
 
 func (uc *uniCache) PurgeEvicted(currIdx uint64) {
-	uc.mu.Lock()
-	defer uc.mu.Unlock()
-
 	// Keep evicted cache large: 50*capacity (~100,000 entries)
 	maxEvicted := uc.capacity * 150
 	for len(uc.evicted) > maxEvicted {
@@ -179,25 +171,13 @@ func (uc *uniCache) PurgeEvicted(currIdx uint64) {
 }
 
 func (uc *uniCache) GetNextId() uint32 {
-	uc.mu.Lock()
-	defer uc.mu.Unlock()
-
 	return uc.nextID
-}
-
-func (uc *uniCache) PrintCache() {
-	uc.mu.RLock()
-	fmt.Println("len cache: ", len(uc.cache), "len evicted", len(uc.evicted), "nextId:", uc.nextID)
-	uc.mu.RUnlock()
 }
 
 func (uc *uniCache) SafeEncode(data []byte, appendIdx uint64, encodedID uint32) ([]byte, []byte) {
 	if len(data) == 0 || encodedID == 0 {
 		return data, nil
 	}
-
-	uc.mu.RLock()
-	defer uc.mu.RUnlock()
 
 	elem, ok := uc.cache[encodedID]
 
@@ -237,7 +217,6 @@ func (uc *uniCache) BatchSafeEncode(entries []pb.Entry) (fullData [][]byte, logD
 	fullData = make([][]byte, len(entries))
 	logData = make([][]byte, len(entries))
 
-	uc.mu.RLock()
 	minVer := uc.minCacheVersion()
 	capLimit := uint64(uc.capacity)
 
@@ -256,15 +235,12 @@ func (uc *uniCache) BatchSafeEncode(entries []pb.Entry) (fullData [][]byte, logD
 			entry = e
 			// Logic: Is it safe to send the tiny ID to followers?
 			if entries[i].Index-e.lastIdx <= capLimit && minVer >= e.addedIdx {
-				fmt.Println("[SafeEncode] Sending encoded entry index ", entries[i].Index, "id ", id, "added index ", e.addedIdx, "last index ", e.lastIdx, "capLimit ", capLimit, "size cache ", len(uc.cache))
 				isSafeHit[i] = true
 				e.lastIdx = entries[i].Index
 				hits++
 			}
 		} else if ev, ok := uc.evicted[id]; ok {
 			entry = ev.Value.(*cacheEntry)
-			// Evicted entries are NEVER safe hits; they MUST be restored for followers
-			fmt.Println("[SafeEncode] Restoring entry, cannot send encoded entry index ", entries[i].Index, "id ", id, "capLimit ", capLimit, "size evicted ", len(uc.evicted))
 		} else {
 			fmt.Println("[SafeEncode] Cannot send or restore encoded entry index ", entries[i].Index, "capLimit ", capLimit, "size cache ", len(uc.cache), "size evicted ", len(uc.cache))
 		}
@@ -273,7 +249,6 @@ func (uc *uniCache) BatchSafeEncode(entries []pb.Entry) (fullData [][]byte, logD
 			keys[i] = entry.key
 		}
 	}
-	uc.mu.RUnlock()
 
 	if hits > 0 {
 		atomic.AddUint64(&uc.cachehits, hits)
@@ -311,14 +286,11 @@ func (uc *uniCache) EncodeData(data []byte, currCacheIdx uint64) ([]byte, uint32
 	keyStr := string(keyBytes)
 
 	// Only lock for the map lookups (fast)
-	uc.mu.RLock()
 	id, ok := uc.reverseCache[keyStr]
 	if !ok {
-		uc.mu.RUnlock()
 		return data, 0
 	}
 	if _, exists := uc.cache[id]; !exists {
-		uc.mu.RUnlock()
 		return data, 0
 	}
 
@@ -328,11 +300,9 @@ func (uc *uniCache) EncodeData(data []byte, currCacheIdx uint64) ([]byte, uint32
 	if uc.nextID > uint32(uc.capacity) {
 		minActiveID := uc.nextID - uint32(uc.capacity/2)
 		if id < minActiveID {
-			uc.mu.RUnlock()
 			return data, 0
 		}
 	}
-	uc.mu.RUnlock()
 
 	// Encoding outside the lock
 	encodedID := protowire.AppendVarint(nil, uint64(id))
@@ -372,10 +342,7 @@ func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
 			return entry, false
 		}
 
-		// Only lock for cache lookup
-		uc.mu.RLock()
 		elem, ok := uc.cache[uint32(id)]
-		uc.mu.RUnlock()
 
 		if !ok {
 			fmt.Println("[decode cache] not in cache: ", id, "index", entry.Index, "type ", entry.Type)
@@ -426,14 +393,11 @@ func (uc *uniCache) UpdateCache(entry pb.Entry) (pb.Entry, bool) {
 	keyStr := string(keyField)
 
 	// First, try read lock to check if key exists (common case for updates)
-	uc.mu.RLock()
 	id, exists := uc.reverseCache[keyStr]
 	if exists {
 		ent := uc.cache[id]
-		uc.mu.RUnlock()
 
 		// Key exists - only need write lock for brief update
-		uc.mu.Lock()
 		if ent.lastIdx < entry.Index {
 			ent.lastIdx = entry.Index
 			uc.updateLRU(id)
@@ -441,10 +405,8 @@ func (uc *uniCache) UpdateCache(entry pb.Entry) (pb.Entry, bool) {
 				atomic.StoreUint64(&uc.lastInFlight, math.MaxUint64)
 			}
 		}
-		uc.mu.Unlock()
 		return entry, true
 	}
-	uc.mu.RUnlock()
 
 	// Key doesn't exist - need write lock to add
 	// Pre-allocate struct outside lock
@@ -454,7 +416,6 @@ func (uc *uniCache) UpdateCache(entry pb.Entry) (pb.Entry, bool) {
 		addedIdx: entry.Index,
 	}
 
-	uc.mu.Lock()
 	// Double-check in case another goroutine added it
 	if id, exists := uc.reverseCache[keyStr]; exists {
 		ent := uc.cache[id]
@@ -462,7 +423,6 @@ func (uc *uniCache) UpdateCache(entry pb.Entry) (pb.Entry, bool) {
 			ent.lastIdx = entry.Index
 			uc.updateLRU(id)
 		}
-		uc.mu.Unlock()
 		return entry, true
 	}
 
@@ -473,7 +433,6 @@ func (uc *uniCache) UpdateCache(entry pb.Entry) (pb.Entry, bool) {
 	uc.cache[newID] = newElem
 	uc.reverseCache[keyStr] = newID
 	uc.addToLRU(newElem)
-	uc.mu.Unlock()
 
 	return entry, true
 }
@@ -522,10 +481,7 @@ func (uc *uniCache) BatchUpdateCache(entries []pb.Entry) ([]pb.Entry, bool) {
 		})
 	}
 
-	// 2. BATCH UPDATE (Inside the lock)
-	uc.mu.Lock()
-	defer uc.mu.Unlock()
-
+	// 2. BATCH UPDATE
 	for _, p := range prepared {
 		// Skip if there's no key (empty data case)
 		if p.keyStr == "" {

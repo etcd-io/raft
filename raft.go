@@ -437,8 +437,6 @@ type raft struct {
 
 	traceLogger TraceLogger
 
-	// UniCache module
-	uniCache unicache.UniCache
 	// Leader only pending entries encoded using UniCache module
 	pend pendingBuf
 	// UniCache up to date up to this index
@@ -476,11 +474,12 @@ func newRaft(c *Config) *raft {
 	}
 
 	if c.UniCacheSize > 0 {
-		r.uniCache = unicache.NewUniCache(&r.raftLog.committed, r.trk.MinCacheIdxMatch, c.UniCacheSize)
-	} else {
-		r.uniCache = nil
+		uc := unicache.NewUniCache(
+			r.trk.MinCacheIdxMatch,
+			c.UniCacheSize,
+		)
+		r.raftLog.uniCache = uc
 	}
-
 	traceInitState(r)
 
 	lastID := r.raftLog.lastEntryID()
@@ -824,7 +823,7 @@ func (r *raft) reset(term uint64) {
 			Next:        r.raftLog.lastIndex() + 1,
 			Inflights:   tracker.NewInflights(r.trk.MaxInflight, r.trk.MaxInflightBytes),
 			IsLearner:   pr.IsLearner,
-			NextCacheId: r.uniCache.GetNextId(),
+			NextCacheId: r.raftLog.uniCache.GetNextId(),
 		}
 		if id == r.id {
 			pr.Match = r.raftLog.lastIndex()
@@ -838,33 +837,23 @@ func (r *raft) reset(term uint64) {
 
 func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 	li := r.raftLog.lastIndex()
+	encEnts := make([]pb.Entry, len(es))
 	for i := range es {
 		es[i].Term = r.Term
 		es[i].Index = li + 1 + uint64(i)
-	}
 
-	if r.uniCache != nil {
-		fullData, logData := r.uniCache.BatchSafeEncode(es)
-
-		encEnts := make([]pb.Entry, len(es))
-		for i := range es {
-			encEnts[i] = es[i]
-
-			// 1. Always update local state if we found the key
-			if fullData[i] != nil {
-				es[i].Data = fullData[i]
-			}
-
-			// 2. Update the log entry IF it was a forced restoration
-			if logData[i] != nil {
-				encEnts[i].Data = logData[i]
-				// Optionally: encEnts[i].EncodedID = 0
-				// to signal to followers this is a standard entry
+		if r.raftLog.uniCache != nil {
+			var fullData []byte
+			enc := es[i]
+			enc.Data, fullData = r.raftLog.uniCache.SafeEncode(enc.Data, enc.Index, enc.EncodedID)
+			encEnts[i] = enc
+			if fullData != nil {
+				es[i].Data = fullData
 			}
 		}
+	}
+	if len(encEnts) > 0 {
 		r.pend.TruncateAndAppend(encEnts)
-	} else {
-		r.pend.TruncateAndAppend(es)
 	}
 
 	// Track the size of this uncommitted proposal.
@@ -1232,6 +1221,25 @@ func (r *raft) Step(m pb.Message) error {
 	}
 
 	switch m.Type {
+	//RepliCache extension
+	case pb.MsgProp:
+		if r.raftLog.uniCache != nil && len(m.Entries) > 0 {
+			for i := range m.Entries {
+				if m.Entries[i].EncodedID == 0 {
+					encData, encID := r.raftLog.uniCache.EncodeData(m.Entries[i].Data, r.raftLog.lastIndex())
+					if encID != 0 {
+						m.Entries[i].Data = encData
+						m.Entries[i].EncodedID = encID
+					}
+				}
+			}
+		}
+
+		// 2. CRITICAL: Pass the (now compressed) message to the standard state machine.
+		err := r.step(r, m)
+		if err != nil {
+			return err
+		}
 	case pb.MsgHup:
 		if r.preVote {
 			r.hup(campaignPreElection)
@@ -1563,7 +1571,7 @@ func stepLeader(r *raft, m pb.Message) error {
 			}
 		} else {
 
-			if r.uniCache != nil && m.Commit > pr.CacheIdx {
+			if r.raftLog.uniCache != nil && m.Commit > pr.CacheIdx {
 				pr.CacheIdx = m.Commit
 			}
 
@@ -1775,9 +1783,6 @@ func stepCandidate(r *raft, m pb.Message) error {
 	return nil
 }
 
-// TODO: UniCache: When dropping leader, implement rollback logic
-// for appended entries that were never committed, in handleAppend?
-// Could we handle when we forget leader?
 func stepFollower(r *raft, m pb.Message) error {
 	switch m.Type {
 	case pb.MsgProp:
@@ -1854,7 +1859,7 @@ func logSliceFromMsgApp(m *pb.Message) logSlice {
 func (r *raft) handleAppendEntries(m pb.Message) {
 	for i := range m.Entries {
 		if m.Entries[i].Type == pb.EntryNormal {
-			if decoded, ok := r.uniCache.DecodeEntry(m.Entries[i]); ok {
+			if decoded, ok := r.raftLog.uniCache.DecodeEntry(m.Entries[i]); ok {
 				m.Entries[i] = decoded
 			} else {
 				panic(fmt.Sprintf("cache decode failed for index %d committed %d with data: %d",

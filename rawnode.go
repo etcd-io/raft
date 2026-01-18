@@ -163,18 +163,22 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 	}
 	rd.MustSync = MustSync(r.hardState(), rn.prevHardSt, len(rd.Entries))
 
-	if rn.raft.uniCache != nil && shouldUpdateCache(rd, *rn) {
-		decoded, ok := rn.raft.uniCache.BatchUpdateCache(rd.CommittedEntries)
-		if !ok {
-			panic(fmt.Sprintf("cache update failed for index %d with data: %s",
-				rd.CommittedEntries[len(rd.CommittedEntries)-1].Index, string(rd.CommittedEntries[len(rd.CommittedEntries)-1].Data)))
-		}
-		rd.CommittedEntries = decoded
+	// We no longer UPDATE the cache here (done in commitTo),
+	// but we must still DECODE entries for the user application.
+	if rn.raft.raftLog.uniCache != nil && len(rd.CommittedEntries) > 0 {
+		// We use a new method "BatchDecode" or reuse BatchUpdateCache if it's idempotent.
+		// Since BatchUpdateCache updates LRU, calling it twice is redundant but not fatal.
+		// ideally, you add a 'DecodeOnly' method to your interface.
 
-		rn.raft.lastCacheIdx = rn.raft.uniCache.GetMinCacheIdx(rd.CommittedEntries[len(rd.CommittedEntries)-1].Index)
-		if r.lead == r.id && len(rd.CommittedEntries) > 0 {
-			rn.raft.uniCache.PurgeEvicted(rd.CommittedEntries[len(rd.CommittedEntries)-1].Index)
+		decodedEntries := make([]pb.Entry, len(rd.CommittedEntries))
+		for i, ent := range rd.CommittedEntries {
+			dec, _ := rn.raft.raftLog.uniCache.DecodeEntry(ent)
+			decodedEntries[i] = dec
 		}
+		rd.CommittedEntries = decodedEntries
+
+		// Update the min cache index for safety tracking (if needed for the heuristic)
+		rn.raft.lastCacheIdx = rn.raft.raftLog.uniCache.GetMinCacheIdx(rd.CommittedEntries[len(rd.CommittedEntries)-1].Index)
 	}
 
 	if rn.asyncStorageWrites {
@@ -201,10 +205,6 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 	}
 
 	return rd
-}
-
-func shouldUpdateCache(rd Ready, rn RawNode) bool {
-	return len(rd.CommittedEntries) > 0 && rd.CommittedEntries[len(rd.CommittedEntries)-1].Index > rn.raft.lastCacheIdx
 }
 
 // MustSync returns true if the hard state and count of Raft entries indicate
@@ -453,7 +453,7 @@ func (rn *RawNode) acceptReady(rd Ready) {
 	rn.raft.msgs = nil
 	rn.raft.msgsAfterAppend = nil
 	rn.raft.raftLog.acceptUnstable()
-	if rn.raft.uniCache != nil {
+	if rn.raft.raftLog.uniCache != nil {
 		rn.raft.pend.Truncate(rn.raft.raftLog.unstable.offset)
 	}
 	if len(rd.CommittedEntries) > 0 {
