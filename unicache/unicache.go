@@ -256,7 +256,7 @@ func (uc *uniCache) BatchSafeEncode(entries []pb.Entry) (fullData [][]byte, logD
 			entry = e
 			// Logic: Is it safe to send the tiny ID to followers?
 			if entries[i].Index-e.lastIdx <= capLimit && minVer >= e.addedIdx {
-				fmt.Println("[SafeEncode] Sending encoded entry index ", entries[i].Index, "id ", id, "added index ", e.addedIdx, "last index ", e.lastIdx, "capLimit ", capLimit)
+				fmt.Println("[SafeEncode] Sending encoded entry index ", entries[i].Index, "id ", id, "added index ", e.addedIdx, "last index ", e.lastIdx, "capLimit ", capLimit, "size cache ", len(uc.cache))
 				isSafeHit[i] = true
 				e.lastIdx = entries[i].Index
 				hits++
@@ -264,9 +264,9 @@ func (uc *uniCache) BatchSafeEncode(entries []pb.Entry) (fullData [][]byte, logD
 		} else if ev, ok := uc.evicted[id]; ok {
 			entry = ev.Value.(*cacheEntry)
 			// Evicted entries are NEVER safe hits; they MUST be restored for followers
-			fmt.Println("[SafeEncode] Restoring entry, cannot send encoded entry index ", entries[i].Index, "id ", id, "capLimit ", capLimit)
+			fmt.Println("[SafeEncode] Restoring entry, cannot send encoded entry index ", entries[i].Index, "id ", id, "capLimit ", capLimit, "size evicted ", len(uc.evicted))
 		} else {
-			fmt.Println("[SafeEncode] Cannot send or restore encoded entry index ", entries[i].Index, "added index ", e.addedIdx, "last index ", e.lastIdx, "capLimit ", capLimit)
+			fmt.Println("[SafeEncode] Cannot send or restore encoded entry index ", entries[i].Index, "capLimit ", capLimit, "size cache ", len(uc.cache), "size evicted ", len(uc.cache))
 		}
 
 		if entry != nil {
