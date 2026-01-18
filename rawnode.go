@@ -172,8 +172,8 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 		rd.CommittedEntries = decoded
 
 		rn.raft.lastCacheIdx = rn.raft.uniCache.GetMinCacheIdx(rd.CommittedEntries[len(rd.CommittedEntries)-1].Index)
-		if r.lead == r.id && len(rd.Entries) > 0 && len(rd.CommittedEntries) > 0 {
-			rn.raft.uniCache.PurgeEvicted(rd.CommittedEntries[len(rd.Entries)-1].Index)
+		if r.lead == r.id && len(rd.CommittedEntries) > 0 {
+			rn.raft.uniCache.PurgeEvicted(rd.CommittedEntries[len(rd.CommittedEntries)-1].Index)
 		}
 	}
 
