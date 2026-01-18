@@ -189,12 +189,6 @@ func (uc *uniCache) PrintCache() {
 	uc.mu.RLock()
 	fmt.Println("len cache: ", len(uc.cache), "len evicted", len(uc.evicted), "nextId:", uc.nextID)
 	uc.mu.RUnlock()
-	/*keys := make([]uint32, 0, len(uc.cache))
-	for k := range uc.cache {
-		keys = append(keys, k)
-	}
-	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
-	fmt.Println("keys", keys)*/
 }
 
 func (uc *uniCache) SafeEncode(data []byte, appendIdx uint64, encodedID uint32) ([]byte, []byte) {
@@ -263,6 +257,7 @@ func (uc *uniCache) BatchSafeEncode(entries []pb.Entry) (fullData [][]byte, logD
 			// Logic: Is it safe to send the tiny ID to followers?
 			if entries[i].Index-e.lastIdx <= capLimit && minVer >= e.addedIdx {
 				isSafeHit[i] = true
+				e.lastIdx = entries[i].Index
 				hits++
 			}
 		} else if ev, ok := uc.evicted[id]; ok {
