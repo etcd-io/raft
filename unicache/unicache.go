@@ -156,10 +156,17 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
 	uc.lruList.Remove(elem)
 }
 
-func (uc *uniCache) PurgeEvicted(currIdx uint64) {
+func (uc *uniCache) PurgeEvicted(appendCommitGap uint64) {
 	// Keep evicted cache large: 50*capacity (~100,000 entries)
-	maxEvicted := uc.capacity * 150
-	for len(uc.evicted) > maxEvicted {
+	minC := uc.minCacheVersion()
+	var window uint64
+	if minC > uint64(uc.capacity) {
+		window = minC - uint64(uc.capacity)
+	} else {
+		window = 0
+	}
+	// drop from the front until we’re down to 'window' elements
+	for uc.evictOrder.Len() > int(window+(appendCommitGap-minC)) {
 		front := uc.evictOrder.Front()
 		if front == nil {
 			break
