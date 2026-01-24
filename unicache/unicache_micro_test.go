@@ -180,3 +180,34 @@ func BenchmarkDecodeEntry(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkUpdateCache(b *testing.B) {
+	printHeaderOnce("UpdateCache")
+	for _, c := range cases() {
+		b.Run(c.name, func(b *testing.B) {
+			uc := newWideOpenUniCache()
+			// Generate a mix of keys
+			hot := primeCache(uc, 64, c.sizeB)
+			payloads := makeDataset(c.N, c.sizeB, c.hitRatio, hot)
+
+			entries := make([]pb.Entry, len(payloads))
+			for i := range payloads {
+				entries[i] = pb.Entry{Index: uint64(30_000 + i), Data: payloads[i]}
+			}
+
+			b.SetBytes(int64(c.sizeB))
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			idx := 0
+			for i := 0; i < b.N; i++ {
+				// We don't care about the return value here, just the work
+				uc.UpdateCache(entries[idx])
+				idx++
+				if idx == len(entries) {
+					idx = 0
+				}
+			}
+		})
+	}
+}
