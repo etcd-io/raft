@@ -90,10 +90,9 @@ func makeDataset(n, sizeB, hitRatio int, hotVals [][]byte) [][]byte {
 }
 
 func newWideOpenUniCache() ucpkg.UniCache {
-	maxCommit := uint64(1 << 62)
 	minCacheVersion := func() uint64 { return 1 << 62 }
 	const huge = 1 << 30
-	return ucpkg.NewUniCache(&maxCommit, minCacheVersion, huge)
+	return ucpkg.NewUniCache(minCacheVersion, huge)
 }
 
 var headerPrinted sync.Map

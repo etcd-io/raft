@@ -11,9 +11,8 @@ import (
 
 // TestLRUEviction ensures that the LRU cache never grows beyond its capacity.
 func TestLRUEviction(t *testing.T) {
-	maxC := uint64(0)
 	minC := func() uint64 { return 0 }
-	uc, ok := NewUniCache(&maxC, minC, 1000).(*uniCache)
+	uc, ok := NewUniCache(minC, 1000).(*uniCache)
 	if !ok {
 		t.Fatal("failed to cast UniCache to *uniCache")
 	}
@@ -35,9 +34,8 @@ func TestLRUEviction(t *testing.T) {
 
 // TestLRUConcurrency runs EncodeData and DecodeEntry in parallel to detect races.
 func TestLRUConcurrency(t *testing.T) {
-	maxC := uint64(0)
 	minC := func() uint64 { return 0 }
-	uc, ok := NewUniCache(&maxC, minC, 1000).(*uniCache)
+	uc, ok := NewUniCache(minC, 1000).(*uniCache)
 	if !ok {
 		t.Fatal("failed to cast UniCache to *uniCache")
 	}
@@ -61,9 +59,8 @@ func TestLRUConcurrency(t *testing.T) {
 }
 
 func TestLRUHeavyConcurrency(t *testing.T) {
-	maxC := uint64(0)
 	minC := func() uint64 { return 0 }
-	uc, ok := NewUniCache(&maxC, minC, 1000).(*uniCache)
+	uc, ok := NewUniCache(minC, 1000).(*uniCache)
 	if !ok {
 		t.Fatal("failed to cast UniCache to *uniCache")
 	}
