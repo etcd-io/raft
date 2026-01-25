@@ -19,8 +19,6 @@ const (
 	cachedFieldVarintTag = byte((cachedFieldNumber << 3) | int(protowire.VarintType)) // 0x08 for field 1
 )
 
-const maxCacheSize = 1000
-
 // UniCache defines methods for encoding/decoding entries with key caching.
 type UniCache interface {
 	NewUniCache(minCacheVersion func() uint64, capacity int) UniCache

@@ -210,3 +210,54 @@ func BenchmarkUpdateCache(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkSafeEncode(b *testing.B) {
+	printHeaderOnce("SafeEncode")
+	for _, c := range cases() {
+		b.Run(c.name, func(b *testing.B) {
+			uc := newWideOpenUniCache()
+			hot := primeCache(uc, 64, c.sizeB)
+			payloads := makeDataset(c.N, c.sizeB, c.hitRatio, hot)
+
+			// Pre-calculate the "Encoded" state.
+			// In the wild, this data comes from the Leader's 'EncodeData'.
+			type prepared struct {
+				data []byte
+				id   uint32
+			}
+			inputs := make([]prepared, len(payloads))
+
+			for i, p := range payloads {
+				// We act as the leader encoding the data first
+				encData, id := uc.EncodeData(p, 0)
+				inputs[i] = prepared{data: encData, id: id}
+			}
+
+			// We assume the follower is up to date (safe window)
+			// effectively testing the "Happy Path" overhead of proto reconstruction.
+			const safeAppendIdx = 2000
+
+			b.SetBytes(int64(c.sizeB))
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			idx := 0
+			var sinkLen int
+			for i := 0; i < b.N; i++ {
+				in := inputs[idx]
+
+				// Benchmark the decision logic + reconstruction cost
+				d1, d2 := uc.SafeEncode(in.data, safeAppendIdx, in.id)
+
+				sinkLen += len(d1) + len(d2)
+				idx++
+				if idx == len(inputs) {
+					idx = 0
+				}
+			}
+			if sinkLen == 0 {
+				b.Fatal("unreachable")
+			}
+		})
+	}
+}
