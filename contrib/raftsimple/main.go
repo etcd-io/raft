@@ -2,25 +2,42 @@ package main
 
 import (
 	"flag"
-	"strings"
-
-	"go.etcd.io/raft/v3/raftpb"
+	"log"
+	"sync"
 )
 
 func main() {
-	cluster := flag.String("cluster", "http://127.0.0.1:9021", "comma separated cluster peers")
-	id := flag.Uint64("id", 1, "node ID")
-	kvport := flag.Int("port", 9121, "key-value server port")
+	nodesCount := flag.Int("nodes", 3, "number of nodes")
 	flag.Parse()
 
-	proposeC := make(chan string)
-	defer close(proposeC)
-	confChangeC := make(chan raftpb.ConfChange)
-	defer close(confChangeC)
+	var wg sync.WaitGroup
 
-	commitC, errorC := newRaftNode(*id, strings.Split(*cluster, ","), proposeC, confChangeC)
+	peers := make([]uint64, *nodesCount)
+	for i := range *nodesCount {
+		peers[i] = uint64(i + 1)
+	}
 
-	kvs := newKVStore(proposeC, commitC, errorC)
+	lstCommitC := make([]<-chan *commit, *nodesCount)
+	lstErrorC := make([]<-chan error, *nodesCount)
+	for i := range *nodesCount {
+		proposeC := make(chan string)
+		commitC, errorC := newRaftNode(uint64(i+1), peers, proposeC)
+		lstCommitC[i] = commitC
+		lstErrorC[i] = errorC
 
-	serveHTTPKVAPI(kvs, *kvport, confChangeC, errorC)
+		kvs := newKVStore(proposeC, commitC, errorC)
+
+		wg.Add(1)
+		go serveHTTPKVAPI(kvs, 9121+i, errorC, &wg)
+	}
+
+	log.Println("Main goroutine waiting for workesr to finish...")
+	wg.Wait()
+	log.Println("All workers finished, main goroutine exiting.")
 }
+
+/*
+- create a cluster of N nodes. All should be in-memory.
+- the transportion will loop through each node in-memory to transport messages.
+- the KVAPI should be able to GET/PUT keys/values. Also DELETE to delete a node.
+*/
