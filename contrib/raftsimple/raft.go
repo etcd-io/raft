@@ -26,15 +26,15 @@ type raftNode struct {
 	node        raft.Node
 	raftStorage *raft.MemoryStorage
 
+	nw *network
+
 	stopc     chan struct{} // signals proposal channel closed
 	httpstopc chan struct{} // signals http server to shutdown
 	httpdonec chan struct{} // signals http server shutdown complete
 }
 
-func newRaftNode(id uint64, peers []uint64, proposeC <-chan string) (<-chan *commit, <-chan error) {
+func newRaftNode(id uint64, peers []uint64, nw *network, proposeC <-chan string, commitC chan<- *commit, errorC chan<- error) *raftNode {
 	log.Printf("Creating raft node %d\n", id)
-	commitC := make(chan *commit)
-	errorC := make(chan error)
 
 	rpeers := make([]raft.Peer, len(peers))
 	for i, pID := range peers {
@@ -47,13 +47,14 @@ func newRaftNode(id uint64, peers []uint64, proposeC <-chan string) (<-chan *com
 		errorC:    errorC,
 		id:        id,
 		peers:     rpeers,
+		nw:        nw,
 		stopc:     make(chan struct{}),
 		httpstopc: make(chan struct{}),
 		httpdonec: make(chan struct{}),
 	}
 
 	go rc.startRaft()
-	return commitC, errorC
+	return rc
 }
 
 func (rc *raftNode) startRaft() {
@@ -100,10 +101,14 @@ func (rc *raftNode) serveChannels() {
 			rc.node.Tick()
 		// store raft entries, then publish over commit channel
 		case rd := <-rc.node.Ready():
+			// saveToStorage(rd.HardState, rd.Entries, rd.Snapshot)
 			rc.raftStorage.Append(rd.Entries)
-			data := make([]string, 0, len(rd.Entries))
-			for i := range rd.Entries {
-				entry := rd.Entries[i]
+
+			rc.nw.send(rd.Messages)
+
+			// apply committedEntries
+			data := make([]string, 0, len(rd.CommittedEntries))
+			for _, entry := range rd.CommittedEntries {
 				switch entry.Type {
 				case raftpb.EntryNormal:
 					if len(entry.Data) == 0 {
@@ -112,13 +117,14 @@ func (rc *raftNode) serveChannels() {
 					}
 					s := string(entry.Data)
 					data = append(data, s)
-				default:
-					// log.Fatal("Unknown entry type when committing.")
-					log.Printf("Unknown entry type: %s\n", entry.Type.String())
+				case raftpb.EntryConfChange:
+					var cc raftpb.ConfChange
+					cc.Unmarshal(entry.Data)
+					rc.node.ApplyConfChange(cc)
 				}
 			}
 			var applyDoneC chan struct{}
-			if len(rd.Entries) > 0 {
+			if len(data) > 0 {
 				applyDoneC = make(chan struct{}, 1)
 				select {
 				case rc.commitC <- &commit{data, applyDoneC}:
