@@ -1,11 +1,12 @@
 package main
 
 import (
+	"context"
 	"io"
 	"log"
 	"net/http"
 	"strconv"
-	"sync"
+	"time"
 
 	"go.etcd.io/raft/v3/raftpb"
 )
@@ -82,8 +83,7 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func serveHTTPKVAPI(kv *kvstore, port int, confChangeC chan<- raftpb.ConfChange, errorC <-chan error, wg *sync.WaitGroup) {
-	defer wg.Done()
+func serveHTTPKVAPI(kv *kvstore, port int, confChangeC chan<- raftpb.ConfChange, errorC <-chan error) {
 	srv := http.Server{
 		Addr: ":" + strconv.Itoa(port),
 		Handler: &httpKVAPI{
@@ -93,12 +93,25 @@ func serveHTTPKVAPI(kv *kvstore, port int, confChangeC chan<- raftpb.ConfChange,
 	}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil {
-			log.Fatal(err)
+			if err != http.ErrServerClosed {
+				log.Fatal(err)
+			}
 		}
 	}()
 
 	// exit when raft goes down
-	if err, ok := <-errorC; ok {
+	err, ok := <-errorC
+	if ok {
 		log.Fatal(err)
+	} else {
+		// Create a context with a timeout to allow current connections to finish (graceful shutdown)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Http server %d forced to shutdown: %v", port, err)
+		} else {
+			log.Printf("Http server %d stopped gracefully", port)
+		}
 	}
 }
