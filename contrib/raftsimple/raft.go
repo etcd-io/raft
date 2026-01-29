@@ -15,9 +15,10 @@ type commit struct {
 }
 
 type raftNode struct {
-	proposeC <-chan string
-	commitC  chan<- *commit
-	errorC   chan<- error
+	proposeC    <-chan string
+	confChangeC <-chan raftpb.ConfChange
+	commitC     chan<- *commit
+	errorC      chan<- error
 
 	id    uint64
 	peers []raft.Peer
@@ -28,27 +29,28 @@ type raftNode struct {
 
 	nw *network
 
-	stopc     chan struct{} // signals proposal channel closed
-	httpstopc chan struct{} // signals http server to shutdown
-	httpdonec chan struct{} // signals http server shutdown complete
+	stopc chan struct{} // signals proposal channel closed
+	// httpstopc chan struct{} // signals http server to shutdown
+	// httpdonec chan struct{} // signals http server shutdown complete
 }
 
-func newRaftNode(id uint64, peers []uint64, nw *network, proposeC <-chan string, commitC chan<- *commit, errorC chan<- error) *raftNode {
+func newRaftNode(id uint64, peers []uint64, proposeC <-chan string, confChangeC <-chan raftpb.ConfChange, commitC chan<- *commit, errorC chan<- error) *raftNode {
 	rpeers := make([]raft.Peer, len(peers))
 	for i, pID := range peers {
 		rpeers[i] = raft.Peer{ID: pID}
 	}
 
 	rc := &raftNode{
-		proposeC:  proposeC,
-		commitC:   commitC,
-		errorC:    errorC,
-		id:        id,
-		peers:     rpeers,
-		nw:        nw,
-		stopc:     make(chan struct{}),
-		httpstopc: make(chan struct{}),
-		httpdonec: make(chan struct{}),
+		proposeC:    proposeC,
+		confChangeC: confChangeC,
+		commitC:     commitC,
+		errorC:      errorC,
+		id:          id,
+		peers:       rpeers,
+		nw:          &network{peers: make(map[uint64]*raftNode)},
+		stopc:       make(chan struct{}),
+		// httpstopc:   make(chan struct{}),
+		// httpdonec:   make(chan struct{}),
 	}
 
 	go rc.startRaft()
@@ -78,13 +80,25 @@ func (rc *raftNode) serveChannels() {
 
 	// send proposals over raft
 	go func() {
-		for rc.proposeC != nil {
-			prop, ok := <-rc.proposeC
-			if !ok {
-				rc.proposeC = nil
-			} else {
-				// blocks until accepted by raft state machine
-				rc.node.Propose(context.TODO(), []byte(prop))
+		confChangeCount := uint64(0)
+		for rc.proposeC != nil && rc.confChangeC != nil {
+			select {
+
+			case prop, ok := <-rc.proposeC:
+				if !ok {
+					rc.proposeC = nil
+				} else {
+					// blocks until accepted by raft state machine
+					rc.node.Propose(context.TODO(), []byte(prop))
+				}
+			case cc, ok := <-rc.confChangeC:
+				if !ok {
+					rc.confChangeC = nil
+				} else {
+					confChangeCount++
+					cc.ID = confChangeCount
+					rc.node.ProposeConfChange(context.TODO(), cc)
+				}
 			}
 		}
 		// client closed channel; shutdown raft if not already
@@ -118,6 +132,17 @@ func (rc *raftNode) serveChannels() {
 					var cc raftpb.ConfChange
 					cc.Unmarshal(entry.Data)
 					rc.node.ApplyConfChange(cc)
+					switch cc.Type {
+					case raftpb.ConfChangeAddNode:
+						// TODO: add node to network
+					case raftpb.ConfChangeRemoveNode:
+						if cc.NodeID == rc.id {
+							log.Printf("Node %d: I've been removed from the cluster! Shutting down.", rc.id)
+							rc.stop()
+							return
+						}
+						rc.nw.removePeer(cc.NodeID)
+					}
 				}
 			}
 			var applyDoneC chan struct{}
@@ -126,15 +151,24 @@ func (rc *raftNode) serveChannels() {
 				select {
 				case rc.commitC <- &commit{data, applyDoneC}:
 				case <-rc.stopc:
-					log.Fatal("serveChannels stopping 2")
+					rc.stop()
 					return
 				}
 			}
 			// TODO: after commit, update appliedIndex
 			rc.node.Advance()
 		case <-rc.stopc:
-			log.Fatal("serveChannels stopping 1")
+			rc.stop()
 			return
 		}
 	}
+}
+
+func (rc *raftNode) stop() {
+	log.Println("Executing stop()")
+	// TODO: stop the network layer
+	// TODO: stop the KVStore HTTP layer
+	close(rc.commitC)
+	close(rc.errorC)
+	rc.node.Stop()
 }

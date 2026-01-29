@@ -1,15 +1,19 @@
 package main
 
 import (
+	"context"
 	"io"
 	"log"
 	"net/http"
 	"strconv"
-	"sync"
+	"time"
+
+	"go.etcd.io/raft/v3/raftpb"
 )
 
 type httpKVAPI struct {
-	store *kvstore
+	store       *kvstore
+	confChangeC chan<- raftpb.ConfChange
 }
 
 func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -33,29 +37,81 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			http.Error(w, "Failed to GET", http.StatusNotFound)
 		}
+	case http.MethodPost:
+		url, err := io.ReadAll(r.Body)
+		if err != nil {
+			log.Printf("Failed to read on POST (%v)\n", err)
+			http.Error(w, "Failed on POST", http.StatusBadRequest)
+		}
+
+		nodeID, err := strconv.ParseUint(key[1:], 0, 64)
+		if err != nil {
+			log.Printf("Failed to convert ID for conf change (%v)\n", err)
+			http.Error(w, "Failed on POST", http.StatusBadRequest)
+			return
+		}
+
+		cc := raftpb.ConfChange{
+			Type:    raftpb.ConfChangeAddNode,
+			NodeID:  nodeID,
+			Context: url,
+		}
+		h.confChangeC <- cc
+		// As above, optimistic that raft will apply the conf change
+		w.WriteHeader(http.StatusNoContent)
+	case http.MethodDelete:
+		nodeID, err := strconv.ParseUint(key[1:], 0, 64)
+		if err != nil {
+			log.Printf("Failed to convert ID for conf change (%v)\n", err)
+			http.Error(w, "Failed on DELETE", http.StatusBadRequest)
+			return
+		}
+
+		cc := raftpb.ConfChange{
+			Type:   raftpb.ConfChangeRemoveNode,
+			NodeID: nodeID,
+		}
+		h.confChangeC <- cc
+		// As above, optimistic that raft will apply the conf change
+		w.WriteHeader(http.StatusNoContent)
 	default:
 		w.Header().Set("Allow", http.MethodPut)
 		w.Header().Add("Allow", http.MethodGet)
+		// w.Header().Add("Allow", http.MethodPost)
+		w.Header().Add("Allow", http.MethodDelete)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
-func serveHTTPKVAPI(kv *kvstore, port int, errorC <-chan error, wg *sync.WaitGroup) {
-	defer wg.Done()
+func serveHTTPKVAPI(kv *kvstore, port int, confChangeC chan<- raftpb.ConfChange, errorC <-chan error) {
 	srv := http.Server{
 		Addr: ":" + strconv.Itoa(port),
 		Handler: &httpKVAPI{
-			store: kv,
+			store:       kv,
+			confChangeC: confChangeC,
 		},
 	}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil {
-			log.Fatal(err)
+			if err != http.ErrServerClosed {
+				log.Fatal(err)
+			}
 		}
 	}()
 
 	// exit when raft goes down
-	if err, ok := <-errorC; ok {
+	err, ok := <-errorC
+	if ok {
 		log.Fatal(err)
+	} else {
+		// Create a context with a timeout to allow current connections to finish (graceful shutdown)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Http server %d forced to shutdown: %v", port, err)
+		} else {
+			log.Printf("Http server %d stopped gracefully", port)
+		}
 	}
 }
