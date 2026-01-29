@@ -132,6 +132,18 @@ func (rc *raftNode) serveChannels() {
 					var cc raftpb.ConfChange
 					cc.Unmarshal(entry.Data)
 					rc.node.ApplyConfChange(cc)
+					switch cc.Type {
+					case raftpb.ConfChangeAddNode:
+						// TODO: add node to network
+					case raftpb.ConfChangeRemoveNode:
+						if cc.NodeID == rc.id {
+							log.Println("I've been removed from the cluster! Shutting down.")
+							rc.stop()
+							return
+						}
+						// TODO: remove node from the network
+						rc.nw.removePeer(cc.NodeID)
+					}
 				}
 			}
 			var applyDoneC chan struct{}
@@ -140,15 +152,24 @@ func (rc *raftNode) serveChannels() {
 				select {
 				case rc.commitC <- &commit{data, applyDoneC}:
 				case <-rc.stopc:
-					log.Fatal("serveChannels stopping 2")
+					rc.stop()
 					return
 				}
 			}
 			// TODO: after commit, update appliedIndex
 			rc.node.Advance()
 		case <-rc.stopc:
-			log.Fatal("serveChannels stopping 1")
+			rc.stop()
 			return
 		}
 	}
+}
+
+func (rc *raftNode) stop() {
+	log.Println("Executing stop()")
+	// TODO: stop the network layer
+	// TODO: stop the KVStore HTTP layer
+	close(rc.commitC)
+	close(rc.errorC)
+	rc.node.Stop()
 }
