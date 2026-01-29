@@ -15,9 +15,10 @@ type commit struct {
 }
 
 type raftNode struct {
-	proposeC <-chan string
-	commitC  chan<- *commit
-	errorC   chan<- error
+	proposeC    <-chan string
+	confChangeC <-chan raftpb.ConfChange
+	commitC     chan<- *commit
+	errorC      chan<- error
 
 	id    uint64
 	peers []raft.Peer
@@ -33,22 +34,23 @@ type raftNode struct {
 	httpdonec chan struct{} // signals http server shutdown complete
 }
 
-func newRaftNode(id uint64, peers []uint64, nw *network, proposeC <-chan string, commitC chan<- *commit, errorC chan<- error) *raftNode {
+func newRaftNode(id uint64, peers []uint64, nw *network, proposeC <-chan string, confChangeC <-chan raftpb.ConfChange, commitC chan<- *commit, errorC chan<- error) *raftNode {
 	rpeers := make([]raft.Peer, len(peers))
 	for i, pID := range peers {
 		rpeers[i] = raft.Peer{ID: pID}
 	}
 
 	rc := &raftNode{
-		proposeC:  proposeC,
-		commitC:   commitC,
-		errorC:    errorC,
-		id:        id,
-		peers:     rpeers,
-		nw:        nw,
-		stopc:     make(chan struct{}),
-		httpstopc: make(chan struct{}),
-		httpdonec: make(chan struct{}),
+		proposeC:    proposeC,
+		confChangeC: confChangeC,
+		commitC:     commitC,
+		errorC:      errorC,
+		id:          id,
+		peers:       rpeers,
+		nw:          nw,
+		stopc:       make(chan struct{}),
+		httpstopc:   make(chan struct{}),
+		httpdonec:   make(chan struct{}),
 	}
 
 	go rc.startRaft()
@@ -78,13 +80,25 @@ func (rc *raftNode) serveChannels() {
 
 	// send proposals over raft
 	go func() {
-		for rc.proposeC != nil {
-			prop, ok := <-rc.proposeC
-			if !ok {
-				rc.proposeC = nil
-			} else {
-				// blocks until accepted by raft state machine
-				rc.node.Propose(context.TODO(), []byte(prop))
+		confChangeCount := uint64(0)
+		for rc.proposeC != nil && rc.confChangeC != nil {
+			select {
+
+			case prop, ok := <-rc.proposeC:
+				if !ok {
+					rc.proposeC = nil
+				} else {
+					// blocks until accepted by raft state machine
+					rc.node.Propose(context.TODO(), []byte(prop))
+				}
+			case cc, ok := <-rc.confChangeC:
+				if !ok {
+					rc.confChangeC = nil
+				} else {
+					confChangeCount++
+					cc.ID = confChangeCount
+					rc.node.ProposeConfChange(context.TODO(), cc)
+				}
 			}
 		}
 		// client closed channel; shutdown raft if not already
