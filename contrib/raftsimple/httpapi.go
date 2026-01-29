@@ -5,13 +5,11 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-
-	"go.etcd.io/raft/v3/raftpb"
+	"sync"
 )
 
 type httpKVAPI struct {
-	store       *kvstore
-	confChangeC chan<- raftpb.ConfChange
+	store *kvstore
 }
 
 func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -42,12 +40,12 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func serveHTTPKVAPI(kv *kvstore, port int, confChangeC chan<- raftpb.ConfChange, errorC <-chan error) {
+func serveHTTPKVAPI(kv *kvstore, port int, errorC <-chan error, wg *sync.WaitGroup) {
+	defer wg.Done()
 	srv := http.Server{
 		Addr: ":" + strconv.Itoa(port),
 		Handler: &httpKVAPI{
-			store:       kv,
-			confChangeC: confChangeC,
+			store: kv,
 		},
 	}
 	go func() {

@@ -29,6 +29,7 @@ func newKVStore(proposeC chan<- string, commitC <-chan *commit, errorC <-chan er
 func (s *kvstore) Lookup(key string) (string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	log.Printf("Looking up %v\n", key)
 	v, ok := s.kvStore[key]
 	return v, ok
 }
@@ -38,6 +39,7 @@ func (s *kvstore) Propose(key string, value string) {
 	if err := gob.NewEncoder(&buf).Encode(kv{key, value}); err != nil {
 		log.Fatal(err)
 	}
+	log.Println("Sending data to proposeC")
 	s.proposeC <- buf.String()
 }
 
@@ -45,6 +47,7 @@ func (s *kvstore) readCommits(commitC <-chan *commit, errorC <-chan error) {
 	for commit := range commitC {
 		if commit == nil {
 			// TODO: apply snapshot
+			log.Println("readCommits: Supposed to apply snapshot here.")
 		}
 
 		for _, data := range commit.data {
@@ -58,6 +61,7 @@ func (s *kvstore) readCommits(commitC <-chan *commit, errorC <-chan error) {
 			s.kvStore[dataKv.Key] = dataKv.Val
 			s.mu.Unlock()
 		}
+		log.Println("Complete applying commit. Closing applyDoneC.")
 		close(commit.applyDoneC)
 	}
 	if err, ok := <-errorC; ok {
