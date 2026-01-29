@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 )
 
@@ -26,10 +27,19 @@ func newKVStore(proposeC chan<- string, commitC <-chan *commit, errorC <-chan er
 }
 
 func (s *kvstore) Lookup(key string) (string, bool) {
-	return "", true
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	v, ok := s.kvStore[key]
+	return v, ok
 }
 
-func (s *kvstore) Propose(key string, value string) {}
+func (s *kvstore) Propose(key string, value string) {
+	var buf strings.Builder
+	if err := gob.NewEncoder(&buf).Encode(kv{key, value}); err != nil {
+		log.Fatal(err)
+	}
+	s.proposeC <- buf.String()
+}
 
 func (s *kvstore) readCommits(commitC <-chan *commit, errorC <-chan error) {
 	for commit := range commitC {
@@ -43,7 +53,7 @@ func (s *kvstore) readCommits(commitC <-chan *commit, errorC <-chan error) {
 			if err := dec.Decode(&dataKv); err != nil {
 				log.Fatalf("raftsimple: could not decode message (%v)", err)
 			}
-			fmt.Printf("Receiving commit - key: %s, value: %s", dataKv.Key, dataKv.Val)
+			fmt.Printf("Receiving commit - key: %s, value: %s\n", dataKv.Key, dataKv.Val)
 			s.mu.Lock()
 			s.kvStore[dataKv.Key] = dataKv.Val
 			s.mu.Unlock()
