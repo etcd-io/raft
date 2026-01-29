@@ -29,9 +29,9 @@ type raftNode struct {
 
 	nw *network
 
-	stopc     chan struct{} // signals proposal channel closed
-	httpstopc chan struct{} // signals http server to shutdown
-	httpdonec chan struct{} // signals http server shutdown complete
+	stopc chan struct{} // signals proposal channel closed
+	// httpstopc chan struct{} // signals http server to shutdown
+	// httpdonec chan struct{} // signals http server shutdown complete
 }
 
 func newRaftNode(id uint64, peers []uint64, nw *network, proposeC <-chan string, confChangeC <-chan raftpb.ConfChange, commitC chan<- *commit, errorC chan<- error) *raftNode {
@@ -49,8 +49,8 @@ func newRaftNode(id uint64, peers []uint64, nw *network, proposeC <-chan string,
 		peers:       rpeers,
 		nw:          nw,
 		stopc:       make(chan struct{}),
-		httpstopc:   make(chan struct{}),
-		httpdonec:   make(chan struct{}),
+		// httpstopc:   make(chan struct{}),
+		// httpdonec:   make(chan struct{}),
 	}
 
 	go rc.startRaft()
@@ -137,11 +137,10 @@ func (rc *raftNode) serveChannels() {
 						// TODO: add node to network
 					case raftpb.ConfChangeRemoveNode:
 						if cc.NodeID == rc.id {
-							log.Println("I've been removed from the cluster! Shutting down.")
+							log.Printf("Node %d: I've been removed from the cluster! Shutting down.", rc.id)
 							rc.stop()
 							return
 						}
-						// TODO: remove node from the network
 						rc.nw.removePeer(cc.NodeID)
 					}
 				}
