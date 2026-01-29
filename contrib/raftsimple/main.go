@@ -10,6 +10,7 @@ func main() {
 	nodesCount := flag.Int("nodes", 3, "number of nodes")
 	flag.Parse()
 
+	nw := &network{peers: make(map[uint64]*raftNode)}
 	var wg sync.WaitGroup
 
 	peers := make([]uint64, *nodesCount)
@@ -17,13 +18,14 @@ func main() {
 		peers[i] = uint64(i + 1)
 	}
 
-	lstCommitC := make([]<-chan *commit, *nodesCount)
-	lstErrorC := make([]<-chan error, *nodesCount)
 	for i := range *nodesCount {
+		id := uint64(i + 1)
 		proposeC := make(chan string)
-		commitC, errorC := newRaftNode(uint64(i+1), peers, proposeC)
-		lstCommitC[i] = commitC
-		lstErrorC[i] = errorC
+		commitC := make(chan *commit)
+		errorC := make(chan error)
+
+		rn := newRaftNode(id, peers, nw, proposeC, commitC, errorC)
+		nw.peers[id] = rn
 
 		kvs := newKVStore(proposeC, commitC, errorC)
 
