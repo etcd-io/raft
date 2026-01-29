@@ -37,9 +37,3 @@ func main() {
 	wg.Wait()
 	log.Println("All workers finished, main goroutine exiting.")
 }
-
-/*
-- create a cluster of N nodes. All should be in-memory.
-- the transportion will loop through each node in-memory to transport messages.
-- the KVAPI should be able to GET/PUT keys/values. Also DELETE to delete a node.
-*/

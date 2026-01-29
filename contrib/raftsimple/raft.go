@@ -34,8 +34,6 @@ type raftNode struct {
 }
 
 func newRaftNode(id uint64, peers []uint64, nw *network, proposeC <-chan string, commitC chan<- *commit, errorC chan<- error) *raftNode {
-	log.Printf("Creating raft node %d\n", id)
-
 	rpeers := make([]raft.Peer, len(peers))
 	for i, pID := range peers {
 		rpeers[i] = raft.Peer{ID: pID}
@@ -69,7 +67,6 @@ func (rc *raftNode) startRaft() {
 		MaxInflightMsgs: 256,
 	}
 
-	log.Println("start node")
 	rc.node = raft.StartNode(c, rc.peers)
 
 	go rc.serveChannels()

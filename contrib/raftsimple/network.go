@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"context"
 
 	"go.etcd.io/raft/v3/raftpb"
 )
@@ -16,7 +16,8 @@ func (nw *network) send(msgs []raftpb.Message) {
 			// ignore intentionally dropped message
 			continue
 		}
-		log.Printf("Sending to node %d\n", m.To)
+		p := nw.peers[m.To]
+		_ = p.node.Step(context.TODO(), m)
 	}
 
 }
