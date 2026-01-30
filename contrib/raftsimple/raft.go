@@ -69,7 +69,11 @@ func (rc *raftNode) startRaft() {
 		MaxInflightMsgs: 256,
 	}
 
-	rc.node = raft.StartNode(c, rc.peers)
+	if len(rc.peers) > 0 {
+		rc.node = raft.StartNode(c, rc.peers)
+	} else {
+		rc.node = raft.RestartNode(c)
+	}
 
 	go rc.serveChannels()
 }

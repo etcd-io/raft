@@ -38,12 +38,6 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to GET", http.StatusNotFound)
 		}
 	case http.MethodPost:
-		url, err := io.ReadAll(r.Body)
-		if err != nil {
-			log.Printf("Failed to read on POST (%v)\n", err)
-			http.Error(w, "Failed on POST", http.StatusBadRequest)
-		}
-
 		nodeID, err := strconv.ParseUint(key[1:], 0, 64)
 		if err != nil {
 			log.Printf("Failed to convert ID for conf change (%v)\n", err)
@@ -52,11 +46,11 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		cc := raftpb.ConfChange{
-			Type:    raftpb.ConfChangeAddNode,
-			NodeID:  nodeID,
-			Context: url,
+			Type:   raftpb.ConfChangeAddNode,
+			NodeID: nodeID,
 		}
 		h.confChangeC <- cc
+		oc.createNode(nodeID, nil)
 		// As above, optimistic that raft will apply the conf change
 		w.WriteHeader(http.StatusNoContent)
 	case http.MethodDelete:
@@ -77,7 +71,7 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.Header().Set("Allow", http.MethodPut)
 		w.Header().Add("Allow", http.MethodGet)
-		// w.Header().Add("Allow", http.MethodPost)
+		w.Header().Add("Allow", http.MethodPost)
 		w.Header().Add("Allow", http.MethodDelete)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
