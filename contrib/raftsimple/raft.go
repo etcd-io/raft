@@ -14,14 +14,40 @@ type commit struct {
 	applyDoneC chan<- struct{}
 }
 
+// FSM is the interface that must be implemented by a finite state
+// machine for it to be driven by raft.
+type FSM interface {
+	// TakeSnapshot takes a snapshot of the current state of the
+	// finite state machine, returning the snapshot as a slice of
+	// bytes that can be saved or loaded by a `SnapshotStorage`.
+	TakeSnapshot() ([]byte, error)
+
+	// RestoreSnapshot restores the finite state machine to the state
+	// represented by `snapshot` (which, in turn, was returned by
+	// `TakeSnapshot`).
+	RestoreSnapshot(snapshot []byte) error
+
+	// ApplyCommits applies the changes from `commit` to the finite
+	// state machine. `commit` is never `nil`. (By contrast, the
+	// commits that are handled by `ProcessCommits()` can be `nil` to
+	// signal that a snapshot should be loaded.)
+	ApplyCommits(commit *commit) error
+}
+
 type raftNode struct {
-	proposeC    <-chan string
-	confChangeC <-chan raftpb.ConfChange
-	commitC     chan<- *commit
-	errorC      chan<- error
+	proposeC    <-chan string            // proposed messages (k,v)
+	confChangeC <-chan raftpb.ConfChange // proposed cluster config changes
+	commitC     chan *commit             // entries committed to log (k,v)
+	errorC      chan<- error             // errors from raft session
 
 	id    uint64
 	peers []raft.Peer
+	fsm   FSM
+
+	// When serveChannels is done, `err` is set to any error and then
+	// `done` is closed.
+	err   error
+	donec chan struct{}
 
 	// raft backing for the commit/error channel
 	node        raft.Node
@@ -34,7 +60,10 @@ type raftNode struct {
 	// httpdonec chan struct{} // signals http server shutdown complete
 }
 
-func newRaftNode(id uint64, peers []uint64, proposeC <-chan string, confChangeC <-chan raftpb.ConfChange, commitC chan<- *commit, errorC chan<- error) *raftNode {
+func newRaftNode(id uint64, peers []uint64, fsm FSM, proposeC <-chan string, confChangeC <-chan raftpb.ConfChange) *raftNode {
+	commitC := make(chan *commit)
+	errorC := make(chan error)
+
 	rpeers := make([]raft.Peer, len(peers))
 	for i, pID := range peers {
 		rpeers[i] = raft.Peer{ID: pID}
@@ -45,13 +74,17 @@ func newRaftNode(id uint64, peers []uint64, proposeC <-chan string, confChangeC 
 		confChangeC: confChangeC,
 		commitC:     commitC,
 		errorC:      errorC,
+		donec:       make(chan struct{}),
 		id:          id,
 		peers:       rpeers,
+		fsm:         fsm,
 		nw:          &network{peers: make(map[uint64]*raftNode)},
 		stopc:       make(chan struct{}),
 		// httpstopc:   make(chan struct{}),
 		// httpdonec:   make(chan struct{}),
 	}
+
+	// TODO: load and apply snapshots here
 
 	go rc.startRaft()
 	return rc
@@ -155,6 +188,7 @@ func (rc *raftNode) serveChannels() {
 				select {
 				case rc.commitC <- &commit{data, applyDoneC}:
 				case <-rc.stopc:
+					log.Println("stopping at applying commits")
 					rc.stop()
 					return
 				}
@@ -162,17 +196,33 @@ func (rc *raftNode) serveChannels() {
 			// TODO: after commit, update appliedIndex
 			rc.node.Advance()
 		case <-rc.stopc:
+			log.Println("stopping at serveChannels")
 			rc.stop()
 			return
 		}
 	}
 }
 
+func (rc *raftNode) processCommits() error {
+	for commit := range rc.commitC {
+		if commit == nil {
+			// TODO: load snapshot
+			continue
+		}
+		if err := rc.fsm.ApplyCommits(commit); err != nil {
+			return err
+		}
+	}
+	<-rc.donec
+	return rc.err
+}
+
 func (rc *raftNode) stop() {
-	log.Println("Executing stop()")
+	log.Printf("node %d: Executing stop()\n", rc.id)
 	// TODO: stop the network layer
 	// TODO: stop the KVStore HTTP layer
 	close(rc.commitC)
 	close(rc.errorC)
+	close(rc.donec)
 	rc.node.Stop()
 }
