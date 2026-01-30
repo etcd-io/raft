@@ -13,6 +13,8 @@ type orchest struct {
 	wg        sync.WaitGroup
 }
 
+var oc orchest
+
 func (oc *orchest) createNode(nodeID uint64, peers []uint64) {
 	proposeC := make(chan string)
 	confChangeC := make(chan raftpb.ConfChange)
@@ -23,11 +25,11 @@ func (oc *orchest) createNode(nodeID uint64, peers []uint64) {
 		rn.nw.addPeer(nid, node)
 	}
 
-	oc.raftNodes[nodeID] = rn
-
 	for _, node := range oc.raftNodes {
 		node.nw.addPeer(nodeID, rn)
 	}
+
+	oc.raftNodes[nodeID] = rn
 
 	kvs := newKVStore(proposeC, commitC, errorC)
 
