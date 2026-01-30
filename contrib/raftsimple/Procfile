@@ -1,3 +1,0 @@
-raftexample1: ./raftsimple -id 1 -cluster http://127.0.0.1:12379,http://127.0.0.1:22379,http://127.0.0.1:32379
-raftexample2: ./raftsimple -id 2 -cluster http://127.0.0.1:12379,http://127.0.0.1:22379,http://127.0.0.1:32379
-raftexample3: ./raftsimple -id 3 -cluster http://127.0.0.1:12379,http://127.0.0.1:22379,http://127.0.0.1:32379

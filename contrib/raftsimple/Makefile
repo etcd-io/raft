@@ -1,4 +1,4 @@
 run:
-	rm raftsimple
+	rm -f raftsimple
 	go build -o raftsimple
-	./raftsimple -nodes 1
+	./raftsimple -nodes 3
