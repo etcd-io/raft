@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 
 	"go.etcd.io/raft/v3/raftpb"
 )
@@ -22,7 +21,10 @@ func (nw *network) send(msgs []raftpb.Message) {
 	}
 }
 
+func (nw *network) addPeer(nodeID uint64, node *raftNode) {
+	nw.peers[nodeID] = node
+}
+
 func (nw *network) removePeer(nodeID uint64) {
-	log.Printf("Deleting node %d from peers list\n", nodeID)
 	delete(nw.peers, nodeID)
 }
