@@ -34,7 +34,7 @@ type raftNode struct {
 	// httpdonec chan struct{} // signals http server shutdown complete
 }
 
-func newRaftNode(id uint64, peers []uint64, nw *network, proposeC <-chan string, confChangeC <-chan raftpb.ConfChange, commitC chan<- *commit, errorC chan<- error) *raftNode {
+func newRaftNode(id uint64, peers []uint64, proposeC <-chan string, confChangeC <-chan raftpb.ConfChange, commitC chan<- *commit, errorC chan<- error) *raftNode {
 	rpeers := make([]raft.Peer, len(peers))
 	for i, pID := range peers {
 		rpeers[i] = raft.Peer{ID: pID}
@@ -47,7 +47,7 @@ func newRaftNode(id uint64, peers []uint64, nw *network, proposeC <-chan string,
 		errorC:      errorC,
 		id:          id,
 		peers:       rpeers,
-		nw:          nw,
+		nw:          &network{peers: make(map[uint64]*raftNode)},
 		stopc:       make(chan struct{}),
 		// httpstopc:   make(chan struct{}),
 		// httpdonec:   make(chan struct{}),
