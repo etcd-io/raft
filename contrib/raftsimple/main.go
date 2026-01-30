@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"sync"
 
@@ -21,9 +22,15 @@ func (oc *orchest) createNode(nodeID uint64, peers []uint64) {
 	confChangeC := make(chan raftpb.ConfChange)
 	// defer close(confChangeC)
 
+	snapdir := fmt.Sprintf("raftsimple-%d-snap", nodeID)
+	ss, err := newSnapshotStorage(snapdir)
+	if err != nil {
+		log.Fatalf("raftsimple: %v", err)
+	}
+
 	kvs, fsm := newKVStore(proposeC)
 
-	rn := newRaftNode(nodeID, peers, fsm, proposeC, confChangeC)
+	rn := newRaftNode(nodeID, peers, fsm, ss, proposeC, confChangeC)
 	for nid, node := range oc.raftNodes {
 		rn.nw.addPeer(nid, node)
 		node.nw.addPeer(nodeID, rn)
