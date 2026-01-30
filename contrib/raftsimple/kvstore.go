@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/gob"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -20,16 +21,15 @@ type kv struct {
 	Val string
 }
 
-func newKVStore(proposeC chan<- string, commitC <-chan *commit, errorC <-chan error) *kvstore {
+func newKVStore(proposeC chan<- string) (*kvstore, kvfsm) {
 	s := &kvstore{proposeC: proposeC, kvStore: make(map[string]string)}
-	go s.readCommits(commitC, errorC)
-	return s
+	fsm := kvfsm{kvs: s}
+	return s, fsm
 }
 
 func (s *kvstore) Lookup(key string) (string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	log.Printf("Looking up %v\n", key)
 	v, ok := s.kvStore[key]
 	return v, ok
 }
@@ -39,32 +39,56 @@ func (s *kvstore) Propose(key string, value string) {
 	if err := gob.NewEncoder(&buf).Encode(kv{key, value}); err != nil {
 		log.Fatal(err)
 	}
-	log.Println("Sending data to proposeC")
 	s.proposeC <- buf.String()
 }
 
-func (s *kvstore) readCommits(commitC <-chan *commit, errorC <-chan error) {
-	for commit := range commitC {
-		if commit == nil {
-			// TODO: apply snapshot
-			log.Println("readCommits: Supposed to apply snapshot here.")
-		}
+// Set sets a single value. It should only be called by `kvfsm`.
+func (s *kvstore) set(k, v string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.kvStore[k] = v
+}
 
-		for _, data := range commit.data {
-			var dataKv kv
-			dec := gob.NewDecoder(bytes.NewBufferString(data))
-			if err := dec.Decode(&dataKv); err != nil {
-				log.Fatalf("raftsimple: could not decode message (%v)", err)
-			}
-			fmt.Printf("Receiving commit - key: %s, value: %s\n", dataKv.Key, dataKv.Val)
-			s.mu.Lock()
-			s.kvStore[dataKv.Key] = dataKv.Val
-			s.mu.Unlock()
+func (s *kvstore) restoreFromSnapshot(store map[string]string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.kvStore = store
+}
+
+// kvfsm implements the `FSM` interface for the underlying `*kvstore`.
+type kvfsm struct {
+	kvs *kvstore
+}
+
+// RestoreSnapshot restores the current state of the KV store to the
+// value encoded in `snapshot`.
+func (fsm kvfsm) RestoreSnapshot(snapshot []byte) error {
+	var store map[string]string
+	if err := json.Unmarshal(snapshot, &store); err != nil {
+		return err
+	}
+	fsm.kvs.restoreFromSnapshot(store)
+	return nil
+}
+
+func (fsm kvfsm) TakeSnapshot() ([]byte, error) {
+	fsm.kvs.mu.RLock()
+	defer fsm.kvs.mu.RUnlock()
+	return json.Marshal(fsm.kvs.kvStore)
+}
+
+// ApplyCommits decodes and applies each of the commits in `commit` to
+// the current state, then signals that it is done by closing
+// `commit.applyDoneC`.
+func (fsm kvfsm) ApplyCommits(commit *commit) error {
+	for _, data := range commit.data {
+		var dataKv kv
+		dec := gob.NewDecoder(bytes.NewBufferString(data))
+		if err := dec.Decode(&dataKv); err != nil {
+			return fmt.Errorf("could not decode message: %w", err)
 		}
-		log.Println("Complete applying commit. Closing applyDoneC.")
-		close(commit.applyDoneC)
+		fsm.kvs.set(dataKv.Key, dataKv.Val)
 	}
-	if err, ok := <-errorC; ok {
-		log.Fatal(err)
-	}
+	close(commit.applyDoneC)
+	return nil
 }
