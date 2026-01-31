@@ -43,12 +43,12 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		oc.createNode(nodeID, nil)
 		cc := raftpb.ConfChange{
 			Type:   raftpb.ConfChangeAddNode,
 			NodeID: nodeID,
 		}
 		h.confChangeC <- cc
-		oc.createNode(nodeID, nil)
 		// As above, optimistic that raft will apply the conf change
 		w.WriteHeader(http.StatusNoContent)
 	case http.MethodDelete:

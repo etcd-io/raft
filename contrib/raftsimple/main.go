@@ -9,11 +9,13 @@ import (
 )
 
 type orchest struct {
-	raftNodes map[uint64]*raftNode
-	wg        sync.WaitGroup
+	nw *network
+	wg sync.WaitGroup
 }
 
 var oc orchest
+
+var nw network
 
 func (oc *orchest) createNode(nodeID uint64, peers []uint64) {
 	proposeC := make(chan string)
@@ -23,12 +25,9 @@ func (oc *orchest) createNode(nodeID uint64, peers []uint64) {
 
 	kvs, fsm := newKVStore(proposeC)
 
-	rn := newRaftNode(nodeID, peers, fsm, proposeC, confChangeC)
-	for nid, node := range oc.raftNodes {
-		rn.nw.addPeer(nid, node)
-		node.nw.addPeer(nodeID, rn)
-	}
-	oc.raftNodes[nodeID] = rn
+	rn := newRaftNode(nodeID, peers, fsm, oc.nw, proposeC, confChangeC)
+
+	oc.nw.register(nodeID, rn)
 
 	// start processing commits loop
 	go func() {
@@ -49,7 +48,8 @@ func main() {
 	nodesCount := flag.Int("nodes", 3, "number of nodes")
 	flag.Parse()
 
-	oc := orchest{raftNodes: make(map[uint64]*raftNode, *nodesCount)}
+	nw := network{peers: make(map[uint64]*raftNode, *nodesCount)}
+	oc := orchest{nw: &nw}
 
 	peers := make([]uint64, *nodesCount)
 	for i := range *nodesCount {

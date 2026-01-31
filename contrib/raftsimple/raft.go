@@ -43,6 +43,7 @@ type raftNode struct {
 	id    uint64
 	peers []raft.Peer
 	fsm   FSM
+	t     transport
 
 	// When serveChannels is done, `err` is set to any error and then
 	// `done` is closed.
@@ -53,20 +54,20 @@ type raftNode struct {
 	node        raft.Node
 	raftStorage *raft.MemoryStorage
 
-	nw *network
-
 	stopc chan struct{} // signals proposal channel closed
 	// httpstopc chan struct{} // signals http server to shutdown
 	// httpdonec chan struct{} // signals http server shutdown complete
 }
 
-func newRaftNode(id uint64, peers []uint64, fsm FSM, proposeC <-chan string, confChangeC <-chan raftpb.ConfChange) *raftNode {
+func newRaftNode(id uint64, peers []uint64, fsm FSM, nw *network, proposeC <-chan string, confChangeC <-chan raftpb.ConfChange) *raftNode {
 	commitC := make(chan *commit)
 	errorC := make(chan error)
 
+	t := transport{id: id, peers: make(map[uint64]bool, len(peers)), nw: nw}
 	rpeers := make([]raft.Peer, len(peers))
 	for i, pID := range peers {
 		rpeers[i] = raft.Peer{ID: pID}
+		t.peers[pID] = true
 	}
 
 	rc := &raftNode{
@@ -78,7 +79,7 @@ func newRaftNode(id uint64, peers []uint64, fsm FSM, proposeC <-chan string, con
 		id:          id,
 		peers:       rpeers,
 		fsm:         fsm,
-		nw:          &network{peers: make(map[uint64]*raftNode)},
+		t:           t,
 		stopc:       make(chan struct{}),
 		// httpstopc:   make(chan struct{}),
 		// httpdonec:   make(chan struct{}),
@@ -152,7 +153,7 @@ func (rc *raftNode) serveChannels() {
 			// saveToStorage(rd.HardState, rd.Entries, rd.Snapshot)
 			rc.raftStorage.Append(rd.Entries)
 
-			rc.nw.send(rd.Messages)
+			rc.t.send(rd.Messages)
 
 			// apply committedEntries
 			data := make([]string, 0, len(rd.CommittedEntries))
@@ -171,14 +172,14 @@ func (rc *raftNode) serveChannels() {
 					rc.node.ApplyConfChange(cc)
 					switch cc.Type {
 					case raftpb.ConfChangeAddNode:
-						// TODO: add node to network
+						rc.t.addPeer(cc.NodeID)
 					case raftpb.ConfChangeRemoveNode:
 						if cc.NodeID == rc.id {
 							log.Printf("Node %d: I've been removed from the cluster! Shutting down.", rc.id)
 							rc.stop()
 							return
 						}
-						rc.nw.removePeer(cc.NodeID)
+						rc.t.removePeer(cc.NodeID)
 					}
 				}
 			}
@@ -219,10 +220,9 @@ func (rc *raftNode) processCommits() error {
 
 func (rc *raftNode) stop() {
 	log.Printf("node %d: Executing stop()\n", rc.id)
-	// TODO: stop the network layer
-	// TODO: stop the KVStore HTTP layer
 	close(rc.commitC)
 	close(rc.errorC)
 	close(rc.donec)
+	rc.t.leave()
 	rc.node.Stop()
 }

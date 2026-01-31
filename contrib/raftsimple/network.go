@@ -10,21 +10,52 @@ type network struct {
 	peers map[uint64]*raftNode
 }
 
-func (nw *network) send(msgs []raftpb.Message) {
+func (nw *network) register(nodeID uint64, rn *raftNode) {
+	for _, node := range nw.peers {
+		node.t.addPeer(nodeID)
+	}
+	nw.peers[nodeID] = rn
+}
+
+func (nw *network) deregister(nodeID uint64) {
+	delete(nw.peers, nodeID)
+}
+
+func (nw *network) send(m raftpb.Message) {
+	p := nw.peers[m.To]
+	_ = p.node.Step(context.TODO(), m)
+}
+
+type transport struct {
+	id    uint64
+	peers map[uint64]bool
+	nw    *network
+}
+
+func (t *transport) addPeer(nodeID uint64) {
+	t.peers[nodeID] = true
+}
+
+func (t *transport) removePeer(nodeID uint64) {
+	delete(t.peers, nodeID)
+}
+
+func (t *transport) send(msgs []raftpb.Message) {
 	for _, m := range msgs {
 		if m.To == 0 {
 			// ignore intentionally dropped message
 			continue
 		}
-		p := nw.peers[m.To]
-		_ = p.node.Step(context.TODO(), m)
+		// if m.Type != 8 && m.Type != 9 {
+		// 	log.Printf("node %d: sending %s msg to node %d\n", m.From, m.Type.String(), m.To)
+		// 	for k, _ := range t.nw.peers {
+		// 		log.Print(k)
+		// 	}
+		// }
+		t.nw.send(m)
 	}
 }
 
-func (nw *network) addPeer(nodeID uint64, node *raftNode) {
-	nw.peers[nodeID] = node
-}
-
-func (nw *network) removePeer(nodeID uint64) {
-	delete(nw.peers, nodeID)
+func (t *transport) leave() {
+	t.nw.deregister(t.id)
 }
