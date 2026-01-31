@@ -9,13 +9,19 @@ import (
 )
 
 type orchest struct {
-	raftNodes map[uint64]*raftNode
-	wg        sync.WaitGroup
+	nw *network
+	wg sync.WaitGroup
 }
 
 var oc orchest
 
-func (oc *orchest) createNode(nodeID uint64, peers []uint64) {
+var nw network
+
+func (oc *orchest) createNode(nodeID uint64, peers []uint64) bool {
+	if oc.nw.exists(nodeID) {
+		return false
+	}
+
 	proposeC := make(chan string)
 	// defer close(proposeC)
 	confChangeC := make(chan raftpb.ConfChange)
@@ -23,12 +29,9 @@ func (oc *orchest) createNode(nodeID uint64, peers []uint64) {
 
 	kvs, fsm := newKVStore(proposeC)
 
-	rn := newRaftNode(nodeID, peers, fsm, proposeC, confChangeC)
-	for nid, node := range oc.raftNodes {
-		rn.nw.addPeer(nid, node)
-		node.nw.addPeer(nodeID, rn)
-	}
-	oc.raftNodes[nodeID] = rn
+	rn := newRaftNode(nodeID, peers, fsm, oc.nw, proposeC, confChangeC)
+
+	oc.nw.register(nodeID, rn)
 
 	// start processing commits loop
 	go func() {
@@ -40,16 +43,19 @@ func (oc *orchest) createNode(nodeID uint64, peers []uint64) {
 	oc.wg.Add(1)
 	go func() {
 		defer oc.wg.Done()
-		serveHTTPKVAPI(kvs, 9120+int(nodeID), confChangeC, rn.donec)
+		serveHTTPKVAPI(oc, kvs, 9120+int(nodeID), confChangeC, rn.donec)
 		log.Printf("node %d: KVstore has stopped running\n", nodeID)
 	}()
+
+	return true
 }
 
 func main() {
 	nodesCount := flag.Int("nodes", 3, "number of nodes")
 	flag.Parse()
 
-	oc := orchest{raftNodes: make(map[uint64]*raftNode, *nodesCount)}
+	nw := network{peers: make(map[uint64]*raftNode, *nodesCount)}
+	oc := orchest{nw: &nw}
 
 	peers := make([]uint64, *nodesCount)
 	for i := range *nodesCount {
