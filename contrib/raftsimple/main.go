@@ -17,7 +17,11 @@ var oc orchest
 
 var nw network
 
-func (oc *orchest) createNode(nodeID uint64, peers []uint64) {
+func (oc *orchest) createNode(nodeID uint64, peers []uint64) bool {
+	if oc.nw.exists(nodeID) {
+		return false
+	}
+
 	proposeC := make(chan string)
 	// defer close(proposeC)
 	confChangeC := make(chan raftpb.ConfChange)
@@ -39,9 +43,11 @@ func (oc *orchest) createNode(nodeID uint64, peers []uint64) {
 	oc.wg.Add(1)
 	go func() {
 		defer oc.wg.Done()
-		serveHTTPKVAPI(kvs, 9120+int(nodeID), confChangeC, rn.donec)
+		serveHTTPKVAPI(oc, kvs, 9120+int(nodeID), confChangeC, rn.donec)
 		log.Printf("node %d: KVstore has stopped running\n", nodeID)
 	}()
+
+	return true
 }
 
 func main() {

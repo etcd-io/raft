@@ -11,6 +11,7 @@ import (
 
 type httpKVAPI struct {
 	store       *kvstore
+	oc          *orchest
 	confChangeC chan<- raftpb.ConfChange
 }
 
@@ -43,7 +44,12 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		oc.createNode(nodeID, nil)
+		if ok := h.oc.createNode(nodeID, nil); !ok {
+			log.Printf("Failed to create raft node %d\n", nodeID)
+			http.Error(w, "Failed on POST", http.StatusBadRequest)
+			return
+		}
+
 		cc := raftpb.ConfChange{
 			Type:   raftpb.ConfChangeAddNode,
 			NodeID: nodeID,
@@ -75,11 +81,12 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func serveHTTPKVAPI(kv *kvstore, port int, confChangeC chan<- raftpb.ConfChange, done <-chan struct{}) {
+func serveHTTPKVAPI(oc *orchest, kv *kvstore, port int, confChangeC chan<- raftpb.ConfChange, done <-chan struct{}) {
 	srv := http.Server{
 		Addr: ":" + strconv.Itoa(port),
 		Handler: &httpKVAPI{
 			store:       kv,
+			oc:          oc,
 			confChangeC: confChangeC,
 		},
 	}

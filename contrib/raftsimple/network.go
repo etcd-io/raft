@@ -26,6 +26,11 @@ func (nw *network) send(m raftpb.Message) {
 	_ = p.node.Step(context.TODO(), m)
 }
 
+func (nw *network) exists(nodeID uint64) bool {
+	_, ok := nw.peers[nodeID]
+	return ok
+}
+
 type transport struct {
 	id    uint64
 	peers map[uint64]bool
