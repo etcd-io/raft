@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
+	"os"
 	"time"
 
 	"go.etcd.io/raft/v3"
@@ -43,7 +45,13 @@ type raftNode struct {
 	id    uint64
 	peers []raft.Peer
 	fsm   FSM
-	t     transport
+
+	ss            snapshotStorage
+	confState     raftpb.ConfState
+	snapshotIndex uint64
+	appliedIndex  uint64
+	snapCount     uint64
+	t             transport
 
 	// When serveChannels is done, `err` is set to any error and then
 	// `done` is closed.
@@ -59,7 +67,9 @@ type raftNode struct {
 	// httpdonec chan struct{} // signals http server shutdown complete
 }
 
-func newRaftNode(id uint64, peers []uint64, fsm FSM, nw *network, proposeC <-chan string, confChangeC <-chan raftpb.ConfChange) *raftNode {
+var defaultSnapshotCount uint64 = 10000
+
+func newRaftNode(id uint64, peers []uint64, fsm FSM, ss snapshotStorage, nw *network, proposeC <-chan string, confChangeC <-chan raftpb.ConfChange) *raftNode {
 	commitC := make(chan *commit)
 	errorC := make(chan error)
 
@@ -79,13 +89,15 @@ func newRaftNode(id uint64, peers []uint64, fsm FSM, nw *network, proposeC <-cha
 		id:          id,
 		peers:       rpeers,
 		fsm:         fsm,
+		ss:          ss,
+		snapCount:   defaultSnapshotCount,
 		t:           t,
 		stopc:       make(chan struct{}),
 		// httpstopc:   make(chan struct{}),
 		// httpdonec:   make(chan struct{}),
 	}
 
-	// TODO: load and apply snapshots here
+	rc.loadAndApplySnapshot()
 
 	go rc.startRaft()
 	return rc
@@ -112,7 +124,92 @@ func (rc *raftNode) startRaft() {
 	go rc.serveChannels()
 }
 
+// loadAndApplySnapshot loads the most recent snapshot from the
+// snapshot storage (if any) and applies it to the current state.
+func (rc *raftNode) loadAndApplySnapshot() {
+	snapshot, err := rc.ss.load()
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			// No snapshots available; do nothing.
+			return
+		}
+		log.Panic(err)
+	}
+
+	log.Printf("loading snapshot at term %d and index %d", snapshot.Metadata.Term, snapshot.Metadata.Index)
+	if err := rc.fsm.RestoreSnapshot(snapshot.Data); err != nil {
+		log.Panic(err)
+	}
+}
+
+func (rc *raftNode) publishSnapshot(snapshotToSave raftpb.Snapshot) {
+	if raft.IsEmptySnap(snapshotToSave) {
+		return
+	}
+
+	log.Printf("publishing snapshot at index %d", rc.snapshotIndex)
+	defer log.Printf("finished publishing snapshot at index %d", rc.snapshotIndex)
+
+	if snapshotToSave.Metadata.Index <= rc.appliedIndex {
+		log.Fatalf("snapshot index [%d] should > progress.appliedIndex [%d]", snapshotToSave.Metadata.Index, rc.appliedIndex)
+	}
+	rc.commitC <- nil // trigger kvstore to load snapshot
+
+	rc.confState = snapshotToSave.Metadata.ConfState
+	rc.snapshotIndex = snapshotToSave.Metadata.Index
+	rc.appliedIndex = snapshotToSave.Metadata.Index
+}
+
+var snapshotCatchUpEntriesN uint64 = 10000
+
+func (rc *raftNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
+	if rc.appliedIndex-rc.snapshotIndex <= rc.snapCount {
+		return
+	}
+
+	// wait until all committed entries are applied (or server is closed)
+	if applyDoneC != nil {
+		select {
+		case <-applyDoneC:
+		case <-rc.stopc:
+			return
+		}
+	}
+
+	log.Printf("start snapshot [applied index: %d | last snapshot index: %d]", rc.appliedIndex, rc.snapshotIndex)
+	data, err := rc.fsm.TakeSnapshot()
+	if err != nil {
+		log.Panic(err)
+	}
+	snap, err := rc.raftStorage.CreateSnapshot(rc.appliedIndex, &rc.confState, data)
+	if err != nil {
+		panic(err)
+	}
+	if err := rc.saveSnap(snap); err != nil {
+		panic(err)
+	}
+
+	compactIndex := uint64(1)
+	if rc.appliedIndex > snapshotCatchUpEntriesN {
+		compactIndex = rc.appliedIndex - snapshotCatchUpEntriesN
+	}
+	if err := rc.raftStorage.Compact(compactIndex); err != nil {
+		panic(err)
+	}
+
+	log.Printf("compacted log at index %d", compactIndex)
+	rc.snapshotIndex = rc.appliedIndex
+}
+
 func (rc *raftNode) serveChannels() {
+	snap, err := rc.raftStorage.Snapshot()
+	if err != nil {
+		panic(err)
+	}
+	rc.confState = snap.Metadata.ConfState
+	rc.snapshotIndex = snap.Metadata.Index
+	rc.appliedIndex = snap.Metadata.Index
+
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -151,6 +248,11 @@ func (rc *raftNode) serveChannels() {
 		// store raft entries, then publish over commit channel
 		case rd := <-rc.node.Ready():
 			// saveToStorage(rd.HardState, rd.Entries, rd.Snapshot)
+			if !raft.IsEmptySnap(rd.Snapshot) {
+				log.Printf("node %d: not empty snapshot\n", rc.id)
+				rc.saveSnap(rd.Snapshot)
+				rc.raftStorage.ApplySnapshot(rd.Snapshot)
+			}
 			rc.raftStorage.Append(rd.Entries)
 
 			rc.t.send(rd.Messages)
@@ -194,7 +296,11 @@ func (rc *raftNode) serveChannels() {
 					return
 				}
 			}
-			// TODO: after commit, update appliedIndex
+			// after commit, update appliedIndex
+			if len(rd.CommittedEntries) > 0 {
+				rc.appliedIndex = rd.CommittedEntries[len(rd.CommittedEntries)-1].Index
+			}
+			rc.maybeTriggerSnapshot(applyDoneC)
 			rc.node.Advance()
 		case <-rc.stopc:
 			log.Println("stopping at serveChannels")
@@ -204,10 +310,18 @@ func (rc *raftNode) serveChannels() {
 	}
 }
 
+func (rc *raftNode) saveSnap(snap raftpb.Snapshot) error {
+	if err := rc.ss.saveSnap(snap); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (rc *raftNode) processCommits() error {
 	for commit := range rc.commitC {
 		if commit == nil {
-			// TODO: load snapshot
+			// a request to load snapshot
+			rc.loadAndApplySnapshot()
 			continue
 		}
 		if err := rc.fsm.ApplyCommits(commit); err != nil {
