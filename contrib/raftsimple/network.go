@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 
 	"go.etcd.io/raft/v3/raftpb"
 )
@@ -22,7 +23,10 @@ func (nw *network) deregister(nodeID uint64) {
 }
 
 func (nw *network) send(m raftpb.Message) {
-	p := nw.peers[m.To]
+	p, ok := nw.peers[m.To]
+	if !ok {
+		log.Fatalf("node %d: unable to find node %d to send %s\n", m.From, m.To, m.Type.String())
+	}
 	_ = p.node.Step(context.TODO(), m)
 }
 
