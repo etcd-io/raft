@@ -81,9 +81,9 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func serveHTTPKVAPI(oc *orchest, kv *kvstore, port int, confChangeC chan<- raftpb.ConfChange, done <-chan struct{}) {
+func serveHTTPKVAPI(oc *orchest, kv *kvstore, port uint64, confChangeC chan<- raftpb.ConfChange, done <-chan struct{}) {
 	srv := http.Server{
-		Addr: ":" + strconv.Itoa(port),
+		Addr: ":" + strconv.FormatUint(port, 10),
 		Handler: &httpKVAPI{
 			store:       kv,
 			oc:          oc,
