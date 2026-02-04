@@ -50,7 +50,7 @@ func (oc *orchest) createNode(nodeID uint64, peers []uint64) bool {
 	oc.wg.Add(1)
 	go func() {
 		defer oc.wg.Done()
-		serveHTTPKVAPI(oc, kvs, 9120+int(nodeID), confChangeC, rn.donec)
+		serveHTTPKVAPI(oc, kvs, 9120+nodeID, confChangeC, rn.donec)
 		log.Printf("node %d: KVstore has stopped running\n", nodeID)
 	}()
 
