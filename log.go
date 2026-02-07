@@ -28,6 +28,11 @@ type raftLog struct {
 	// they will be saved into storage.
 	unstable unstable
 
+	// type embedding of controlflowLog
+	controlflowLog
+}
+
+type controlflowLog struct {
 	// committed is the highest log position that is known to be in
 	// stable storage on a quorum of nodes.
 	committed uint64
@@ -86,14 +91,16 @@ func newLogWithSize(storage Storage, logger Logger, maxApplyingEntsSize entryEnc
 			offsetInProgress: lastIndex + 1,
 			logger:           logger,
 		},
-		maxApplyingEntsSize: maxApplyingEntsSize,
+		controlflowLog: controlflowLog{
+			maxApplyingEntsSize: maxApplyingEntsSize,
 
-		// Initialize our committed and applied pointers to the time of the last compaction.
-		committed: firstIndex - 1,
-		applying:  firstIndex - 1,
-		applied:   firstIndex - 1,
+			// Initialize our committed and applied pointers to the time of the last compaction.
+			committed: firstIndex - 1,
+			applying:  firstIndex - 1,
+			applied:   firstIndex - 1,
 
-		logger: logger,
+			logger: logger,
+		},
 	}
 }
 
