@@ -259,7 +259,7 @@ func (rc *raftNode) serveChannels() {
 
 			// apply committedEntries
 			data := make([]string, 0, len(rd.CommittedEntries))
-			for _, entry := range rd.CommittedEntries {
+			for i, entry := range rd.CommittedEntries {
 				switch entry.Type {
 				case raftpb.EntryNormal:
 					if len(entry.Data) == 0 {
@@ -276,7 +276,8 @@ func (rc *raftNode) serveChannels() {
 					case raftpb.ConfChangeAddNode:
 						rc.t.addPeer(cc.NodeID)
 					case raftpb.ConfChangeRemoveNode:
-						if cc.NodeID == rc.id {
+						// only remove if this is the latest committed entry.
+						if cc.NodeID == rc.id && i == len(rd.CommittedEntries)-1 {
 							log.Printf("Node %d: I've been removed from the cluster! Shutting down.", rc.id)
 							rc.stop()
 							return
