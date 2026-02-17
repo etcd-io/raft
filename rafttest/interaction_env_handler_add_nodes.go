@@ -69,6 +69,10 @@ func (env *InteractionEnv) handleAddNodes(t *testing.T, d datadriven.TestData) e
 				}
 			case "step-down-on-removal":
 				arg.Scan(t, i, &cfg.StepDownOnRemoval)
+			case "heartbeat-tick":
+				arg.Scan(t, i, &cfg.HeartbeatTick)
+			case "election-tick":
+				arg.Scan(t, i, &cfg.ElectionTick)
 			}
 		}
 	}
