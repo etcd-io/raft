@@ -151,7 +151,8 @@ func TestDataDriven(t *testing.T) {
 				if d.Cmd == "vote" {
 					input = votes
 				}
-				if voters := JointConfig([2]MajorityConfig{c, cj}).IDs(); len(voters) != len(input) {
+
+				if voters := (JointConfig{c, cj}).IDs(); len(voters) != len(input) {
 					return fmt.Sprintf("error: mismatched input (explicit or _) for voters %v: %v",
 						voters, input)
 				}
@@ -173,11 +174,11 @@ func TestDataDriven(t *testing.T) {
 						fmt.Fprintf(&buf, "%s <-- via alternative computation\n", aIdx)
 					}
 					// Joining a majority with the empty majority should give same result.
-					if aIdx := JointConfig([2]MajorityConfig{c, {}}).CommittedIndex(l); aIdx != idx {
+					if aIdx := (JointConfig{c, nil}.CommittedIndex(l)); aIdx != idx {
 						fmt.Fprintf(&buf, "%s <-- via zero-joint quorum\n", aIdx)
 					}
 					// Joining a majority with itself should give same result.
-					if aIdx := JointConfig([2]MajorityConfig{c, c}).CommittedIndex(l); aIdx != idx {
+					if aIdx := (JointConfig{c, c}.CommittedIndex(l)); aIdx != idx {
 						fmt.Fprintf(&buf, "%s <-- via self-joint quorum\n", aIdx)
 					}
 					overlay := func(c MajorityConfig, l AckedIndexer, id uint64, idx Index) AckedIndexer {
@@ -209,11 +210,11 @@ func TestDataDriven(t *testing.T) {
 					}
 					fmt.Fprintf(&buf, "%s\n", idx)
 				} else {
-					cc := JointConfig([2]MajorityConfig{c, cj})
+					cc := JointConfig{c, cj}
 					fmt.Fprint(&buf, cc.Describe(l))
 					idx := cc.CommittedIndex(l)
 					// Interchanging the majorities shouldn't make a difference. If it does, print.
-					if aIdx := JointConfig([2]MajorityConfig{cj, c}).CommittedIndex(l); aIdx != idx {
+					if aIdx := (JointConfig{cj, c}).CommittedIndex(l); aIdx != idx {
 						fmt.Fprintf(&buf, "%s <-- via symmetry\n", aIdx)
 					}
 					fmt.Fprintf(&buf, "%s\n", idx)
@@ -231,9 +232,9 @@ func TestDataDriven(t *testing.T) {
 					fmt.Fprintf(&buf, "%v\n", r)
 				} else {
 					// Run a joint quorum test case.
-					r := JointConfig([2]MajorityConfig{c, cj}).VoteResult(l)
+					r := (JointConfig{c, cj}).VoteResult(l)
 					// Interchanging the majorities shouldn't make a difference. If it does, print.
-					if ar := JointConfig([2]MajorityConfig{cj, c}).VoteResult(l); ar != r {
+					if ar := (JointConfig{cj, c}).VoteResult(l); ar != r {
 						fmt.Fprintf(&buf, "%v <-- via symmetry\n", ar)
 					}
 					fmt.Fprintf(&buf, "%v\n", r)

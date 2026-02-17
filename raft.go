@@ -1316,7 +1316,7 @@ func stepLeader(r *raft, m pb.Message) error {
 			}
 			if cc != nil {
 				alreadyPending := r.pendingConfIndex > r.raftLog.applied
-				alreadyJoint := len(r.trk.Config.Voters[1]) > 0
+				alreadyJoint := len(r.trk.Config.Voters.Outgoing) > 0
 				wantsLeaveJoint := len(cc.AsV2().Changes) == 0
 
 				var failedCheck string
