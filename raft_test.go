@@ -2687,7 +2687,7 @@ func TestStepConfig(t *testing.T) {
 
 // TestStepIgnoreConfig tests that if raft step the second msgProp in
 // EntryConfChange type when the first one is uncommitted, the node will set
-// the proposal to noop and keep its original state.
+// the proposal to noop, keep its original state, and return an error.
 func TestStepIgnoreConfig(t *testing.T) {
 	// a raft that cannot make progress
 	r := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1, 2)))
@@ -2696,7 +2696,10 @@ func TestStepIgnoreConfig(t *testing.T) {
 	r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Type: pb.EntryConfChange}}})
 	index := r.raftLog.lastIndex()
 	pendingConfIndex := r.pendingConfIndex
-	r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Type: pb.EntryConfChange}}})
+	// Second ConfChange should be converted to noop but return an error
+	err := r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Type: pb.EntryConfChange}}})
+	assert.Equal(t, ErrProposalDropped, err)
+	// A noop entry should still be appended (for log consistency)
 	wents := []pb.Entry{{Type: pb.EntryNormal, Term: 1, Index: 3, Data: nil}}
 	ents, err := r.raftLog.entries(index+1, noLimit)
 	require.NoError(t, err)
