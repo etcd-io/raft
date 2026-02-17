@@ -225,9 +225,6 @@ stabilize
   ApplyThread->3 MsgStorageApplyResp Term:0 Log:0/0 Entries:[1/11 EntryNormal ""]
 
 propose 1 prop_1
-----
-ok
-
 process-ready 1 2 3
 ----
 > 1 handling Ready
@@ -275,9 +272,6 @@ process-ready 1 2 3
   ]
 
 propose 1 prop_2
-----
-ok
-
 process-ready 1 2 3
 ----
 > 1 handling Ready
@@ -355,9 +349,6 @@ AppendThread->2 MsgStorageAppendResp Term:1 Log:1/12
 AppendThread->3 MsgStorageAppendResp Term:1 Log:1/12
 
 propose 1 prop_3
-----
-ok
-
 process-ready 1 2 3
 ----
 > 1 handling Ready
@@ -459,9 +450,6 @@ AppendThread->2 MsgStorageAppendResp Term:1 Log:1/13
 AppendThread->3 MsgStorageAppendResp Term:1 Log:1/13
 
 propose 1 prop_4
-----
-ok
-
 process-ready 1 2 3
 ----
 > 1 handling Ready

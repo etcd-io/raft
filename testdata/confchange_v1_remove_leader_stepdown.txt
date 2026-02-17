@@ -1,27 +1,15 @@
-# We'll turn this back on after the boilerplate.
-log-level none
-----
-ok
-
 # Run a V1 membership change that removes the leader, asking it
 # to step down on removal.
+
 # Bootstrap n1, n2, n3.
+log-level none
 add-nodes 3 voters=(1,2,3) index=2 step-down-on-removal=true
-----
-ok
-
 campaign 1
-----
-ok
-
 stabilize
 ----
 ok
 
 log-level debug
-----
-ok
-
 raft-state
 ----
 1: StateLeader (Voter) Term:1 Lead:1

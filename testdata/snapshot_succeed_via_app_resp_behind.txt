@@ -1,16 +1,9 @@
 # This is a variant of snapshot_succeed_via_app_resp in which the snapshot
 # that is being sent is behind the PendingSnapshot index tracked by the leader.
 
-# Turn off output during the setup of the test.
-log-level none
-----
-ok
-
 # Start with three nodes, but the third is disconnected from the log.
+log-level none
 add-nodes 2 voters=(1,2,3) index=10
-----
-ok
-
 add-nodes 1 voters=(1,2,3) index=5
 ----
 ok
@@ -19,27 +12,15 @@ ok
 # and 2 to complete the leader election. We don't stabilize 3 after the
 # election, so that it does not receive and process any MsgApp yet.
 campaign 1
-----
-ok
-
 process-ready 1
-----
-ok
-
 stabilize 3
-----
-ok
-
 stabilize 1 2
-----
-ok
-
-log-level debug
 ----
 ok
 
 # We now have a leader at index 11 (it appended an empty entry when elected). 3
 # is still at index 5, and has not received any MsgApp from the leader yet.
+log-level debug
 raft-state
 ----
 1: StateLeader (Voter) Term:1 Lead:1
@@ -66,21 +47,12 @@ send-snapshot 1 3
 # Propose and commit an additional entry, which makes the leader's
 # last index 12, beyond the snapshot it sent at index 11.
 log-level none
-----
-ok
-
 propose 1 "foo"
-----
-ok
-
 stabilize 1 2
 ----
 ok
 
 log-level debug
-----
-ok
-
 status 1
 ----
 1: StateReplicate match=12 next=13
@@ -140,6 +112,7 @@ dropped: 1->3 MsgSnap Term:1 Log:0/0
 # 3 sends the affirmative MsgAppResp that resulted from applying the snapshot
 # at index 11.
 stabilize 3
+stabilize 1
 ----
 > 3 handling Ready
   Ready MustSync=false:
@@ -147,9 +120,6 @@ stabilize 3
   Snapshot Index:11 Term:1 ConfState:Voters:[1 2 3] VotersOutgoing:[] Learners:[] LearnersNext:[] AutoLeave:false
   Messages:
   3->1 MsgAppResp Term:1 Log:0/11
-
-stabilize 1
-----
 > 1 receiving messages
   3->1 MsgAppResp Term:1 Log:0/11
   DEBUG 1 recovered from needing snapshot, resumed sending replication messages to 3 [StateSnapshot match=11 next=13 paused pendingSnap=12]

@@ -25,7 +25,7 @@ import (
 )
 
 func (env *InteractionEnv) handleProposeConfChange(t *testing.T, d datadriven.TestData) error {
-	idx := firstAsNodeIdx(t, d)
+	idx := firstAsNodeIdx(t, d.CmdArgs)
 	var v1 bool
 	transition := raftpb.ConfChangeTransitionAuto
 	for _, arg := range d.CmdArgs[1:] {
