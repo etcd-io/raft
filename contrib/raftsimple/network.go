@@ -25,7 +25,8 @@ func (nw *network) deregister(nodeID uint64) {
 func (nw *network) send(m raftpb.Message) {
 	p, ok := nw.peers[m.To]
 	if !ok {
-		log.Fatalf("node %d: unable to find node %d to send %s\n", m.From, m.To, m.Type.String())
+		log.Printf("node %d: unable to find node %d to send %s\n", m.From, m.To, m.Type.String())
+		return
 	}
 	_ = p.node.Step(context.TODO(), m)
 }
@@ -55,12 +56,6 @@ func (t *transport) send(msgs []raftpb.Message) {
 			// ignore intentionally dropped message
 			continue
 		}
-		// if m.Type != 8 && m.Type != 9 {
-		// 	log.Printf("node %d: sending %s msg to node %d\n", m.From, m.Type.String(), m.To)
-		// 	for k, _ := range t.nw.peers {
-		// 		log.Print(k)
-		// 	}
-		// }
 		t.nw.send(m)
 	}
 }
