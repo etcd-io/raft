@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"slices"
 	"strings"
 	"testing"
 
@@ -2108,6 +2109,79 @@ func TestReadOnlyForNewLeader(t *testing.T) {
 	rs = sm.readStates[1]
 	require.Equal(t, windex, rs.Index)
 	require.Equal(t, wctx, rs.RequestCtx)
+}
+
+// TestReadOnlyDuplicateRequest ensures that sending multiple ReadIndex requests
+// with the same RequestCtx does not cause invalid readStates to be returned.
+func TestReadOnlyDuplicateRequest(t *testing.T) {
+	r1 := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1, 2, 3)))
+	r2 := newTestRaft(2, 10, 1, newTestMemoryStorage(withPeers(1, 2, 3)))
+	r3 := newTestRaft(3, 10, 1, newTestMemoryStorage(withPeers(1, 2, 3)))
+	net := newNetwork(r1, r2, r3)
+
+	// These will be delayed until a new leader gets elected and commits a new entry
+	var delayedMsgs []pb.Message
+
+	// net hook that delays (but doesn't duplicate) only heartbeat responses
+	delayHeartbeatResps := func(m pb.Message) bool {
+		if m.Type == pb.MsgHeartbeatResp {
+			delayedMsgs = append(delayedMsgs, m)
+			return false
+		}
+		return true
+	}
+
+	// elect r1 as leader
+	net.send(pb.Message{From: 1, To: 1, Type: pb.MsgHup})
+
+	// Create readIndexMsgA; its eventual readIndex must be least readIndexMinimumA
+	readIndexMsgA := pb.Message{From: 2, To: 1, Type: pb.MsgReadIndex,
+		Entries: []pb.Entry{{Data: []byte("A")}}}
+	readIndexMinimumA := r1.raftLog.committed
+
+	// Explicitly duplicate readIndexMsgA for later; this would be done either by
+	// the network itself, or by users of the raft library retrying `ReadIndex()`.
+	delayedMsgs = append(delayedMsgs, readIndexMsgA)
+
+	// Process readIndex request, but delay heartbeats until the end of this test
+	net.msgHook = delayHeartbeatResps
+	net.send(readIndexMsgA)
+	net.msgHook = nil // stop delaying
+
+	// tick and send whatever raft wants to send; this will finish processing readIndexA
+	r1.tick()
+	r1.advanceMessagesAfterAppend()
+	msgs := r1.msgs
+	r1.msgs = nil
+	net.send(msgs...)
+
+	net.isolate(r1.id)
+
+	// elect r2 as leader, and commit a new entry
+	net.send(pb.Message{From: 2, To: 2, Type: pb.MsgHup})
+	net.send(pb.Message{From: 2, To: 2,
+		Type: pb.MsgProp, Entries: []pb.Entry{{Data: []byte("someOp")}}})
+
+	// Try reading from the disconnected and stale leader r1
+	// Create readIndexMsgB; its eventual readIndex must be least readIndexMinimumB
+	readIndexMsgB := pb.Message{From: 1, To: 1, Type: pb.MsgReadIndex,
+		Entries: []pb.Entry{{Data: []byte("B")}}}
+	readIndexMinimumB := r2.raftLog.committed
+
+	net.send(readIndexMsgB)
+	net.recover()
+	// First send the delayed readIndexMsgA, then the delayed heartbeats. This
+	// should not cause B to be confirmed.
+	net.send(delayedMsgs...)
+
+	// make sure the readIndexes aren't too small (which would violate linearizability)
+	for _, rd := range slices.Concat(r1.readStates, r2.readStates, r3.readStates) {
+		if string(rd.RequestCtx) == "A" {
+			assert.True(t, rd.Index >= readIndexMinimumA, "readIndex for A is %v (should be >= %v)", rd.Index, readIndexMinimumA)
+		} else if string(rd.RequestCtx) == "B" {
+			assert.True(t, rd.Index >= readIndexMinimumB, "readIndex for B is %v (should be >= %v)", rd.Index, readIndexMinimumB)
+		}
+	}
 }
 
 func TestLeaderAppResp(t *testing.T) {
