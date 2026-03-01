@@ -471,10 +471,16 @@ func (n *node) Tick() {
 func (n *node) Campaign(ctx context.Context) error { return n.step(ctx, pb.Message{Type: pb.MsgHup}) }
 
 func (n *node) CacheHits() uint64 {
+	if n.rn.raft.raftLog.uniCache == nil {
+		return 0
+	}
 	return n.rn.raft.raftLog.uniCache.CacheHits()
 }
 
 func (n *node) ResetCacheHits() uint64 {
+	if n.rn.raft.raftLog.uniCache == nil {
+		return 0
+	}
 	return n.rn.raft.raftLog.uniCache.ResetCacheHits()
 }
 

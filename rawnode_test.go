@@ -48,6 +48,10 @@ func (a *rawNodeAdapter) ForgetLeader(context.Context) error { return a.RawNode.
 // Stop when node has a goroutine, RawNode doesn't need this.
 func (a *rawNodeAdapter) Stop() {}
 
+// CacheHits/ResetCacheHits are not tracked by RawNode.
+func (a *rawNodeAdapter) CacheHits() uint64      { return 0 }
+func (a *rawNodeAdapter) ResetCacheHits() uint64 { return 0 }
+
 // Status retirns RawNode's status as *Status.
 func (a *rawNodeAdapter) Status() Status { return a.RawNode.Status() }
 

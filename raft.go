@@ -819,12 +819,16 @@ func (r *raft) reset(term uint64) {
 
 	r.trk.ResetVotes()
 	r.trk.Visit(func(id uint64, pr *tracker.Progress) {
+		var nextCacheId uint32
+		if r.raftLog.uniCache != nil {
+			nextCacheId = r.raftLog.uniCache.GetNextId()
+		}
 		*pr = tracker.Progress{
 			Match:       0,
 			Next:        r.raftLog.lastIndex() + 1,
 			Inflights:   tracker.NewInflights(r.trk.MaxInflight, r.trk.MaxInflightBytes),
 			IsLearner:   pr.IsLearner,
-			NextCacheId: r.raftLog.uniCache.GetNextId(),
+			NextCacheId: nextCacheId,
 		}
 		if id == r.id {
 			pr.Match = r.raftLog.lastIndex()
@@ -1626,8 +1630,10 @@ func stepLeader(r *raft, m pb.Message) error {
 				if r.maybeCommit() {
 					// Leader's cache is always valid up to its committed index,
 					// so bump its CacheIdx before broadcasting.
-					if prL := r.trk.Progress[r.id]; r.raftLog.committed > prL.CacheIdx {
-						prL.CacheIdx = r.raftLog.committed
+					if r.raftLog.uniCache != nil {
+						if prL := r.trk.Progress[r.id]; prL != nil && r.raftLog.committed > prL.CacheIdx {
+							prL.CacheIdx = r.raftLog.committed
+						}
 					}
 
 					// committed index has progressed for the term, so it is safe
@@ -1874,13 +1880,15 @@ func logSliceFromMsgApp(m *pb.Message) logSlice {
 }
 
 func (r *raft) handleAppendEntries(m pb.Message) {
-	for i := range m.Entries {
-		if m.Entries[i].Type == pb.EntryNormal {
-			if decoded, ok := r.raftLog.uniCache.DecodeEntry(m.Entries[i]); ok {
-				m.Entries[i] = decoded
-			} else {
-				panic(fmt.Sprintf("cache decode failed for index %d committed %d with data: %d",
-					m.Entries[i].Index, r.raftLog.committed, m.Entries[i].Data))
+	if r.raftLog.uniCache != nil {
+		for i := range m.Entries {
+			if m.Entries[i].Type == pb.EntryNormal && unicache.IsEncodedData(m.Entries[i].Data) {
+				if decoded, ok := r.raftLog.uniCache.DecodeEntry(m.Entries[i]); ok {
+					m.Entries[i] = decoded
+				} else {
+					panic(fmt.Sprintf("cache decode failed for index %d committed %d with data: %d",
+						m.Entries[i].Index, r.raftLog.committed, m.Entries[i].Data))
+				}
 			}
 		}
 	}

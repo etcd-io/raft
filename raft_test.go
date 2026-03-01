@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -4100,7 +4102,7 @@ func SetRandomizedElectionTimeout(r *RawNode, v int) {
 }
 
 func newTestConfig(id uint64, election, heartbeat int, storage Storage) *Config {
-	return &Config{
+	cfg := &Config{
 		ID:              id,
 		ElectionTick:    election,
 		HeartbeatTick:   heartbeat,
@@ -4108,6 +4110,12 @@ func newTestConfig(id uint64, election, heartbeat int, storage Storage) *Config 
 		MaxSizePerMsg:   noLimit,
 		MaxInflightMsgs: 256,
 	}
+	if s := os.Getenv("RAFT_UNICACHE_SIZE"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			cfg.UniCacheSize = n
+		}
+	}
+	return cfg
 }
 
 type testMemoryStorageOptions func(*MemoryStorage)

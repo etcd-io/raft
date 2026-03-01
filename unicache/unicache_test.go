@@ -343,3 +343,151 @@ func TestLRUHeavyConcurrency(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// ---------------------------------------------------------------------------
+// Leader transition integration tests
+// ---------------------------------------------------------------------------
+
+// TestLeaderTransitionCacheConsistency verifies that after both nodes commit
+// the same entries, a leadership transfer leaves their caches in the same
+// state so the new leader can encode and the old leader can decode without error.
+func TestLeaderTransitionCacheConsistency(t *testing.T) {
+	const capacity = 64
+	const startIdx = uint64(1)
+	committed := uint64(startIdx + 10)
+	minC := func() uint64 { return committed }
+
+	node1Cache := NewUniCache(minC, capacity) // initial leader
+	node2Cache := NewUniCache(minC, capacity) // initial follower → new leader
+
+	keys := make([][]byte, 10)
+	for i := range keys {
+		keys[i] = []byte(fmt.Sprintf("transition-key-%d", i))
+	}
+	commitKeys(node1Cache, keys, startIdx)
+	commitKeys(node2Cache, keys, startIdx)
+
+	// Simulate node1 (old leader) encoding entry committed+1 using key[0].
+	reusedKey := keys[0]
+	reusedRaw := encodeProtoField(cachedFieldNumber, reusedKey)
+	node1Cache.UpdateCache(makeEntry(reusedRaw, committed+1))
+	node2Cache.UpdateCache(makeEntry(reusedRaw, committed+1))
+	encoded, id := node1Cache.EncodeData(reusedRaw, committed+1)
+	if id == 0 {
+		t.Fatal("old leader EncodeData returned id=0")
+	}
+	if !IsEncodedData(encoded) {
+		t.Fatal("expected encoded data from old leader")
+	}
+
+	// --- Leader transfer: node2 becomes leader ---
+	// node2 encodes a subsequent entry with the same shared key.
+	node1Cache.UpdateCache(makeEntry(reusedRaw, committed+2))
+	node2Cache.UpdateCache(makeEntry(reusedRaw, committed+2))
+	enc2, id2 := node2Cache.EncodeData(reusedRaw, committed+2)
+	if id2 == 0 {
+		t.Fatal("new leader EncodeData returned id=0; cache should be consistent")
+	}
+
+	// node1 (now follower) decodes entry from new leader.
+	dec, ok := node1Cache.DecodeEntry(makeEntry(enc2, committed+3))
+	if !ok {
+		t.Fatal("DecodeEntry failed for entry from new leader")
+	}
+	if string(dec.Data) != string(reusedRaw) {
+		t.Errorf("decoded data mismatch: got %x, want %x", dec.Data, reusedRaw)
+	}
+}
+
+// TestNewLeaderWithFreshCache verifies that a new leader with an empty/cold cache
+// falls back to sending raw data (id=0), and that followers handle raw entries
+// correctly as a no-op (data unchanged).
+func TestNewLeaderWithFreshCache(t *testing.T) {
+	const capacity = 64
+	committed := uint64(100)
+	minC := func() uint64 { return committed }
+
+	// New leader has an empty cache (cold start / recovery).
+	newLeaderCache := NewUniCache(minC, capacity)
+
+	// Follower has a populated cache.
+	followerCache := NewUniCache(minC, capacity)
+	key := []byte("well-known-key")
+	commitKeys(followerCache, [][]byte{key}, 1)
+
+	// New leader doesn't know the key → EncodeData returns id=0 → sends raw.
+	rawData := encodeProtoField(cachedFieldNumber, key)
+	_, id := newLeaderCache.EncodeData(rawData, committed)
+	if id != 0 {
+		t.Fatalf("expected id=0 from cold cache, got %d", id)
+	}
+
+	// Follower receives raw data; DecodeEntry must be a no-op.
+	dec, ok := followerCache.DecodeEntry(makeEntry(rawData, committed+1))
+	if !ok {
+		t.Fatal("DecodeEntry failed for raw (non-encoded) entry")
+	}
+	if string(dec.Data) != string(rawData) {
+		t.Errorf("raw data was mutated: got %x, want %x", dec.Data, rawData)
+	}
+	if IsEncodedData(rawData) {
+		t.Error("raw protobuf bytes should not be classified as encoded")
+	}
+}
+
+// TestLeaderTransitionMixedEncoding verifies that a follower correctly handles
+// both encoded entries (from the old leader, in-flight during transfer) and raw
+// entries (from the new leader with a cold cache) without error.
+func TestLeaderTransitionMixedEncoding(t *testing.T) {
+	const capacity = 64
+	const startIdx = uint64(1)
+	committed := uint64(startIdx + 5)
+	minC := func() uint64 { return committed }
+
+	// All three nodes learn the same 5 committed entries.
+	oldLeader := NewUniCache(minC, capacity)
+	newLeader := NewUniCache(minC, capacity)
+	follower := NewUniCache(minC, capacity)
+
+	keys := make([][]byte, 5)
+	for i := range keys {
+		keys[i] = []byte(fmt.Sprintf("shared-key-%d", i))
+	}
+	commitKeys(oldLeader, keys, startIdx)
+	commitKeys(newLeader, keys, startIdx)
+	commitKeys(follower, keys, startIdx)
+
+	// Old leader sends an encoded entry (in-flight during transfer).
+	sharedRaw := encodeProtoField(cachedFieldNumber, keys[0])
+	oldLeader.UpdateCache(makeEntry(sharedRaw, committed+1))
+	follower.UpdateCache(makeEntry(sharedRaw, committed+1))
+	newLeader.UpdateCache(makeEntry(sharedRaw, committed+1))
+	encodedByOld, id1 := oldLeader.EncodeData(sharedRaw, committed+1)
+	if id1 == 0 {
+		t.Fatal("old leader should encode a committed key")
+	}
+
+	// New leader sends a brand-new key (not in cache) → raw fallback.
+	brandNewRaw := encodeProtoField(cachedFieldNumber, []byte("brand-new-after-transfer"))
+	_, id2 := newLeader.EncodeData(brandNewRaw, committed+2)
+	if id2 != 0 {
+		t.Fatalf("new key should not be in cache, got id=%d", id2)
+	}
+
+	// Follower decodes both: encoded from old leader, raw from new leader.
+	dec1, ok1 := follower.DecodeEntry(makeEntry(encodedByOld, committed+2))
+	if !ok1 {
+		t.Fatal("follower failed to decode entry from old leader")
+	}
+	if string(dec1.Data) != string(sharedRaw) {
+		t.Errorf("decoded old-leader entry mismatch: got %x, want %x", dec1.Data, sharedRaw)
+	}
+
+	dec2, ok2 := follower.DecodeEntry(makeEntry(brandNewRaw, committed+3))
+	if !ok2 {
+		t.Fatal("follower failed to handle raw entry from new leader")
+	}
+	if string(dec2.Data) != string(brandNewRaw) {
+		t.Errorf("raw new-leader entry was mutated: got %x, want %x", dec2.Data, brandNewRaw)
+	}
+}
