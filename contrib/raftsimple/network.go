@@ -31,9 +31,9 @@ func (nw *network) send(m raftpb.Message) {
 	_ = p.node.Step(context.TODO(), m)
 }
 
-func (nw *network) exists(nodeID uint64) bool {
-	_, ok := nw.peers[nodeID]
-	return ok
+func (nw *network) getNode(nodeID uint64) (*raftNode, bool) {
+	n, ok := nw.peers[nodeID]
+	return n, ok
 }
 
 type transport struct {
