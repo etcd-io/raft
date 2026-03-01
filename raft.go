@@ -866,6 +866,10 @@ func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 				}
 			}
 			r.pend.TruncateAndAppend(encEnts)
+		} else {
+			// Keep pendingBuf aligned with unstable even when no entries are
+			// encoded, so TruncateAndAppend never sees a gap on the next call.
+			r.pend.TruncateAndAppend(es)
 		}
 	}
 

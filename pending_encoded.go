@@ -52,7 +52,14 @@ func (p *pendingBuf) TruncateAndAppend(ents []pb.Entry) {
 	default:
 		// truncate tail then append
 		cut := first - p.base
-		p.buf = append(p.buf[:cut], ents...)
+		if cut > uint64(len(p.buf)) {
+			// Gap: buf doesn't reach first (shouldn't happen if callers stay in
+			// sync with unstable, but handle it by treating as a replacement).
+			p.base = first
+			p.buf = append(p.buf[:0], ents...)
+		} else {
+			p.buf = append(p.buf[:cut], ents...)
+		}
 	}
 }
 
