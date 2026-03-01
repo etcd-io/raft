@@ -10,19 +10,17 @@ import (
 	"go.etcd.io/raft/v3/raftpb"
 )
 
-type orchest struct {
+type NodeManager struct {
 	nw *network
 	wg sync.WaitGroup
 }
-
-var oc orchest
 
 var nw network
 
 // createOrRecoverNode spins up a raft node. It returns (isNewNode, success).
 // If the node's storage directory already exists, it treats it as a recovery.
-func (oc *orchest) createOrRecoverNode(nodeID uint64, peers []uint64) (bool, bool) {
-	_, ok := oc.nw.getNode(nodeID)
+func (nm *NodeManager) createOrRecoverNode(nodeID uint64, peers []uint64) (bool, bool) {
+	_, ok := nm.nw.getNode(nodeID)
 	if ok {
 		log.Printf("node %d already running in network\n", nodeID)
 		return false, false
@@ -57,10 +55,10 @@ func (oc *orchest) createOrRecoverNode(nodeID uint64, peers []uint64) (bool, boo
 		peers = []uint64{}
 	}
 
-	rn := newRaftNode(nodeID, peers, fsm, ss, oc.nw, proposeC, confChangeC)
+	rn := newRaftNode(nodeID, peers, fsm, ss, nm.nw, proposeC, confChangeC)
 
 	// Register it with the network so peers can send it messages
-	oc.nw.register(nodeID, rn)
+	nm.nw.register(nodeID, rn)
 
 	// Start processing commits loop
 	go func() {
@@ -69,11 +67,11 @@ func (oc *orchest) createOrRecoverNode(nodeID uint64, peers []uint64) (bool, boo
 		}
 	}()
 
-	oc.wg.Add(1)
+	nm.wg.Add(1)
 	go func() {
-		defer oc.wg.Done()
+		defer nm.wg.Done()
 		// Start the HTTP API
-		serveHTTPKVAPI(oc, kvs, 9120+nodeID, confChangeC, rn.donec)
+		serveHTTPKVAPI(nm, kvs, 9120+nodeID, confChangeC, rn.donec)
 		log.Printf("node %d: KVstore HTTP API has stopped running\n", nodeID)
 	}()
 
@@ -82,13 +80,13 @@ func (oc *orchest) createOrRecoverNode(nodeID uint64, peers []uint64) (bool, boo
 
 // stopNode safely halts a node's goroutines and removes it from the network
 // to simulate a crash or partition.
-func (oc *orchest) stopNode(nodeID uint64) error {
-	rn, ok := oc.nw.getNode(nodeID)
+func (nm *NodeManager) stopNode(nodeID uint64) error {
+	rn, ok := nm.nw.getNode(nodeID)
 	if !ok {
 		return fmt.Errorf("node %d not found in network", nodeID)
 	}
 
-	oc.nw.deregister(nodeID)
+	nm.nw.deregister(nodeID)
 
 	rn.stop()
 
@@ -100,7 +98,7 @@ func main() {
 	flag.Parse()
 
 	nw := network{peers: make(map[uint64]*raftNode, *nodesCount)}
-	oc := orchest{nw: &nw}
+	nm := NodeManager{nw: &nw}
 
 	peers := make([]uint64, *nodesCount)
 	for i := range *nodesCount {
@@ -109,10 +107,10 @@ func main() {
 
 	for i := range *nodesCount {
 		id := uint64(i + 1)
-		oc.createOrRecoverNode(id, peers)
+		nm.createOrRecoverNode(id, peers)
 	}
 
 	log.Println("Main goroutine waiting for workesr to finish...")
-	oc.wg.Wait()
+	nm.wg.Wait()
 	log.Println("All workers finished, main goroutine exiting.")
 }

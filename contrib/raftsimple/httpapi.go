@@ -11,7 +11,7 @@ import (
 
 type httpKVAPI struct {
 	store       *kvstore
-	oc          *orchest
+	nm          *NodeManager
 	confChangeC chan<- raftpb.ConfChange
 }
 
@@ -47,10 +47,10 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// The orchestrator handles the goroutine spin-up.
+		// The NodeManager handles the goroutine spin-up.
 		// It returns true if it created a fresh directory/node,
 		// and false if it found existing state and recovered it.
-		isNewNode, ok := h.oc.createOrRecoverNode(nodeID, nil)
+		isNewNode, ok := h.nm.createOrRecoverNode(nodeID, nil)
 		if !ok {
 			log.Printf("Failed to start/recover raft node %d\n", nodeID)
 			http.Error(w, "Failed on POST", http.StatusInternalServerError)
@@ -68,7 +68,7 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		w.WriteHeader(http.StatusNoContent)
 
-		// if ok := h.oc.createNode(nodeID, nil); !ok {
+		// if ok := h.nm.createNode(nodeID, nil); !ok {
 		// 	log.Printf("Failed to create raft node %d\n", nodeID)
 		// 	http.Error(w, "Failed on POST", http.StatusBadRequest)
 		// 	return
@@ -92,7 +92,7 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Simulate a crash by strictly halting the node's processes and
 		// severing its network connections.
 		// We DO NOT send a ConfChangeRemoveNode to the cluster.
-		if err := h.oc.stopNode(nodeID); err != nil {
+		if err := h.nm.stopNode(nodeID); err != nil {
 			log.Printf("Failed to crash node %d: %v\n", nodeID, err)
 			http.Error(w, "Failed on DELETE", http.StatusInternalServerError)
 			return
@@ -116,12 +116,12 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func serveHTTPKVAPI(oc *orchest, kv *kvstore, port uint64, confChangeC chan<- raftpb.ConfChange, done <-chan struct{}) {
+func serveHTTPKVAPI(nm *NodeManager, kv *kvstore, port uint64, confChangeC chan<- raftpb.ConfChange, done <-chan struct{}) {
 	srv := http.Server{
 		Addr: ":" + strconv.FormatUint(port, 10),
 		Handler: &httpKVAPI{
 			store:       kv,
-			oc:          oc,
+			nm:          nm,
 			confChangeC: confChangeC,
 		},
 	}
