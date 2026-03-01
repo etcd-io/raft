@@ -653,9 +653,10 @@ func (r *raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 	// which will clear out Inflights.
 	if pr.State != tracker.StateReplicate || !pr.Inflights.Full() {
 		ents, err = r.pend.Slice(pr.Next, r.raftLog.lastIndex()+1, r.maxMsgSize)
-		if errors.Is(err, ErrUnavailable) {
-			// should not happen; if it does, fall back
-			fmt.Println("Error creating slice of encoded ents", err, ". Use fallback normal ents instead")
+		if errors.Is(err, ErrUnavailable) || errors.Is(err, ErrCompacted) {
+			// pend does not cover this range: either the entries were never encoded
+			// (ErrCompacted: pend.base is ahead of pr.Next) or pend is empty
+			// (ErrUnavailable). Fall back to the raw log entries.
 			ents, err = r.raftLog.entries(pr.Next, r.maxMsgSize)
 		}
 	}
@@ -837,23 +838,35 @@ func (r *raft) reset(term uint64) {
 
 func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 	li := r.raftLog.lastIndex()
-	encEnts := make([]pb.Entry, len(es))
 	for i := range es {
 		es[i].Term = r.Term
 		es[i].Index = li + 1 + uint64(i)
+	}
 
-		if r.raftLog.uniCache != nil {
-			var fullData []byte
-			enc := es[i]
-			enc.Data, fullData = r.raftLog.uniCache.SafeEncode(enc.Data, enc.Index, enc.EncodedID)
-			encEnts[i] = enc
-			if fullData != nil {
-				es[i].Data = fullData
+	if r.raftLog.uniCache != nil {
+		// Only allocate the encoded-twin slice when at least one entry carries an
+		// encoded ID. At zero cache-hit rate every entry has EncodedID==0 and
+		// SafeEncode is a no-op, so we skip the allocation entirely.
+		anyEncoded := false
+		for _, e := range es {
+			if e.EncodedID != 0 {
+				anyEncoded = true
+				break
 			}
 		}
-	}
-	if len(encEnts) > 0 {
-		r.pend.TruncateAndAppend(encEnts)
+		if anyEncoded {
+			encEnts := make([]pb.Entry, len(es))
+			for i := range es {
+				var fullData []byte
+				enc := es[i]
+				enc.Data, fullData = r.raftLog.uniCache.SafeEncode(enc.Data, enc.Index, enc.EncodedID)
+				encEnts[i] = enc
+				if fullData != nil {
+					es[i].Data = fullData
+				}
+			}
+			r.pend.TruncateAndAppend(encEnts)
+		}
 	}
 
 	// Track the size of this uncommitted proposal.

@@ -337,15 +337,8 @@ func (l *raftLog) commitTo(tocommit uint64) {
 				// not transforming the entries for the application (that happens later in Ready).
 				l.uniCache.BatchUpdateCache(entries)
 
-				// Update the last "safe" cache index reference for the leader
 				if len(entries) > 0 {
-					lastIdx := entries[len(entries)-1].Index
-					// If your uniCache struct is accessible via raftLog, update the tracker.
-					// You might need to expose a method on raftLog or access the raft struct if possible.
-					// However, strictly speaking, just updating the map is enough to fix the panic.
-
-					// Optional: Trigger eviction cleanup if you are the leader (or everyone)
-					l.uniCache.PurgeEvicted(lastIdx)
+					l.uniCache.PurgeEvicted()
 				}
 			} else {
 				l.logger.Panicf("uniCache failed to load committed entries [%d-%d]: %v", l.committed+1, tocommit, err)

@@ -29,7 +29,7 @@ type UniCache interface {
 	GetNextId() uint32
 	UpdateCache(entry pb.Entry) (pb.Entry, bool)
 	BatchUpdateCache(entries []pb.Entry) ([]pb.Entry, bool)
-	PurgeEvicted(appendCommitGap uint64)
+	PurgeEvicted()
 	CacheHits() uint64
 	ResetCacheHits() uint64
 	GetMinCacheIdx(currMinIdx uint64) uint64
@@ -154,25 +154,31 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
 	uc.lruList.Remove(elem)
 }
 
-func (uc *uniCache) PurgeEvicted(appendCommitGap uint64) {
-	// Keep evicted cache large: 50*capacity (~100,000 entries)
+// PurgeEvicted removes entries from the front of evictOrder whose lastIdx is
+// below the safety threshold T = max(0, minCacheVersion - capacity).
+// When all followers have committed at least capacity steps past lastIdx,
+// no follower can encode with that evicted ID anymore, so it is safe to drop.
+func (uc *uniCache) PurgeEvicted() {
 	minC := uc.minCacheVersion()
-	var window uint64
+	var T uint64
 	if minC > uint64(uc.capacity) {
-		window = minC - uint64(uc.capacity)
-	} else {
-		window = 0
+		T = minC - uint64(uc.capacity)
 	}
-	// drop from the front until we’re down to 'window' elements
-	for uc.evictOrder.Len() > int(window+(appendCommitGap-minC)) {
+	for uc.evictOrder.Len() > 0 {
 		front := uc.evictOrder.Front()
-		if front == nil {
+		e := front.Value.(*cacheEntry)
+		if e.lastIdx >= T {
 			break
 		}
-		e := front.Value.(*cacheEntry)
 		uc.evictOrder.Remove(front)
 		delete(uc.evicted, e.id)
 	}
+}
+
+// IsEncodedData reports whether data contains a RepliCache-encoded entry,
+// i.e. protobuf field 1 carries a varint cache ID instead of raw bytes.
+func IsEncodedData(data []byte) bool {
+	return len(data) > 0 && data[0] == cachedFieldVarintTag
 }
 
 func (uc *uniCache) GetNextId() uint32 {

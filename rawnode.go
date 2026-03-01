@@ -20,6 +20,7 @@ import (
 
 	pb "go.etcd.io/raft/v3/raftpb"
 	"go.etcd.io/raft/v3/tracker"
+	"go.etcd.io/raft/v3/unicache"
 )
 
 // ErrStepLocalMsg is returned when try to step a local raft message
@@ -166,18 +167,25 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 	// We no longer UPDATE the cache here (done in commitTo),
 	// but we must still DECODE entries for the user application.
 	if rn.raft.raftLog.uniCache != nil && len(rd.CommittedEntries) > 0 {
-		// We use a new method "BatchDecode" or reuse BatchUpdateCache if it's idempotent.
-		// Since BatchUpdateCache updates LRU, calling it twice is redundant but not fatal.
-		// ideally, you add a 'DecodeOnly' method to your interface.
-
-		decodedEntries := make([]pb.Entry, len(rd.CommittedEntries))
-		for i, ent := range rd.CommittedEntries {
-			dec, _ := rn.raft.raftLog.uniCache.DecodeEntry(ent)
-			decodedEntries[i] = dec
+		// Only allocate the decoded slice when at least one entry is actually encoded.
+		// At zero hit rate all entries carry raw BytesType data, so DecodeEntry is a
+		// no-op and the allocation would be wasted.
+		hasEncoded := false
+		for _, ent := range rd.CommittedEntries {
+			if unicache.IsEncodedData(ent.Data) {
+				hasEncoded = true
+				break
+			}
 		}
-		rd.CommittedEntries = decodedEntries
+		if hasEncoded {
+			decodedEntries := make([]pb.Entry, len(rd.CommittedEntries))
+			for i, ent := range rd.CommittedEntries {
+				dec, _ := rn.raft.raftLog.uniCache.DecodeEntry(ent)
+				decodedEntries[i] = dec
+			}
+			rd.CommittedEntries = decodedEntries
+		}
 
-		// Update the min cache index for safety tracking (if needed for the heuristic)
 		rn.raft.lastCacheIdx = rn.raft.raftLog.uniCache.GetMinCacheIdx(rd.CommittedEntries[len(rd.CommittedEntries)-1].Index)
 	}
 
