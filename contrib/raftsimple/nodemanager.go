@@ -58,7 +58,6 @@ func (nm *NodeManager) createOrRecoverNode(nodeID uint64, peers []uint64) (bool,
 
 	rn := newRaftNode(nodeID, peers, fsm, ss, nm.nw, proposeC, confChangeC)
 
-	// Register it with the network so peers can send it messages
 	nm.nw.register(nodeID, rn)
 
 	// Start processing commits loop

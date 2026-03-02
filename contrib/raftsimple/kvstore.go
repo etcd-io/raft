@@ -77,9 +77,6 @@ func (fsm kvfsm) TakeSnapshot() ([]byte, error) {
 	return json.Marshal(fsm.kvs.kvStore)
 }
 
-// ApplyCommits decodes and applies each of the commits in `commit` to
-// the current state, then signals that it is done by closing
-// `commit.applyDoneC`.
 func (fsm kvfsm) ApplyCommits(commit *commit) error {
 	for _, data := range commit.data {
 		var dataKv kv

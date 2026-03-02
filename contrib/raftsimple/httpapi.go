@@ -28,8 +28,6 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.store.Propose(key, string(v))
-		// Optimistic-- no waiting for ack from raft. Value is not yet
-		// committed so a subsequent GET on the key may return old value
 		w.WriteHeader(http.StatusNoContent)
 
 	case http.MethodGet:
@@ -47,9 +45,6 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// The NodeManager handles the goroutine spin-up.
-		// It returns true if it created a fresh directory/node,
-		// and false if it found existing state and recovered it.
 		isNewNode, ok := h.nm.createOrRecoverNode(nodeID, nil)
 		if !ok {
 			log.Printf("Failed to start/recover raft node %d\n", nodeID)
@@ -57,7 +52,6 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Only propose a cluster membership change if this is a brand new node.
 		if isNewNode {
 			cc := raftpb.ConfChange{
 				Type:   raftpb.ConfChangeAddNode,
@@ -67,20 +61,6 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.WriteHeader(http.StatusNoContent)
-
-		// if ok := h.nm.createNode(nodeID, nil); !ok {
-		// 	log.Printf("Failed to create raft node %d\n", nodeID)
-		// 	http.Error(w, "Failed on POST", http.StatusBadRequest)
-		// 	return
-		// }
-		//
-		// cc := raftpb.ConfChange{
-		// 	Type:   raftpb.ConfChangeAddNode,
-		// 	NodeID: nodeID,
-		// }
-		// h.confChangeC <- cc
-		// // As above, optimistic that raft will apply the conf change
-		// w.WriteHeader(http.StatusNoContent)
 
 	case http.MethodDelete:
 		nodeID, err := strconv.ParseUint(key[1:], 0, 64)
@@ -99,13 +79,6 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.WriteHeader(http.StatusNoContent)
-		// cc := raftpb.ConfChange{
-		// 	Type:   raftpb.ConfChangeRemoveNode,
-		// 	NodeID: nodeID,
-		// }
-		// h.confChangeC <- cc
-		// // As above, optimistic that raft will apply the conf change
-		// w.WriteHeader(http.StatusNoContent)
 
 	default:
 		w.Header().Set("Allow", http.MethodPut)

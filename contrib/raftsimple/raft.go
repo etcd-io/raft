@@ -67,7 +67,7 @@ type raftNode struct {
 	// httpdonec chan struct{} // signals http server shutdown complete
 }
 
-var defaultSnapshotCount uint64 = 10000
+var DefaultSnapshotCount uint64 = 10000
 
 func newRaftNode(id uint64, peers []uint64, fsm FSM, ss snapshotStorage, nw *network, proposeC <-chan string, confChangeC <-chan raftpb.ConfChange) *raftNode {
 	commitC := make(chan *commit)
@@ -90,7 +90,7 @@ func newRaftNode(id uint64, peers []uint64, fsm FSM, ss snapshotStorage, nw *net
 		peers:       rpeers,
 		fsm:         fsm,
 		ss:          ss,
-		snapCount:   defaultSnapshotCount,
+		snapCount:   DefaultSnapshotCount,
 		t:           t,
 		stopc:       make(chan struct{}),
 		// httpstopc:   make(chan struct{}),
@@ -107,7 +107,7 @@ func (rc *raftNode) startRaft() {
 	hasState := rc.replayWAL()
 
 	c := &raft.Config{
-		ID:              uint64(rc.id),
+		ID:              rc.id,
 		ElectionTick:    10,
 		HeartbeatTick:   1,
 		Storage:         rc.raftStorage,
@@ -209,10 +209,13 @@ func (rc *raftNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 		compactIndex = rc.appliedIndex - snapshotCatchUpEntriesN
 	}
 	if err := rc.raftStorage.Compact(compactIndex); err != nil {
-		panic(err)
+		if !errors.Is(err, raft.ErrCompacted) {
+			panic(err)
+		}
+	} else {
+		log.Printf("compacted log at index %d", compactIndex)
 	}
 
-	log.Printf("compacted log at index %d", compactIndex)
 	rc.snapshotIndex = rc.appliedIndex
 }
 
@@ -339,6 +342,7 @@ func (rc *raftNode) serveChannels() {
 
 			if !raft.IsEmptySnap(rd.Snapshot) {
 				rc.raftStorage.ApplySnapshot(rd.Snapshot)
+				rc.publishSnapshot(rd.Snapshot)
 			}
 			rc.raftStorage.Append(rd.Entries)
 
@@ -358,11 +362,29 @@ func (rc *raftNode) serveChannels() {
 	}
 }
 
+func (rc *raftNode) loadAndApplySnapshot() error {
+	snapshot, err := rc.ss.loadSnap()
+	if err != nil {
+		return err
+	}
+	if snapshot != nil && !raft.IsEmptySnap(*snapshot) {
+		log.Printf("loading snapshot at index %d", snapshot.Metadata.Index)
+		if err := rc.fsm.RestoreSnapshot(snapshot.Data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (rc *raftNode) processCommits() error {
+	if err := rc.loadAndApplySnapshot(); err != nil {
+		return err
+	}
 	for commit := range rc.commitC {
 		if commit == nil {
-			// a request to load snapshot
-			// rc.loadAndApplySnapshot()
+			if err := rc.loadAndApplySnapshot(); err != nil {
+				return err
+			}
 			continue
 		}
 		if err := rc.fsm.ApplyCommits(commit); err != nil {

@@ -5,8 +5,6 @@ import (
 	"log"
 )
 
-var nw network
-
 func main() {
 	nodesCount := flag.Int("nodes", 3, "number of nodes")
 	flag.Parse()
