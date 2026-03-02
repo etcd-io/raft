@@ -1,6 +1,6 @@
 # raftsimple
 
-`raftsimple` is a simplified, educational version of etcd's `raftexample`. While `raftexample` demonstrates production-grade integration with `etcd/raft`, `raftsimple` focuses on minimalism, providing a self-contained implementation with a custom HTTP transport and a basic file-based Write-Ahead Log (WAL).
+<!-- `raftsimple` is a simplified, educational version of etcd's `raftexample`. While `raftexample` demonstrates production-grade integration with `etcd/raft`, `raftsimple` focuses on minimalism, providing a self-contained implementation with a custom HTTP transport and a basic file-based Write-Ahead Log (WAL). -->
 
 This project is designed for developers who want to understand the core mechanics of the Raft algorithm and the `Ready()` event loop without the complexity of the full etcd server ecosystem.
 
@@ -8,7 +8,7 @@ This project is designed for developers who want to understand the core mechanic
 
 ### Building raftsimple
 
-First, ensure you have Go installed. Then, clone the repository and build the binary:
+Build the binary:
 
 ```bash
 go build -o raftsimple
@@ -34,9 +34,19 @@ curl -L http://127.0.0.1:9121/foo -XPUT -d bar
 curl -L http://127.0.0.1:9121/foo
 ```
 
+### Running a local cluster
+
+For a more realistic distributed setup, use [goreman](https://github.com/mattn/goreman) to run a 3-node cluster:
+
+```bash
+goreman start
+```
+
+This uses the included `Procfile` to start three independent `raftsimple` processes on different ports. Each node can be communicated with via its respective key-value API at ports `9121`, `9122`, and `9123`.
+
 ### Fault Tolerance
 
-Raft's key feature is its ability to withstand node failures. You can simulate a node crash with `goreman`:
+Raft's key feature is its ability to withstand node failures. You can simulate a node crash with `goreman` (it uses Procfile file):
 
 ```bash
 # Stop Node 2
@@ -79,16 +89,6 @@ Similarly, to remove a node from the cluster:
 curl -L http://127.0.0.1:9121/4 -XDELETE
 ```
 
-### Running a local cluster
-
-For a more realistic distributed setup, use [goreman](https://github.com/mattn/goreman) to run a 3-node cluster:
-
-```bash
-goreman start
-```
-
-This uses the included `Procfile` to start three independent `raftsimple` processes on different ports. Each node can be communicated with via its respective key-value API at ports `9121`, `9122`, and `9123`.
-
 ## Design
 
 The `raftsimple` architecture is divided into three main components:
@@ -104,6 +104,6 @@ The `raftsimple` architecture is divided into three main components:
 *   **Synchronous Storage:** Unlike production systems that use complex asynchronous I/O and batching, `raftsimple` writes to disk synchronously within the main Raft loop.
 *   **Minimalist WAL:** The Write-Ahead Log is a simple append-only file. It does not include checksums, CRCs, or automatic truncation after snapshots.
 *   **Simple Transport:** The inter-node communication uses standard Go `net/http` for simplicity, rather than the more complex but efficient `rafthttp` package used in `etcd`.
-*   **Direct File I/O:** Snapshots and HardState are overwritten directly on disk without atomic "write-and-rename" strategies.
+*   **Direct File I/O:** Snapshots and HardState are overwritten directly on disk.
 
 These choices make the codebase significantly easier to audit and learn from, though they mean the project should not be used for storing critical data.
