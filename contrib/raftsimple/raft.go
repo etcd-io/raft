@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"time"
 
@@ -19,20 +22,8 @@ type commit struct {
 // FSM is the interface that must be implemented by a finite state
 // machine for it to be driven by raft.
 type FSM interface {
-	// TakeSnapshot takes a snapshot of the current state of the
-	// finite state machine, returning the snapshot as a slice of
-	// bytes that can be saved or loaded by a `SnapshotStorage`.
 	TakeSnapshot() ([]byte, error)
-
-	// RestoreSnapshot restores the finite state machine to the state
-	// represented by `snapshot` (which, in turn, was returned by
-	// `TakeSnapshot`).
 	RestoreSnapshot(snapshot []byte) error
-
-	// ApplyCommits applies the changes from `commit` to the finite
-	// state machine. `commit` is never `nil`. (By contrast, the
-	// commits that are handled by `ProcessCommits()` can be `nil` to
-	// signal that a snapshot should be loaded.)
 	ApplyCommits(commit *commit) error
 }
 
@@ -42,42 +33,35 @@ type raftNode struct {
 	commitC     chan *commit             // entries committed to log (k,v)
 	errorC      chan<- error             // errors from raft session
 
-	id    uint64
-	peers []raft.Peer
-	fsm   FSM
+	id        uint64
+	join      bool
+	peers     []raft.Peer
+	peerURLs  map[uint64]string
+	fsm       FSM
+	ss        snapshotStorage
+	transport *transport
 
-	ss            snapshotStorage
 	confState     raftpb.ConfState
 	snapshotIndex uint64
 	appliedIndex  uint64
 	snapCount     uint64
-	t             transport
 
-	// When serveChannels is done, `err` is set to any error and then
-	// `done` is closed.
-	err   error
-	donec chan struct{}
-
-	// raft backing for the commit/error channel
 	node        raft.Node
 	raftStorage *raft.MemoryStorage
-
-	stopc chan struct{} // signals proposal channel closed
-	// httpstopc chan struct{} // signals http server to shutdown
-	// httpdonec chan struct{} // signals http server shutdown complete
+	stopc       chan struct{} // signals proposal channel closed
+	donec       chan struct{} // signals serveChannels has exited
+	err         error
 }
 
 var DefaultSnapshotCount uint64 = 10000
 
-func newRaftNode(id uint64, peers []uint64, fsm FSM, ss snapshotStorage, nw *network, proposeC <-chan string, confChangeC <-chan raftpb.ConfChange) *raftNode {
+func newRaftNode(id uint64, peerURLs map[uint64]string, join bool, fsm FSM, ss snapshotStorage, proposeC <-chan string, confChangeC <-chan raftpb.ConfChange) *raftNode {
 	commitC := make(chan *commit)
 	errorC := make(chan error)
 
-	t := transport{id: id, peers: make(map[uint64]bool, len(peers)), nw: nw}
-	rpeers := make([]raft.Peer, len(peers))
-	for i, pID := range peers {
-		rpeers[i] = raft.Peer{ID: pID}
-		t.peers[pID] = true
+	rpeers := make([]raft.Peer, 0, len(peerURLs))
+	for pID := range peerURLs {
+		rpeers = append(rpeers, raft.Peer{ID: pID})
 	}
 
 	rc := &raftNode{
@@ -85,16 +69,16 @@ func newRaftNode(id uint64, peers []uint64, fsm FSM, ss snapshotStorage, nw *net
 		confChangeC: confChangeC,
 		commitC:     commitC,
 		errorC:      errorC,
-		donec:       make(chan struct{}),
 		id:          id,
+		join:        join,
 		peers:       rpeers,
+		peerURLs:    peerURLs,
 		fsm:         fsm,
 		ss:          ss,
 		snapCount:   DefaultSnapshotCount,
-		t:           t,
 		stopc:       make(chan struct{}),
-		// httpstopc:   make(chan struct{}),
-		// httpdonec:   make(chan struct{}),
+		donec:       make(chan struct{}),
+		transport:   newTransport(id, peerURLs),
 	}
 
 	go rc.startRaft()
@@ -115,13 +99,37 @@ func (rc *raftNode) startRaft() {
 		MaxInflightMsgs: 256,
 	}
 
-	if hasState || len(rc.peers) == 0 {
+	if hasState || rc.join {
 		rc.node = raft.RestartNode(c)
 	} else {
 		rc.node = raft.StartNode(c, rc.peers)
 	}
 
+	rc.transport.node = rc.node
+
+	go rc.serveRaft()
 	go rc.serveChannels()
+}
+
+func (rc *raftNode) serveRaft() {
+	u, err := url.Parse(rc.peerURLs[rc.id])
+	if err != nil {
+		log.Fatalf("raftsimple: failed to parse peer URL: %v", err)
+	}
+
+	ln, err := net.Listen("tcp", u.Host)
+	if err != nil {
+		log.Fatalf("raftsimple: failed to listen on %s: %v", u.Host, err)
+	}
+
+	rc.transport.mu.Lock()
+	rc.transport.server = &http.Server{Handler: rc.transport.Handler()}
+	rc.transport.mu.Unlock()
+
+	err = rc.transport.server.Serve(ln)
+	if err != nil && err != http.ErrServerClosed {
+		log.Fatalf("raftsimple: failed to serve raft HTTP: %v", err)
+	}
 }
 
 func (rc *raftNode) replayWAL() bool {
@@ -163,8 +171,6 @@ func (rc *raftNode) publishSnapshot(snapshotToSave raftpb.Snapshot) {
 	}
 
 	log.Printf("publishing snapshot at index %d", rc.snapshotIndex)
-	defer log.Printf("finished publishing snapshot at index %d", rc.snapshotIndex)
-
 	if snapshotToSave.Metadata.Index <= rc.appliedIndex {
 		log.Fatalf("snapshot index [%d] should > progress.appliedIndex [%d]", snapshotToSave.Metadata.Index, rc.appliedIndex)
 	}
@@ -182,7 +188,6 @@ func (rc *raftNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 		return
 	}
 
-	// wait until all committed entries are applied (or server is closed)
 	if applyDoneC != nil {
 		select {
 		case <-applyDoneC:
@@ -243,7 +248,6 @@ func (rc *raftNode) publishEntries(ents []raftpb.Entry) (<-chan struct{}, bool) 
 		switch entry.Type {
 		case raftpb.EntryNormal:
 			if len(entry.Data) == 0 {
-				// ignore empty messages
 				break
 			}
 			s := string(entry.Data)
@@ -255,13 +259,15 @@ func (rc *raftNode) publishEntries(ents []raftpb.Entry) (<-chan struct{}, bool) 
 
 			switch cc.Type {
 			case raftpb.ConfChangeAddNode:
-				rc.t.addPeer(cc.NodeID)
+				if len(cc.Context) > 0 {
+					rc.transport.addPeer(cc.NodeID, string(cc.Context))
+				}
 			case raftpb.ConfChangeRemoveNode:
 				if cc.NodeID == rc.id {
 					log.Printf("Node %d: I've been removed from the cluster! Shutting down.", rc.id)
 					return nil, false
 				}
-				rc.t.removePeer(cc.NodeID)
+				rc.transport.removePeer(cc.NodeID)
 			}
 		}
 	}
@@ -272,7 +278,6 @@ func (rc *raftNode) publishEntries(ents []raftpb.Entry) (<-chan struct{}, bool) 
 		select {
 		case rc.commitC <- &commit{data, applyDoneC}:
 		case <-rc.stopc:
-			log.Println("stopping at applying commits")
 			return nil, false
 		}
 	}
@@ -293,17 +298,14 @@ func (rc *raftNode) serveChannels() {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
-	// send proposals over raft
 	go func() {
 		confChangeCount := uint64(0)
 		for rc.proposeC != nil && rc.confChangeC != nil {
 			select {
-
 			case prop, ok := <-rc.proposeC:
 				if !ok {
 					rc.proposeC = nil
 				} else {
-					// blocks until accepted by raft state machine
 					rc.node.Propose(context.TODO(), []byte(prop))
 				}
 			case cc, ok := <-rc.confChangeC:
@@ -316,18 +318,14 @@ func (rc *raftNode) serveChannels() {
 				}
 			}
 		}
-		// client closed channel; shutdown raft if not already
 		close(rc.stopc)
 	}()
 
-	// event loop on raft state machine updates
 	for {
 		select {
 		case <-ticker.C:
 			rc.node.Tick()
-		// store raft entries, then publish over commit channel
 		case rd := <-rc.node.Ready():
-			// saveToStorage(rd.HardState, rd.Entries, rd.Snapshot)
 			if !raft.IsEmptySnap(rd.Snapshot) {
 				rc.ss.saveSnap(rd.Snapshot)
 			}
@@ -338,7 +336,7 @@ func (rc *raftNode) serveChannels() {
 				rc.ss.saveEntries(rd.Entries)
 			}
 
-			rc.t.send(rd.Messages)
+			rc.transport.send(rd.Messages)
 
 			if !raft.IsEmptySnap(rd.Snapshot) {
 				rc.raftStorage.ApplySnapshot(rd.Snapshot)
@@ -355,7 +353,6 @@ func (rc *raftNode) serveChannels() {
 			rc.maybeTriggerSnapshot(applyDoneC)
 			rc.node.Advance()
 		case <-rc.stopc:
-			log.Println("stopping at serveChannels")
 			rc.stop()
 			return
 		}
@@ -400,6 +397,6 @@ func (rc *raftNode) stop() {
 	close(rc.commitC)
 	close(rc.errorC)
 	close(rc.donec)
-	rc.t.leave()
+	rc.transport.Close()
 	rc.node.Stop()
 }

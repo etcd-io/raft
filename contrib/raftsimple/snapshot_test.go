@@ -7,22 +7,19 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.etcd.io/raft/v3/raftpb"
 )
 
-func findFollower(t *testing.T, nw *network) *raftNode {
-	var follower *raftNode
-	require.Eventually(t, func() bool {
-		nw.mu.RLock()
-		defer nw.mu.RUnlock()
-		for _, rn := range nw.peers {
+func findFollower(nodes map[uint64]*raftNode) *raftNode {
+	for range 50 {
+		for _, rn := range nodes {
 			if rn.node != nil && rn.node.Status().Lead != rn.id && rn.node.Status().Lead != 0 {
-				follower = rn
-				return true
+				return rn
 			}
 		}
-		return false
-	}, 5*time.Second, 100*time.Millisecond, "A follower should be found")
-	return follower
+		time.Sleep(100 * time.Millisecond)
+	}
+	return nil
 }
 
 func TestSnapshot_Recovery(t *testing.T) {
@@ -33,48 +30,66 @@ func TestSnapshot_Recovery(t *testing.T) {
 	tmpDir := t.TempDir()
 	defer os.RemoveAll(tmpDir)
 
-	nw := &network{peers: make(map[uint64]*raftNode)}
-	nm := &NodeManager{nw: nw, SnapDir: tmpDir}
-
 	peers := []uint64{1, 2, 3}
+	peerURLs := make(map[uint64]string)
 	for _, id := range peers {
-		nm.createOrRecoverNode(id, peers)
+		peerURLs[id] = fmt.Sprintf("http://127.0.0.1:%d", 20000+id)
+	}
+
+	nodes := make(map[uint64]*raftNode)
+	kvstores := make(map[uint64]*kvstore)
+
+	createNode := func(id uint64) {
+		snapdir := fmt.Sprintf("%s/node-%d", tmpDir, id)
+		ss, _ := newSnapshotStorage(snapdir)
+		proposeC := make(chan string)
+		confChangeC := make(chan raftpb.ConfChange)
+		kvs, fsm := newKVStore(proposeC)
+		rn := newRaftNode(id, peerURLs, false, fsm, ss, proposeC, confChangeC)
+		nodes[id] = rn
+		kvstores[id] = kvs
+		go rn.processCommits()
+	}
+
+	for _, id := range peers {
+		createNode(id)
 	}
 
 	defer func() {
-		for _, id := range peers {
-			_ = nm.stopNode(id)
+		for _, rn := range nodes {
+			rn.stop()
 		}
-		nm.wg.Wait()
 	}()
 
-	leader := findLeader(t, nw)
-	follower := findFollower(t, nw)
+	leader := findLeader(nodes)
+	require.NotNil(t, leader, "A leader should be elected")
+
+	follower := findFollower(nodes)
+	require.NotNil(t, follower, "A follower should be found")
 	followerID := follower.id
 
-	err := nm.stopNode(followerID)
-	require.NoError(t, err)
+	// Stop follower
+	nodes[followerID].stop()
 
 	for i := 0; i < int(DefaultSnapshotCount)+2; i++ {
-		kvs := leader.fsm.(kvfsm).kvs
-		kvs.Propose(fmt.Sprintf("key%d", i), fmt.Sprintf("val%d", i))
+		kvstores[leader.id].Propose(fmt.Sprintf("key%d", i), fmt.Sprintf("val%d", i))
 	}
 
 	require.Eventually(t, func() bool {
-		return leader.snapshotIndex > 0
-	}, 5*time.Second, 100*time.Millisecond, "Leader should have taken a snapshot")
+		return nodes[leader.id].snapshotIndex > 0
+	}, 10*time.Second, 100*time.Millisecond, "Leader should have taken a snapshot")
 
-	nm.createOrRecoverNode(followerID, peers)
-	followerRecovered, _ := nw.getNode(followerID)
+	// Restart follower
+	createNode(followerID)
 
 	require.Eventually(t, func() bool {
-		v, ok := followerRecovered.fsm.(kvfsm).kvs.Lookup("key0")
+		v, ok := kvstores[followerID].Lookup("key0")
 		return ok && v == "val0"
 	}, 10*time.Second, 100*time.Millisecond, "Follower should catch up via snapshot")
 
 	require.Eventually(t, func() bool {
 		lastIdx := int(DefaultSnapshotCount) + 1
-		v, ok := followerRecovered.fsm.(kvfsm).kvs.Lookup(fmt.Sprintf("key%d", lastIdx))
+		v, ok := kvstores[followerID].Lookup(fmt.Sprintf("key%d", lastIdx))
 		return ok && v == fmt.Sprintf("val%d", lastIdx)
 	}, 5*time.Second, 100*time.Millisecond, "Follower should catch up to the latest entry")
 }

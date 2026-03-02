@@ -10,19 +10,14 @@ import (
 )
 
 func TestKVStore(t *testing.T) {
-	s := &kvstore{kvStore: map[string]string{"foo": "bar"}}
+	mockedProposeC := make(chan string, 1)
+	s, _ := newKVStore(mockedProposeC)
+	s.kvStore["foo"] = "bar"
 
 	v, _ := s.Lookup("foo")
 	require.Equalf(t, "bar", v, "foo has unexpected value, got %s", v)
 
-	mockedProposeC := make(chan string)
-	s.proposeC = mockedProposeC
-
-	// Run Propose in a goroutine because writing to an unbuffered channel
-	// without a receiver ready will block forever.
-	go func() {
-		s.Propose("x", "y") // update reference
-	}()
+	s.Propose("x", "y")
 	got := <-mockedProposeC
 	dec := gob.NewDecoder(bytes.NewBufferString(got))
 
@@ -35,14 +30,15 @@ func TestKVStore(t *testing.T) {
 }
 
 func TestFSM(t *testing.T) {
-	s := &kvstore{kvStore: map[string]string{"foo": "bar"}}
-	f := &kvfsm{kvs: s}
+	mockedProposeC := make(chan string, 1)
+	s, fsm := newKVStore(mockedProposeC)
+	s.kvStore["foo"] = "bar"
 
-	data, err := f.TakeSnapshot()
+	data, err := fsm.TakeSnapshot()
 	require.NoError(t, err)
-	s.kvStore = nil
+	s.kvStore = make(map[string]string)
 
-	err = f.RestoreSnapshot(data)
+	err = fsm.RestoreSnapshot(data)
 	require.NoError(t, err)
 	v, _ := s.Lookup("foo")
 	require.Equalf(t, "bar", v, "foo has unexpected value, got %s", v)
@@ -50,7 +46,7 @@ func TestFSM(t *testing.T) {
 	var buf strings.Builder
 	_ = gob.NewEncoder(&buf).Encode(kv{"x", "y"})
 	c := &commit{data: []string{buf.String()}, applyDoneC: make(chan struct{})}
-	f.ApplyCommits(c)
+	fsm.ApplyCommits(c)
 
 	v, _ = s.Lookup("x")
 	require.Equalf(t, "y", v, "x has unexpected value, got %s", v)

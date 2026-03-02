@@ -11,7 +11,6 @@ import (
 
 type httpKVAPI struct {
 	store       *kvstore
-	nm          *NodeManager
 	confChangeC chan<- raftpb.ConfChange
 }
 
@@ -45,20 +44,19 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		isNewNode, ok := h.nm.createOrRecoverNode(nodeID, nil)
-		if !ok {
-			log.Printf("Failed to start/recover raft node %d\n", nodeID)
-			http.Error(w, "Failed on POST", http.StatusInternalServerError)
+		url, err := io.ReadAll(r.Body)
+		if err != nil {
+			log.Printf("Failed to read body for conf change (%v)\n", err)
+			http.Error(w, "Failed on POST", http.StatusBadRequest)
 			return
 		}
 
-		if isNewNode {
-			cc := raftpb.ConfChange{
-				Type:   raftpb.ConfChangeAddNode,
-				NodeID: nodeID,
-			}
-			h.confChangeC <- cc
+		cc := raftpb.ConfChange{
+			Type:    raftpb.ConfChangeAddNode,
+			NodeID:  nodeID,
+			Context: url,
 		}
+		h.confChangeC <- cc
 
 		w.WriteHeader(http.StatusNoContent)
 
@@ -69,14 +67,12 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed on DELETE", http.StatusBadRequest)
 			return
 		}
-		// Simulate a crash by strictly halting the node's processes and
-		// severing its network connections.
-		// We DO NOT send a ConfChangeRemoveNode to the cluster.
-		if err := h.nm.stopNode(nodeID); err != nil {
-			log.Printf("Failed to crash node %d: %v\n", nodeID, err)
-			http.Error(w, "Failed on DELETE", http.StatusInternalServerError)
-			return
+
+		cc := raftpb.ConfChange{
+			Type:   raftpb.ConfChangeRemoveNode,
+			NodeID: nodeID,
 		}
+		h.confChangeC <- cc
 
 		w.WriteHeader(http.StatusNoContent)
 
@@ -89,12 +85,11 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func serveHTTPKVAPI(nm *NodeManager, kv *kvstore, port uint64, confChangeC chan<- raftpb.ConfChange, done <-chan struct{}) {
+func serveHTTPKVAPI(kv *kvstore, port uint64, confChangeC chan<- raftpb.ConfChange, done <-chan struct{}) {
 	srv := http.Server{
 		Addr: ":" + strconv.FormatUint(port, 10),
 		Handler: &httpKVAPI{
 			store:       kv,
-			nm:          nm,
 			confChangeC: confChangeC,
 		},
 	}
