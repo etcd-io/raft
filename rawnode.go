@@ -180,13 +180,15 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 		if hasEncoded {
 			decodedEntries := make([]pb.Entry, len(rd.CommittedEntries))
 			for i, ent := range rd.CommittedEntries {
-				dec, _ := rn.raft.raftLog.uniCache.DecodeEntry(ent)
+				dec, ok := rn.raft.raftLog.uniCache.DecodeEntry(ent)
+				if !ok {
+					rn.raft.logger.Warningf("failed to decode committed entry at index %d", ent.Index)
+				}
 				decodedEntries[i] = dec
 			}
 			rd.CommittedEntries = decodedEntries
 		}
 
-		rn.raft.lastCacheIdx = rn.raft.raftLog.uniCache.GetMinCacheIdx(rd.CommittedEntries[len(rd.CommittedEntries)-1].Index)
 	}
 
 	if rn.asyncStorageWrites {

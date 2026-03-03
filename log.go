@@ -63,6 +63,10 @@ type raftLog struct {
 
 	// UniCache module
 	uniCache unicache.UniCache
+	// cacheWaterMark is the highest committed index at which the uniCache
+	// dictionary has been updated. It advances only in commitTo(), making it
+	// safe to report to the leader as the follower's cache version.
+	cacheWaterMark uint64
 }
 
 // newLog returns log using the given storage and default options. It
@@ -343,6 +347,7 @@ func (l *raftLog) commitTo(tocommit uint64) {
 			} else {
 				l.logger.Panicf("uniCache failed to load committed entries [%d-%d]: %v", l.committed+1, tocommit, err)
 			}
+			l.cacheWaterMark = tocommit
 		}
 
 		if l.lastIndex() < tocommit {

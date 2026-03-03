@@ -439,8 +439,6 @@ type raft struct {
 
 	// Leader only pending entries encoded using UniCache module
 	pend pendingBuf
-	// UniCache up to date up to this index
-	lastCacheIdx uint64
 }
 
 func newRaft(c *Config) *raft {
@@ -832,6 +830,9 @@ func (r *raft) reset(term uint64) {
 		}
 		if id == r.id {
 			pr.Match = r.raftLog.lastIndex()
+			if r.raftLog.uniCache != nil {
+				pr.CacheIdx = r.raftLog.cacheWaterMark
+			}
 		}
 	})
 
@@ -1905,11 +1906,11 @@ func (r *raft) handleAppendEntries(m pb.Message) {
 	a := logSliceFromMsgApp(&m)
 
 	if a.prev.index < r.raftLog.committed {
-		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: r.raftLog.committed, Commit: r.lastCacheIdx})
+		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: r.raftLog.committed, Commit: r.raftLog.cacheWaterMark})
 		return
 	}
 	if mlastIndex, ok := r.raftLog.maybeAppend(a, m.Commit); ok {
-		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: mlastIndex, Commit: r.lastCacheIdx})
+		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: mlastIndex, Commit: r.raftLog.cacheWaterMark})
 		return
 	}
 	r.logger.Debugf("%x [logterm: %d, index: %d] rejected MsgApp [logterm: %d, index: %d] from %x",
