@@ -584,6 +584,147 @@ func TestDecodeEntryFallsBackToEvicted(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Fast-path / fallback tests for ReplaceProtoField & GetProtoFieldAndWireType
+// ---------------------------------------------------------------------------
+
+// TestMultiFieldRoundTrip builds data with fields 1+2+3, encodes field 1
+// (bytes→varint), verifies fields 2-3 survive, then decodes back and verifies
+// all fields are restored.
+func TestMultiFieldRoundTrip(t *testing.T) {
+	// Build a proto message with fields 1 (bytes), 2 (bytes), 3 (varint).
+	field1Val := []byte("hello-world-key")
+	field2Val := []byte("extra-metadata")
+	var data []byte
+	data = protowire.AppendTag(data, 1, protowire.BytesType)
+	data = protowire.AppendBytes(data, field1Val)
+	data = protowire.AppendTag(data, 2, protowire.BytesType)
+	data = protowire.AppendBytes(data, field2Val)
+	data = protowire.AppendTag(data, 3, protowire.VarintType)
+	data = protowire.AppendVarint(data, 42)
+
+	// Replace field 1 (bytes → varint ID).
+	newID := protowire.AppendVarint(nil, uint64(7))
+	encoded, err := ReplaceProtoField(data, 1, newID, protowire.VarintType)
+	if err != nil {
+		t.Fatalf("ReplaceProtoField encode failed: %v", err)
+	}
+
+	// Verify fields 2 and 3 survived the replacement.
+	f2, wt2, err := GetProtoFieldAndWireType(encoded, 2)
+	if err != nil {
+		t.Fatalf("field 2 not found after replacement: %v", err)
+	}
+	if wt2 != protowire.BytesType || string(f2) != string(field2Val) {
+		t.Errorf("field 2 mismatch: got %q (wire %d), want %q", f2, wt2, field2Val)
+	}
+	f3, wt3, err := GetProtoFieldAndWireType(encoded, 3)
+	if err != nil {
+		t.Fatalf("field 3 not found after replacement: %v", err)
+	}
+	if wt3 != protowire.VarintType {
+		t.Errorf("field 3 wire type: got %d, want %d", wt3, protowire.VarintType)
+	}
+	v3, n3 := protowire.ConsumeVarint(f3)
+	if n3 <= 0 || v3 != 42 {
+		t.Errorf("field 3 value: got %d, want 42", v3)
+	}
+
+	// Decode field 1 back (varint → bytes).
+	restored, err := ReplaceProtoField(encoded, 1, field1Val, protowire.BytesType)
+	if err != nil {
+		t.Fatalf("ReplaceProtoField decode failed: %v", err)
+	}
+
+	// Verify all three fields are correct in the restored data.
+	f1r, wt1r, err := GetProtoFieldAndWireType(restored, 1)
+	if err != nil || wt1r != protowire.BytesType || string(f1r) != string(field1Val) {
+		t.Errorf("restored field 1 mismatch: got %q (wire %d), want %q", f1r, wt1r, field1Val)
+	}
+	f2r, wt2r, err := GetProtoFieldAndWireType(restored, 2)
+	if err != nil || wt2r != protowire.BytesType || string(f2r) != string(field2Val) {
+		t.Errorf("restored field 2 mismatch: got %q (wire %d), want %q", f2r, wt2r, field2Val)
+	}
+	f3r, wt3r, err := GetProtoFieldAndWireType(restored, 3)
+	if err != nil {
+		t.Fatalf("restored field 3 not found: %v", err)
+	}
+	v3r, n3r := protowire.ConsumeVarint(f3r)
+	if n3r <= 0 || v3r != 42 || wt3r != protowire.VarintType {
+		t.Errorf("restored field 3: got %d (wire %d), want 42", v3r, wt3r)
+	}
+}
+
+// TestGetProtoFieldVarintSubSlice verifies that GetProtoFieldAndWireType returns
+// a varint sub-slice that is correctly consumable by protowire.ConsumeVarint.
+func TestGetProtoFieldVarintSubSlice(t *testing.T) {
+	for _, id := range []uint64{1, 127, 128, 16384, 1<<32 - 1} {
+		var data []byte
+		data = protowire.AppendTag(data, 1, protowire.VarintType)
+		data = protowire.AppendVarint(data, id)
+		// Add trailing field so the varint sub-slice boundary is exercised.
+		data = protowire.AppendTag(data, 2, protowire.VarintType)
+		data = protowire.AppendVarint(data, 99)
+
+		field, wt, err := GetProtoFieldAndWireType(data, 1)
+		if err != nil {
+			t.Fatalf("id=%d: GetProtoFieldAndWireType failed: %v", id, err)
+		}
+		if wt != protowire.VarintType {
+			t.Fatalf("id=%d: wire type %d, want VarintType", id, wt)
+		}
+		v, n := protowire.ConsumeVarint(field)
+		if n <= 0 {
+			t.Fatalf("id=%d: ConsumeVarint failed on returned sub-slice", id)
+		}
+		if v != id {
+			t.Errorf("id=%d: got %d from ConsumeVarint", id, v)
+		}
+	}
+}
+
+// TestReplaceProtoFieldFallback verifies that when field 1 is NOT first in
+// the serialized data, the general (fallback) path still works correctly.
+func TestReplaceProtoFieldFallback(t *testing.T) {
+	// Build data with field 2 first, then field 1.
+	field1Val := []byte("the-key")
+	field2Val := []byte("other-data")
+	var data []byte
+	data = protowire.AppendTag(data, 2, protowire.BytesType)
+	data = protowire.AppendBytes(data, field2Val)
+	data = protowire.AppendTag(data, 1, protowire.BytesType)
+	data = protowire.AppendBytes(data, field1Val)
+
+	// Replace field 1 (bytes → varint) — must use the general path.
+	newID := protowire.AppendVarint(nil, uint64(42))
+	replaced, err := ReplaceProtoField(data, 1, newID, protowire.VarintType)
+	if err != nil {
+		t.Fatalf("ReplaceProtoField fallback failed: %v", err)
+	}
+
+	// Verify field 1 was replaced.
+	f1, wt1, err := GetProtoFieldAndWireType(replaced, 1)
+	if err != nil {
+		t.Fatalf("field 1 not found: %v", err)
+	}
+	if wt1 != protowire.VarintType {
+		t.Errorf("field 1 wire type: got %d, want VarintType", wt1)
+	}
+	v1, n1 := protowire.ConsumeVarint(f1)
+	if n1 <= 0 || v1 != 42 {
+		t.Errorf("field 1 value: got %d, want 42", v1)
+	}
+
+	// Verify field 2 survived.
+	f2, wt2, err := GetProtoFieldAndWireType(replaced, 2)
+	if err != nil {
+		t.Fatalf("field 2 not found: %v", err)
+	}
+	if wt2 != protowire.BytesType || string(f2) != string(field2Val) {
+		t.Errorf("field 2: got %q (wire %d), want %q", f2, wt2, field2Val)
+	}
+}
+
 // TestLeaderTransitionMixedEncoding verifies that a follower correctly handles
 // both encoded entries (from the old leader, in-flight during transfer) and raw
 // entries (from the new leader with a cold cache) without error.

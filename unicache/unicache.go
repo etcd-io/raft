@@ -548,6 +548,55 @@ func (uc *uniCache) BatchUpdateCache(entries []pb.Entry) ([]pb.Entry, bool) {
 }
 
 func ReplaceProtoField(data []byte, targetField int, newValue []byte, newWireType protowire.Type) ([]byte, error) {
+	// Fast path: when the target field is first in the serialized data
+	// (true for all cachedFieldNumber=1 call sites), we can skip the
+	// per-field walk entirely and splice in a single pre-sized allocation.
+	if len(data) > 0 && int(data[0]>>3) == targetField {
+		oldWireType := protowire.Type(data[0] & 0x07)
+		var fieldEnd int
+		switch oldWireType {
+		case protowire.VarintType:
+			_, n := protowire.ConsumeVarint(data[1:])
+			if n < 0 {
+				return replaceProtoFieldGeneral(data, targetField, newValue, newWireType)
+			}
+			fieldEnd = 1 + n
+		case protowire.BytesType:
+			_, n := protowire.ConsumeBytes(data[1:])
+			if n < 0 {
+				return replaceProtoFieldGeneral(data, targetField, newValue, newWireType)
+			}
+			fieldEnd = 1 + n
+		default:
+			return replaceProtoFieldGeneral(data, targetField, newValue, newWireType)
+		}
+		rest := data[fieldEnd:]
+
+		// New tag: single byte for field numbers 1-15.
+		newTag := byte(targetField<<3) | byte(newWireType)
+
+		// Pre-compute exact output size for a single allocation.
+		var newFieldLen int
+		if newWireType == protowire.BytesType {
+			newFieldLen = protowire.SizeVarint(uint64(len(newValue))) + len(newValue)
+		} else {
+			newFieldLen = len(newValue)
+		}
+		out := make([]byte, 0, 1+newFieldLen+len(rest))
+		out = append(out, newTag)
+		if newWireType == protowire.BytesType {
+			out = protowire.AppendVarint(out, uint64(len(newValue)))
+			out = append(out, newValue...)
+		} else {
+			out = append(out, newValue...)
+		}
+		out = append(out, rest...)
+		return out, nil
+	}
+	return replaceProtoFieldGeneral(data, targetField, newValue, newWireType)
+}
+
+func replaceProtoFieldGeneral(data []byte, targetField int, newValue []byte, newWireType protowire.Type) ([]byte, error) {
 	var out []byte
 	for len(data) > 0 {
 		fieldNum, wireType, n := protowire.ConsumeTag(data)
@@ -621,6 +670,28 @@ func ReplaceProtoField(data []byte, targetField int, newValue []byte, newWireTyp
 }
 
 func GetProtoFieldAndWireType(data []byte, targetField int) ([]byte, protowire.Type, error) {
+	// Fast path: target field is first in the serialized data.
+	// Returns sub-slices (0 alloc) for both varint and bytes wire types.
+	if len(data) > 0 && int(data[0]>>3) == targetField {
+		wireType := protowire.Type(data[0] & 0x07)
+		switch wireType {
+		case protowire.VarintType:
+			_, n := protowire.ConsumeVarint(data[1:])
+			if n > 0 {
+				return data[1 : 1+n], wireType, nil
+			}
+		case protowire.BytesType:
+			v, n := protowire.ConsumeBytes(data[1:])
+			if n > 0 {
+				return v, wireType, nil
+			}
+		}
+		// Fall through to general path on parse error or uncommon wire type.
+	}
+	return getProtoFieldGeneral(data, targetField)
+}
+
+func getProtoFieldGeneral(data []byte, targetField int) ([]byte, protowire.Type, error) {
 	for len(data) > 0 {
 		fieldNum, wireType, n := protowire.ConsumeTag(data)
 		if n < 0 {
