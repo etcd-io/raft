@@ -781,3 +781,189 @@ func TestLeaderTransitionMixedEncoding(t *testing.T) {
 		t.Errorf("raw new-leader entry was mutated: got %x, want %x", dec2.Data, brandNewRaw)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// BatchUpdateCache optimization tests
+// ---------------------------------------------------------------------------
+
+// TestBatchUpdateCacheEncodedIDFastPath verifies that entries with a valid
+// EncodedID in the active cache take the fast path: lastIdx is updated and
+// no proto parsing or string conversion occurs.
+func TestBatchUpdateCacheEncodedIDFastPath(t *testing.T) {
+	const capacity = 64
+	const startIdx = uint64(1000)
+	committed := startIdx + 20
+	minC := func() uint64 { return committed }
+	uc, ok := NewUniCache(minC, capacity).(*uniCache)
+	if !ok {
+		t.Fatal("failed to cast")
+	}
+
+	// Commit 5 keys so they are in the active cache.
+	keys := make([][]byte, 5)
+	for i := range keys {
+		keys[i] = []byte(fmt.Sprintf("fast-key-%d", i))
+	}
+	commitKeys(uc, keys, startIdx)
+
+	// Record the IDs assigned to each key.
+	ids := make([]uint32, len(keys))
+	for i, key := range keys {
+		id, exists := uc.reverseCache[string(key)]
+		if !exists {
+			t.Fatalf("key %q not found in reverseCache after commit", key)
+		}
+		ids[i] = id
+	}
+
+	// Build entries that carry EncodedID (simulating leader's committed entries).
+	// The Data is the raw proto (BytesType) — the fast path should NOT parse it.
+	newIndex := committed + 100
+	entries := make([]pb.Entry, len(keys))
+	for i, key := range keys {
+		entries[i] = pb.Entry{
+			Index:     newIndex + uint64(i),
+			Term:      1,
+			Type:      pb.EntryNormal,
+			Data:      encodeProtoField(cachedFieldNumber, key),
+			EncodedID: ids[i],
+		}
+	}
+
+	result, ok2 := uc.BatchUpdateCache(entries)
+	if !ok2 {
+		t.Fatal("BatchUpdateCache returned false")
+	}
+	if len(result) != len(entries) {
+		t.Fatalf("result length %d != entries length %d", len(result), len(entries))
+	}
+
+	// Verify lastIdx was updated for each entry.
+	for i, id := range ids {
+		ent := uc.cache[id]
+		if ent == nil {
+			t.Fatalf("cache entry %d missing", id)
+		}
+		wantIdx := newIndex + uint64(i)
+		if ent.lastIdx != wantIdx {
+			t.Errorf("entry ID=%d: lastIdx=%d, want %d", id, ent.lastIdx, wantIdx)
+		}
+	}
+}
+
+// TestBatchUpdateCacheEvictedPath verifies that entries with EncodedID pointing
+// to the evicted buffer are correctly restored as new cache entries.
+func TestBatchUpdateCacheEvictedPath(t *testing.T) {
+	const capacity = 10
+	const startIdx = uint64(1000)
+	minVersion := startIdx + uint64(2*capacity)
+	minC := func() uint64 { return minVersion }
+	uc, ok := NewUniCache(minC, capacity).(*uniCache)
+	if !ok {
+		t.Fatal("failed to cast")
+	}
+
+	// Commit target key first (gets the lowest ID, will be evicted first).
+	targetKey := []byte("evicted-batch-key")
+	targetRaw := encodeProtoField(cachedFieldNumber, targetKey)
+	uc.UpdateCache(makeEntry(targetRaw, startIdx))
+
+	// Fill cache past capacity to evict targetKey.
+	for i := 1; i <= capacity+5; i++ {
+		key := []byte(fmt.Sprintf("filler-batch-%d", i))
+		data := encodeProtoField(cachedFieldNumber, key)
+		uc.UpdateCache(makeEntry(data, startIdx+uint64(i)))
+	}
+
+	// Find targetKey's ID in the evicted buffer.
+	var targetID uint32
+	for id, elem := range uc.evicted {
+		e := elem.Value.(*cacheEntry)
+		if string(e.key) == string(targetKey) {
+			targetID = id
+			break
+		}
+	}
+	if targetID == 0 {
+		t.Fatal("targetKey not found in evicted buffer")
+	}
+
+	// BatchUpdateCache with EncodedID pointing to evicted entry.
+	newIndex := startIdx + uint64(capacity+20)
+	entries := []pb.Entry{{
+		Index:     newIndex,
+		Term:      1,
+		Type:      pb.EntryNormal,
+		Data:      targetRaw,
+		EncodedID: targetID,
+	}}
+
+	result, ok2 := uc.BatchUpdateCache(entries)
+	if !ok2 {
+		t.Fatal("BatchUpdateCache returned false")
+	}
+	if len(result) != 1 {
+		t.Fatalf("result length %d, want 1", len(result))
+	}
+
+	// Key should now be back in active cache (with a new ID).
+	newID, exists := uc.reverseCache[string(targetKey)]
+	if !exists {
+		t.Fatal("targetKey not found in reverseCache after evicted-path update")
+	}
+	ent := uc.cache[newID]
+	if ent == nil {
+		t.Fatal("new cache entry is nil")
+	}
+	if ent.lastIdx != newIndex {
+		t.Errorf("lastIdx=%d, want %d", ent.lastIdx, newIndex)
+	}
+	// Old evicted entry should have been removed.
+	if _, stillEvicted := uc.evicted[targetID]; stillEvicted {
+		t.Error("old evicted entry should have been removed")
+	}
+}
+
+// TestBatchUpdateCacheVarintDefensive verifies that BatchUpdateCache correctly
+// handles entries whose Data starts with the varint tag (0x08) — these are
+// leader-side encoded entries that must be decoded before cache update when
+// EncodedID is 0.
+func TestBatchUpdateCacheVarintDefensive(t *testing.T) {
+	const capacity = 64
+	const startIdx = uint64(1)
+	committed := uint64(startIdx + 10)
+	minC := func() uint64 { return committed }
+	uc := NewUniCache(minC, capacity)
+
+	// Commit a key so it can be encoded.
+	key := []byte("varint-test-key")
+	rawData := encodeProtoField(cachedFieldNumber, key)
+	uc.UpdateCache(makeEntry(rawData, startIdx))
+
+	// Encode the key to get a varint-form entry.
+	encoded, id := uc.EncodeData(rawData, committed)
+	if id == 0 {
+		t.Fatal("EncodeData returned id=0")
+	}
+	if !IsEncodedData(encoded) {
+		t.Fatal("expected varint-encoded data")
+	}
+
+	// Build an entry with varint data but EncodedID=0 (simulates follower path
+	// where EncodedID was cleared).
+	entry := pb.Entry{
+		Index:     committed + 100,
+		Term:      1,
+		Type:      pb.EntryNormal,
+		Data:      encoded,
+		EncodedID: 0, // Cleared — must fall through to slow path
+	}
+
+	result, ok := uc.BatchUpdateCache([]pb.Entry{entry})
+	if !ok {
+		t.Fatal("BatchUpdateCache returned false for varint-encoded entry")
+	}
+	if len(result) != 1 {
+		t.Fatalf("result length %d, want 1", len(result))
+	}
+}

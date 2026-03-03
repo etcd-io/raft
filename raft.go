@@ -1893,6 +1893,7 @@ func (r *raft) handleAppendEntries(m pb.Message) {
 			if m.Entries[i].Type == pb.EntryNormal && unicache.IsEncodedData(m.Entries[i].Data) {
 				if decoded, ok := r.raftLog.uniCache.DecodeEntry(m.Entries[i]); ok {
 					m.Entries[i] = decoded
+					m.Entries[i].EncodedID = 0 // Clear leader's ID; follower cache IDs may differ
 				} else {
 					panic(fmt.Sprintf("cache decode failed for index %d committed %d with data: %d",
 						m.Entries[i].Index, r.raftLog.committed, m.Entries[i].Data))

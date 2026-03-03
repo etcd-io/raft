@@ -465,81 +465,112 @@ func (uc *uniCache) UpdateCache(entry pb.Entry) (pb.Entry, bool) {
 	return entry, true
 }
 
-func (uc *uniCache) BatchUpdateCache(entries []pb.Entry) ([]pb.Entry, bool) {
-	// 1. PRE-PROCESSING (Outside the lock)
-	// We store the keys we extracted so we don't re-parse them inside the lock.
-	type preparedData struct {
-		entry    pb.Entry
-		keyStr   string
-		keyField []byte
+// updateExistingCacheEntry updates lastIdx and LRU for an entry already in the
+// active cache. Returns false if the id is not in the active cache.
+func (uc *uniCache) updateExistingCacheEntry(id uint32, entryIndex uint64) bool {
+	ent, ok := uc.cache[id]
+	if !ok {
+		return false
 	}
-	prepared := make([]preparedData, 0, len(entries))
+	if ent.lastIdx < entryIndex {
+		ent.lastIdx = entryIndex
+		uc.updateLRU(id)
+		if uc.lastInFlight <= entryIndex {
+			atomic.StoreUint64(&uc.lastInFlight, math.MaxUint64)
+		}
+	}
+	return true
+}
 
-	for _, entry := range entries {
-		// Empty data is a no-op, but valid
+// updateCacheFromEvicted restores an evicted key as a new cache entry.
+// Returns false if the id is not in the evicted buffer.
+func (uc *uniCache) updateCacheFromEvicted(evictedID uint32, entryIndex uint64) bool {
+	evElem, ok := uc.evicted[evictedID]
+	if !ok {
+		return false
+	}
+	ev := evElem.Value.(*cacheEntry)
+
+	// Remove from evicted
+	uc.evictOrder.Remove(evElem)
+	delete(uc.evicted, evictedID)
+
+	// Re-add as a new cache entry
+	newID := uc.nextID
+	uc.nextID++
+	newElem := &cacheEntry{
+		id:       newID,
+		key:      ev.key,
+		lastIdx:  entryIndex,
+		addedIdx: entryIndex,
+	}
+	uc.cache[newID] = newElem
+	uc.reverseCache[string(ev.key)] = newID
+	uc.addToLRU(newElem)
+	return true
+}
+
+func (uc *uniCache) BatchUpdateCache(entries []pb.Entry) ([]pb.Entry, bool) {
+	for i := range entries {
+		entry := entries[i]
+
+		// Skip empty data and non-normal entries
 		if len(entry.Data) == 0 || entry.Type != pb.EntryNormal {
-			prepared = append(prepared, preparedData{entry: entry})
 			continue
 		}
 
-		currentEntry := entry
-		// Handle Varint encoding
-		if entry.Data[0] == cachedFieldVarintTag {
+		// Fast path: EncodedID != 0 means the leader already assigned a cache ID.
+		// Look up directly by ID — no proto parsing, no string conversion.
+		if entry.EncodedID != 0 {
+			// Try active cache first (common case)
+			if uc.updateExistingCacheEntry(entry.EncodedID, entry.Index) {
+				continue
+			}
+			// Try evicted cache (rare: key was evicted between encode and commit)
+			if uc.updateCacheFromEvicted(entry.EncodedID, entry.Index) {
+				continue
+			}
+			// ID not found in either cache — fall through to slow path
+		}
+
+		// Slow path: parse proto to extract key (new key or follower path)
+		currentData := entry.Data
+
+		// Handle varint-encoded entries (leader seeing its own encoded entries)
+		if currentData[0] == cachedFieldVarintTag {
 			decoded, ok := uc.DecodeEntry(entry)
 			if !ok {
 				return nil, false
 			}
-			currentEntry = decoded
+			currentData = decoded.Data
 		}
 
-		// Validation checks
-		if currentEntry.Data[0] != cachedFieldBytesTag {
+		if currentData[0] != cachedFieldBytesTag {
 			return nil, false
 		}
 
-		keyField, wireType, err := GetProtoFieldAndWireType(currentEntry.Data, cachedFieldNumber)
+		keyField, wireType, err := GetProtoFieldAndWireType(currentData, cachedFieldNumber)
 		if err != nil || wireType != protowire.BytesType {
 			return nil, false
 		}
 
-		prepared = append(prepared, preparedData{
-			entry:    currentEntry,
-			keyStr:   string(keyField),
-			keyField: keyField,
-		})
-	}
+		keyStr := string(keyField)
 
-	// 2. BATCH UPDATE
-	for _, p := range prepared {
-		// Skip if there's no key (empty data case)
-		if p.keyStr == "" {
-			continue
-		}
-
-		if id, exists := uc.reverseCache[p.keyStr]; exists {
-			// Update existing entry
-			ent := uc.cache[id]
-			if ent.lastIdx < p.entry.Index {
-				ent.lastIdx = p.entry.Index
-				uc.updateLRU(id)
-				if uc.lastInFlight <= p.entry.Index {
-					atomic.StoreUint64(&uc.lastInFlight, math.MaxUint64)
-				}
-			}
+		if id, exists := uc.reverseCache[keyStr]; exists {
+			// Key already in cache — update lastIdx
+			uc.updateExistingCacheEntry(id, entry.Index)
 		} else {
-			// Add new entry to cache
+			// New key — add to cache
 			newID := uc.nextID
 			uc.nextID++
-
 			newElem := &cacheEntry{
 				id:       newID,
-				key:      p.keyField,
-				lastIdx:  p.entry.Index,
-				addedIdx: p.entry.Index,
+				key:      keyField,
+				lastIdx:  entry.Index,
+				addedIdx: entry.Index,
 			}
-
 			uc.cache[newID] = newElem
-			uc.reverseCache[p.keyStr] = newID
+			uc.reverseCache[keyStr] = newID
 			uc.addToLRU(newElem)
 		}
 	}

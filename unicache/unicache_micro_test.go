@@ -261,3 +261,39 @@ func BenchmarkSafeEncode(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkBatchUpdateCache(b *testing.B) {
+	printHeaderOnce("BatchUpdateCache")
+	for _, c := range cases() {
+		b.Run(c.name, func(b *testing.B) {
+			uc := newWideOpenUniCache()
+			hot := primeCache(uc, 64, c.sizeB)
+			payloads := makeDataset(c.N, c.sizeB, c.hitRatio, hot)
+
+			// Pre-encode hits to get EncodedIDs, simulating leader commit path.
+			entries := make([]pb.Entry, len(payloads))
+			for i := range payloads {
+				p := payloads[i]
+				_, id := uc.EncodeData(p, 0)
+				entries[i] = pb.Entry{
+					Index:     uint64(50_000 + i),
+					Data:      p,
+					EncodedID: id, // non-zero for cache hits, 0 for misses
+				}
+			}
+
+			b.SetBytes(int64(c.sizeB))
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			idx := 0
+			for i := 0; i < b.N; i++ {
+				uc.BatchUpdateCache(entries[idx : idx+1])
+				idx++
+				if idx == len(entries) {
+					idx = 0
+				}
+			}
+		})
+	}
+}
