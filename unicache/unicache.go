@@ -51,8 +51,9 @@ type uniCache struct {
 	lruList *list.List
 	lruMap  map[uint32]*list.Element
 
-	evicted    map[uint32]*list.Element
-	evictOrder *list.List
+	evicted         map[uint32]*list.Element
+	evictOrder      *list.List
+	evictedCapacity int
 
 	maxCommit       *uint64
 	minCacheVersion func() uint64
@@ -73,8 +74,9 @@ func NewUniCache(minCacheVersion func() uint64, capacity int) UniCache {
 		nextID:   1,
 		capacity: capacity,
 
-		evicted:    make(map[uint32]*list.Element),
-		evictOrder: list.New(),
+		evicted:         make(map[uint32]*list.Element),
+		evictOrder:      list.New(),
+		evictedCapacity: 2 * capacity,
 
 		minCacheVersion: minCacheVersion,
 
@@ -135,16 +137,6 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
 
 	//fmt.Printf("[evictLRU] index=%d evicting ID=%d lenCache:%d, lastIdx=%d capacity=%d len evicted=%d\n", currIdx, entry.id, len(uc.cache), entry.lastIdx, uc.capacity, len(uc.evicted))
 
-	minCommit := int(uc.minCacheVersion())
-
-	if minCommit == 0 {
-		delete(uc.cache, entry.id)
-		delete(uc.reverseCache, string(entry.key))
-		delete(uc.lruMap, entry.id)
-		uc.lruList.Remove(elem)
-		return
-	}
-
 	evictedElem := uc.evictOrder.PushBack(entry)
 	uc.evicted[entry.id] = evictedElem
 
@@ -152,6 +144,17 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
 	delete(uc.reverseCache, string(entry.key))
 	delete(uc.lruMap, entry.id)
 	uc.lruList.Remove(elem)
+
+	// Cap the evicted buffer to prevent unbounded growth.
+	for len(uc.evicted) > uc.evictedCapacity {
+		front := uc.evictOrder.Front()
+		if front == nil {
+			break
+		}
+		oldest := front.Value.(*cacheEntry)
+		uc.evictOrder.Remove(front)
+		delete(uc.evicted, oldest.id)
+	}
 }
 
 // PurgeEvicted removes entries from the front of evictOrder whose lastIdx is
@@ -172,6 +175,16 @@ func (uc *uniCache) PurgeEvicted() {
 		}
 		uc.evictOrder.Remove(front)
 		delete(uc.evicted, e.id)
+	}
+	// Belt-and-suspenders cap enforcement.
+	for len(uc.evicted) > uc.evictedCapacity {
+		front := uc.evictOrder.Front()
+		if front == nil {
+			break
+		}
+		oldest := front.Value.(*cacheEntry)
+		uc.evictOrder.Remove(front)
+		delete(uc.evicted, oldest.id)
 	}
 }
 
@@ -221,7 +234,7 @@ func (uc *uniCache) SafeEncode(data []byte, appendIdx uint64, encodedID uint32) 
 	}
 	fmt.Printf("[SafeEncode] index=%d didnt find data for ID=%d, capacity=%d, cache size=%d, evicted size=%d, nextId=%d\n",
 		appendIdx, encodedID, uc.capacity, len(uc.cache), len(uc.evicted), uc.nextID)
-	return data, nil
+	return nil, nil
 }
 
 func (uc *uniCache) BatchSafeEncode(entries []pb.Entry) (fullData [][]byte, logData [][]byte) {
@@ -355,13 +368,17 @@ func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
 
 		elem, ok := uc.cache[uint32(id)]
 
-		if !ok {
-			fmt.Println("[decode cache] not in cache: ", id, "index", entry.Index, "type ", entry.Type)
+		var key []byte
+		if ok {
+			key = elem.key
+		} else if evElem, evOk := uc.evicted[uint32(id)]; evOk {
+			key = evElem.Value.(*cacheEntry).key
+		} else {
+			fmt.Println("[decode cache] not in cache or evicted: ", id, "index", entry.Index, "type ", entry.Type)
 			return entry, false
 		}
 
-		// ReplaceProtoField outside the lock
-		newData, err := ReplaceProtoField(entry.Data, cachedFieldNumber, elem.key, protowire.BytesType)
+		newData, err := ReplaceProtoField(entry.Data, cachedFieldNumber, key, protowire.BytesType)
 		if err != nil {
 			return entry, false
 		}

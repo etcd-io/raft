@@ -435,6 +435,155 @@ func TestNewLeaderWithFreshCache(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// TestEvictLRUAlwaysMovesToEvicted
+// ---------------------------------------------------------------------------
+
+// TestEvictLRUAlwaysMovesToEvicted verifies that even when minCacheVersion==0
+// (follower), evicted entries are moved to the evicted buffer instead of
+// being hard-deleted. This is critical for correctness after leadership
+// transitions: if a follower becomes leader, it needs the evicted map to
+// restore entries via SafeEncode.
+func TestEvictLRUAlwaysMovesToEvicted(t *testing.T) {
+	const capacity = 10
+	const startIdx = uint64(10 * capacity) // high enough so evictLRU guard fires
+	// minCacheVersion returns 0, simulating a follower.
+	minC := func() uint64 { return 0 }
+	uc, ok := NewUniCache(minC, capacity).(*uniCache)
+	if !ok {
+		t.Fatal("failed to cast UniCache to *uniCache")
+	}
+
+	// Fill past capacity to trigger eviction.
+	for i := 0; i < capacity+5; i++ {
+		key := []byte(fmt.Sprintf("follower-key-%d", i))
+		data := encodeProtoField(cachedFieldNumber, key)
+		uc.UpdateCache(makeEntry(data, startIdx+uint64(i)))
+	}
+
+	// Evicted entries must land in the evicted buffer, not be deleted.
+	if len(uc.evicted) == 0 {
+		t.Fatal("expected entries in evicted buffer even with minCacheVersion=0")
+	}
+	if uc.evictOrder.Len() != len(uc.evicted) {
+		t.Fatalf("evictOrder length %d != evicted map length %d",
+			uc.evictOrder.Len(), len(uc.evicted))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestEvictedCapEnforced
+// ---------------------------------------------------------------------------
+
+// TestEvictedCapEnforced verifies that the evicted buffer never grows beyond
+// evictedCapacity (2 * capacity).
+func TestEvictedCapEnforced(t *testing.T) {
+	const capacity = 10
+	const startIdx = uint64(10 * capacity)
+	minC := func() uint64 { return 0 }
+	uc, ok := NewUniCache(minC, capacity).(*uniCache)
+	if !ok {
+		t.Fatal("failed to cast UniCache to *uniCache")
+	}
+
+	// Insert many more entries than capacity to push a lot into evicted.
+	// 5*capacity ensures evicted buffer would exceed 2*capacity without the cap.
+	for i := 0; i < 5*capacity; i++ {
+		key := []byte(fmt.Sprintf("cap-key-%d", i))
+		data := encodeProtoField(cachedFieldNumber, key)
+		uc.UpdateCache(makeEntry(data, startIdx+uint64(i)))
+	}
+
+	if len(uc.evicted) > uc.evictedCapacity {
+		t.Fatalf("evicted size %d exceeds evictedCapacity %d",
+			len(uc.evicted), uc.evictedCapacity)
+	}
+	if uc.evictOrder.Len() != len(uc.evicted) {
+		t.Fatalf("evictOrder length %d != evicted map length %d",
+			uc.evictOrder.Len(), len(uc.evicted))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestSafeEncodeReturnsNilOnMiss
+// ---------------------------------------------------------------------------
+
+// TestSafeEncodeReturnsNilOnMiss verifies that SafeEncode returns (nil, nil)
+// when the encoded ID is not found in either cache or evicted buffer.
+func TestSafeEncodeReturnsNilOnMiss(t *testing.T) {
+	const capacity = 10
+	minC := func() uint64 { return 100 }
+	uc := NewUniCache(minC, capacity)
+
+	// Construct a varint-encoded entry with a non-existent ID.
+	fakeEncoded := protowire.AppendTag(nil, cachedFieldNumber, protowire.VarintType)
+	fakeEncoded = protowire.AppendVarint(fakeEncoded, uint64(999))
+
+	data, full := uc.SafeEncode(fakeEncoded, 200, 999)
+	if data != nil {
+		t.Errorf("expected nil data on miss, got %x", data)
+	}
+	if full != nil {
+		t.Errorf("expected nil full on miss, got %x", full)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestDecodeEntryFallsBackToEvicted
+// ---------------------------------------------------------------------------
+
+// TestDecodeEntryFallsBackToEvicted verifies that DecodeEntry can restore an
+// entry whose ID has been evicted from the active LRU cache but is still in
+// the evicted buffer.
+func TestDecodeEntryFallsBackToEvicted(t *testing.T) {
+	const capacity = 10
+	const startIdx = uint64(1000)
+	minVersion := startIdx + uint64(2*capacity)
+	minC := func() uint64 { return minVersion }
+	uc := NewUniCache(minC, capacity)
+	inner, ok := uc.(*uniCache)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+
+	// Commit the target key first (will get the lowest ID, be evicted first).
+	targetKey := []byte("decode-evicted-key")
+	targetRaw := encodeProtoField(cachedFieldNumber, targetKey)
+	uc.UpdateCache(makeEntry(targetRaw, startIdx))
+
+	// Fill the cache past capacity so targetKey is evicted.
+	for i := 1; i <= capacity+5; i++ {
+		key := []byte(fmt.Sprintf("filler-%d", i))
+		data := encodeProtoField(cachedFieldNumber, key)
+		uc.UpdateCache(makeEntry(data, startIdx+uint64(i)))
+	}
+
+	// Find targetKey's ID in the evicted buffer.
+	var targetID uint32
+	for id, elem := range inner.evicted {
+		e := elem.Value.(*cacheEntry)
+		if string(e.key) == string(targetKey) {
+			targetID = id
+			break
+		}
+	}
+	if targetID == 0 {
+		t.Fatal("targetKey was not found in the evicted buffer")
+	}
+
+	// Construct a varint-encoded entry referencing the evicted ID.
+	fakeEncoded := protowire.AppendTag(nil, cachedFieldNumber, protowire.VarintType)
+	fakeEncoded = protowire.AppendVarint(fakeEncoded, uint64(targetID))
+
+	dec, ok2 := uc.DecodeEntry(makeEntry(fakeEncoded, startIdx+uint64(capacity+10)))
+	if !ok2 {
+		t.Fatal("DecodeEntry failed — should have fallen back to evicted buffer")
+	}
+	if string(dec.Data) != string(targetRaw) {
+		t.Errorf("decoded data mismatch:\n  got:  %x\n  want: %x", dec.Data, targetRaw)
+	}
+}
+
 // TestLeaderTransitionMixedEncoding verifies that a follower correctly handles
 // both encoded entries (from the old leader, in-flight during transfer) and raw
 // entries (from the new leader with a cold cache) without error.

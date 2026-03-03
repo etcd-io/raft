@@ -864,6 +864,13 @@ func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 				var fullData []byte
 				enc := es[i]
 				enc.Data, fullData = r.raftLog.uniCache.SafeEncode(enc.Data, enc.Index, enc.EncodedID)
+				if enc.EncodedID != 0 && enc.Data == nil {
+					r.logger.Warningf(
+						"%x proposal contains encoded ID %d that cannot be resolved; dropping proposal",
+						r.id, enc.EncodedID,
+					)
+					return false
+				}
 				encEnts[i] = enc
 				if fullData != nil {
 					es[i].Data = fullData
