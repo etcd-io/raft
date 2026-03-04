@@ -529,60 +529,6 @@ func TestSafeEncodeReturnsNilOnMiss(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestDecodeEntryFallsBackToEvicted
-// ---------------------------------------------------------------------------
-
-// TestDecodeEntryFallsBackToEvicted verifies that DecodeEntry can restore an
-// entry whose ID has been evicted from the active LRU cache but is still in
-// the evicted buffer.
-func TestDecodeEntryFallsBackToEvicted(t *testing.T) {
-	const capacity = 10
-	const startIdx = uint64(1000)
-	minVersion := startIdx + uint64(2*capacity)
-	minC := func() uint64 { return minVersion }
-	uc := NewUniCache(minC, capacity)
-	inner, ok := uc.(*uniCache)
-	if !ok {
-		t.Fatal("type assertion failed")
-	}
-
-	// Commit the target key first (will get the lowest ID, be evicted first).
-	targetKey := []byte("decode-evicted-key")
-	targetRaw := encodeProtoField(cachedFieldNumber, targetKey)
-	uc.UpdateCache(makeEntry(targetRaw, startIdx))
-
-	// Fill the cache past capacity so targetKey is evicted.
-	for i := 1; i <= capacity+5; i++ {
-		key := []byte(fmt.Sprintf("filler-%d", i))
-		data := encodeProtoField(cachedFieldNumber, key)
-		uc.UpdateCache(makeEntry(data, startIdx+uint64(i)))
-	}
-
-	// Find targetKey's ID in the evicted buffer.
-	var targetID uint32
-	for id, elem := range inner.evicted {
-		e := elem.Value.(*cacheEntry)
-		if string(e.key) == string(targetKey) {
-			targetID = id
-			break
-		}
-	}
-	if targetID == 0 {
-		t.Fatal("targetKey was not found in the evicted buffer")
-	}
-
-	// Construct a varint-encoded entry referencing the evicted ID.
-	fakeEncoded := protowire.AppendTag(nil, cachedFieldNumber, protowire.VarintType)
-	fakeEncoded = protowire.AppendVarint(fakeEncoded, uint64(targetID))
-
-	dec, ok2 := uc.DecodeEntry(makeEntry(fakeEncoded, startIdx+uint64(capacity+10)))
-	if !ok2 {
-		t.Fatal("DecodeEntry failed — should have fallen back to evicted buffer")
-	}
-	if string(dec.Data) != string(targetRaw) {
-		t.Errorf("decoded data mismatch:\n  got:  %x\n  want: %x", dec.Data, targetRaw)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // Fast-path / fallback tests for ReplaceProtoField & GetProtoFieldAndWireType
