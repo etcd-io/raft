@@ -1190,8 +1190,8 @@ func TestHandleHeartbeatResp(t *testing.T) {
 	require.Empty(t, msgs)
 }
 
-// TestRaftFreesReadOnlyMem ensures raft will free read request from
-// readOnly readIndexQueue and pendingReadIndex map.
+// TestRaftFreesReadOnlyMem ensures raft will free read requests from
+// readOnly unconfirmedReads once they are confirmed.
 // related issue: https://github.com/etcd-io/etcd/issues/7571
 func TestRaftFreesReadOnlyMem(t *testing.T) {
 	sm := newTestRaft(1, 5, 1, newTestMemoryStorage(withPeers(1, 2)))
@@ -1199,28 +1199,21 @@ func TestRaftFreesReadOnlyMem(t *testing.T) {
 	sm.becomeLeader()
 	sm.raftLog.commitTo(sm.raftLog.lastIndex())
 
-	ctx := []byte("ctx")
+	reqCtx := []byte("ctx")
 
 	// leader starts linearizable read request.
 	// more info: raft dissertation 6.4, step 2.
-	sm.Step(pb.Message{From: 2, Type: pb.MsgReadIndex, Entries: []pb.Entry{{Data: ctx}}})
+	sm.Step(pb.Message{From: 2, Type: pb.MsgReadIndex, Entries: []pb.Entry{{Data: reqCtx}}})
 	msgs := sm.readMessages()
 	require.Len(t, msgs, 1)
 	require.Equal(t, pb.MsgHeartbeat, msgs[0].Type)
-	require.Equal(t, ctx, msgs[0].Context)
-	require.Len(t, sm.readOnly.readIndexQueue, 1)
-	require.Len(t, sm.readOnly.pendingReadIndex, 1)
-	_, ok := sm.readOnly.pendingReadIndex[string(ctx)]
-	require.True(t, ok)
+	require.Len(t, sm.readOnly.unconfirmedReads, 1)
 
 	// heartbeat responses from majority of followers (1 in this case)
 	// acknowledge the authority of the leader.
 	// more info: raft dissertation 6.4, step 3.
-	sm.Step(pb.Message{From: 2, Type: pb.MsgHeartbeatResp, Context: ctx})
-	require.Empty(t, sm.readOnly.readIndexQueue)
-	require.Empty(t, sm.readOnly.pendingReadIndex)
-	_, ok = sm.readOnly.pendingReadIndex[string(ctx)]
-	require.False(t, ok)
+	sm.Step(pb.Message{From: 2, Type: pb.MsgHeartbeatResp, Context: msgs[0].Context})
+	require.Empty(t, sm.readOnly.unconfirmedReads)
 }
 
 // TestMsgAppRespWaitReset verifies the resume behavior of a leader

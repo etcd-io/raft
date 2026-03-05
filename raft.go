@@ -720,12 +720,7 @@ func (r *raft) bcastAppend() {
 
 // bcastHeartbeat sends RPC, without entries to all the peers.
 func (r *raft) bcastHeartbeat() {
-	lastCtx := r.readOnly.lastPendingRequestCtx()
-	if len(lastCtx) == 0 {
-		r.bcastHeartbeatWithCtx(nil)
-	} else {
-		r.bcastHeartbeatWithCtx([]byte(lastCtx))
-	}
+	r.bcastHeartbeatWithCtx(r.readOnly.heartbeatCtx())
 }
 
 func (r *raft) bcastHeartbeatWithCtx(ctx []byte) {
@@ -1593,11 +1588,8 @@ func stepLeader(r *raft, m pb.Message) error {
 			return nil
 		}
 
-		if r.trk.Voters.VoteResult(r.readOnly.recvAck(m.From, m.Context)) != quorum.VoteWon {
-			return nil
-		}
-
-		rss := r.readOnly.advance(m)
+		r.readOnly.recvAck(m.From, m.Context)
+		rss := r.readOnly.maybeAdvance(r.trk.Voters)
 		for _, rs := range rss {
 			if resp := r.responseToReadIndexReq(rs.req, rs.index); resp.To != None {
 				r.send(resp)
@@ -2148,8 +2140,8 @@ func sendMsgReadIndexResponse(r *raft, m pb.Message) {
 	case ReadOnlySafe:
 		r.readOnly.addRequest(r.raftLog.committed, m)
 		// The local node automatically acks the request.
-		r.readOnly.recvAck(r.id, m.Entries[0].Data)
-		r.bcastHeartbeatWithCtx(m.Entries[0].Data)
+		r.readOnly.recvAck(r.id, r.readOnly.heartbeatCtx())
+		r.bcastHeartbeat()
 	case ReadOnlyLeaseBased:
 		if resp := r.responseToReadIndexReq(m, r.raftLog.committed); resp.To != None {
 			r.send(resp)
