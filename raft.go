@@ -452,13 +452,16 @@ func newRaft(c *Config) *raft {
 	}
 
 	r := &raft{
-		id:                          c.ID,
-		lead:                        None,
-		isLearner:                   false,
-		raftLog:                     raftlog,
-		maxMsgSize:                  entryEncodingSize(c.MaxSizePerMsg),
-		maxUncommittedSize:          entryPayloadSize(c.MaxUncommittedEntriesSize),
-		trk:                         tracker.MakeProgressTracker(c.MaxInflightMsgs, c.MaxInflightBytes),
+		id:                 c.ID,
+		lead:               None,
+		isLearner:          false,
+		raftLog:            raftlog,
+		maxMsgSize:         entryEncodingSize(c.MaxSizePerMsg),
+		maxUncommittedSize: entryPayloadSize(c.MaxUncommittedEntriesSize),
+		trk: tracker.MakeProgressTracker(
+			c.MaxInflightMsgs,
+			c.MaxInflightBytes,
+		),
 		electionTimeout:             c.ElectionTick,
 		heartbeatTimeout:            c.HeartbeatTick,
 		logger:                      c.Logger,
@@ -504,8 +507,16 @@ func newRaft(c *Config) *raft {
 	}
 
 	// TODO(pav-kv): it should be ok to simply print %+v for lastID.
-	r.logger.Infof("newRaft %x [peers: [%s], term: %d, commit: %d, applied: %d, lastindex: %d, lastterm: %d]",
-		r.id, strings.Join(nodesStrs, ","), r.Term, r.raftLog.committed, r.raftLog.applied, lastID.index, lastID.term)
+	r.logger.Infof(
+		"newRaft %x [peers: [%s], term: %d, commit: %d, applied: %d, lastindex: %d, lastterm: %d]",
+		r.id,
+		strings.Join(nodesStrs, ","),
+		r.Term,
+		r.raftLog.committed,
+		r.raftLog.applied,
+		lastID.index,
+		lastID.term,
+	)
 	return r
 }
 
@@ -527,7 +538,8 @@ func (r *raft) send(m pb.Message) {
 	if m.From == None {
 		m.From = r.id
 	}
-	if m.Type == pb.MsgVote || m.Type == pb.MsgVoteResp || m.Type == pb.MsgPreVote || m.Type == pb.MsgPreVoteResp {
+	if m.Type == pb.MsgVote || m.Type == pb.MsgVoteResp || m.Type == pb.MsgPreVote ||
+		m.Type == pb.MsgPreVoteResp {
 		if m.Term == 0 {
 			// All {pre-,}campaign messages need to have the term set when
 			// sending.
@@ -691,7 +703,11 @@ func (r *raft) maybeSendSnapshot(to uint64, pr *tracker.Progress) bool {
 	snapshot, err := r.raftLog.snapshot()
 	if err != nil {
 		if err == ErrSnapshotTemporarilyUnavailable {
-			r.logger.Debugf("%x failed to send snapshot to %x because snapshot is temporarily unavailable", r.id, to)
+			r.logger.Debugf(
+				"%x failed to send snapshot to %x because snapshot is temporarily unavailable",
+				r.id,
+				to,
+			)
 			return false
 		}
 		panic(err) // TODO(bdarnell)
@@ -780,9 +796,16 @@ func (r *raft) appliedTo(index uint64, size entryEncodingSize) {
 		// the joint configuration, or the leadership transfer will fail,
 		// and we will propose the config change on the next advance.
 		if err := r.Step(m); err != nil {
-			r.logger.Debugf("not initiating automatic transition out of joint configuration %s: %v", r.trk.Config, err)
+			r.logger.Debugf(
+				"not initiating automatic transition out of joint configuration %s: %v",
+				r.trk.Config,
+				err,
+			)
 		} else {
-			r.logger.Infof("initiating automatic transition out of joint configuration %s", r.trk.Config)
+			r.logger.Infof(
+				"initiating automatic transition out of joint configuration %s",
+				r.trk.Config,
+			)
 		}
 	}
 }
@@ -864,11 +887,16 @@ func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 			for i := range es {
 				var fullData []byte
 				enc := es[i]
-				enc.Data, fullData = r.raftLog.uniCache.SafeEncode(enc.Data, enc.Index, enc.EncodedID)
+				enc.Data, fullData = r.raftLog.uniCache.SafeEncode(
+					enc.Data,
+					enc.Index,
+					enc.EncodedID,
+				)
 				if enc.EncodedID != 0 && enc.Data == nil {
 					r.logger.Warningf(
 						"%x proposal contains encoded ID %d that cannot be resolved; dropping proposal",
-						r.id, enc.EncodedID,
+						r.id,
+						enc.EncodedID,
 					)
 					return false
 				}
@@ -1052,7 +1080,11 @@ func (r *raft) hup(t CampaignType) {
 		return
 	}
 	if r.hasUnappliedConfChanges() {
-		r.logger.Warningf("%x cannot campaign at term %d since there are still pending configuration changes to apply", r.id, r.Term)
+		r.logger.Warningf(
+			"%x cannot campaign at term %d since there are still pending configuration changes to apply",
+			r.id,
+			r.Term,
+		)
 		return
 	}
 
@@ -1139,11 +1171,24 @@ func (r *raft) campaign(t CampaignType) {
 		if t == campaignTransfer {
 			ctx = []byte(t)
 		}
-		r.send(pb.Message{To: id, Term: term, Type: voteMsg, Index: last.index, LogTerm: last.term, Context: ctx})
+		r.send(
+			pb.Message{
+				To:      id,
+				Term:    term,
+				Type:    voteMsg,
+				Index:   last.index,
+				LogTerm: last.term,
+				Context: ctx,
+			},
+		)
 	}
 }
 
-func (r *raft) poll(id uint64, t pb.MessageType, v bool) (granted int, rejected int, result quorum.VoteResult) {
+func (r *raft) poll(
+	id uint64,
+	t pb.MessageType,
+	v bool,
+) (granted int, rejected int, result quorum.VoteResult) {
 	if v {
 		r.logger.Infof("%x received %s from %x at term %d", r.id, t, id, r.Term)
 	} else {
@@ -1169,8 +1214,19 @@ func (r *raft) Step(m pb.Message) error {
 				// of hearing from a current leader, it does not update its term or grant its vote
 				last := r.raftLog.lastEntryID()
 				// TODO(pav-kv): it should be ok to simply print the %+v of the lastEntryID.
-				r.logger.Infof("%x [logterm: %d, index: %d, vote: %x] ignored %s from %x [logterm: %d, index: %d] at term %d: lease is not expired (remaining ticks: %d)",
-					r.id, last.term, last.index, r.Vote, m.Type, m.From, m.LogTerm, m.Index, r.Term, r.electionTimeout-r.electionElapsed)
+				r.logger.Infof(
+					"%x [logterm: %d, index: %d, vote: %x] ignored %s from %x [logterm: %d, index: %d] at term %d: lease is not expired (remaining ticks: %d)",
+					r.id,
+					last.term,
+					last.index,
+					r.Vote,
+					m.Type,
+					m.From,
+					m.LogTerm,
+					m.Index,
+					r.Term,
+					r.electionTimeout-r.electionElapsed,
+				)
 				return nil
 			}
 		}
@@ -1184,8 +1240,14 @@ func (r *raft) Step(m pb.Message) error {
 			// rejected our vote so we should become a follower at the new
 			// term.
 		default:
-			r.logger.Infof("%x [term: %d] received a %s message with higher term from %x [term: %d]",
-				r.id, r.Term, m.Type, m.From, m.Term)
+			r.logger.Infof(
+				"%x [term: %d] received a %s message with higher term from %x [term: %d]",
+				r.id,
+				r.Term,
+				m.Type,
+				m.From,
+				m.Term,
+			)
 			if m.Type == pb.MsgApp || m.Type == pb.MsgHeartbeat || m.Type == pb.MsgSnap {
 				r.becomeFollower(m.Term, m.From)
 			} else {
@@ -1223,8 +1285,18 @@ func (r *raft) Step(m pb.Message) error {
 			// we drop messages with a lower term.
 			last := r.raftLog.lastEntryID()
 			// TODO(pav-kv): it should be ok to simply print %+v of the lastEntryID.
-			r.logger.Infof("%x [logterm: %d, index: %d, vote: %x] rejected %s from %x [logterm: %d, index: %d] at term %d",
-				r.id, last.term, last.index, r.Vote, m.Type, m.From, m.LogTerm, m.Index, r.Term)
+			r.logger.Infof(
+				"%x [logterm: %d, index: %d, vote: %x] rejected %s from %x [logterm: %d, index: %d] at term %d",
+				r.id,
+				last.term,
+				last.index,
+				r.Vote,
+				m.Type,
+				m.From,
+				m.LogTerm,
+				m.Index,
+				r.Term,
+			)
 			r.send(pb.Message{To: m.From, Term: r.Term, Type: pb.MsgPreVoteResp, Reject: true})
 		} else if m.Type == pb.MsgStorageAppendResp {
 			if m.Index != 0 {
@@ -1232,8 +1304,13 @@ func (r *raft) Step(m pb.Message) error {
 				// they may have been overwritten in the unstable log during a
 				// later term. See the comment in newStorageAppendResp for more
 				// about this race.
-				r.logger.Infof("%x [term: %d] ignored entry appends from a %s message with lower term [term: %d]",
-					r.id, r.Term, m.Type, m.Term)
+				r.logger.Infof(
+					"%x [term: %d] ignored entry appends from a %s message with lower term [term: %d]",
+					r.id,
+					r.Term,
+					m.Type,
+					m.Term,
+				)
 			}
 			if m.Snapshot != nil {
 				// Even if the snapshot applied under a different term, its
@@ -1255,7 +1332,10 @@ func (r *raft) Step(m pb.Message) error {
 		if r.raftLog.uniCache != nil && len(m.Entries) > 0 {
 			for i := range m.Entries {
 				if m.Entries[i].EncodedID == 0 {
-					encData, encID := r.raftLog.uniCache.EncodeData(m.Entries[i].Data, r.raftLog.lastIndex())
+					encData, encID := r.raftLog.uniCache.EncodeData(
+						m.Entries[i].Data,
+						r.raftLog.lastIndex(),
+					)
 					if encID != 0 {
 						m.Entries[i].Data = encData
 						m.Entries[i].EncodedID = encID
@@ -1320,8 +1400,18 @@ func (r *raft) Step(m pb.Message) error {
 			// it won't win the election, at least in the absence of the bug discussed
 			// in:
 			// https://github.com/etcd-io/etcd/issues/7625#issuecomment-488798263.
-			r.logger.Infof("%x [logterm: %d, index: %d, vote: %x] cast %s for %x [logterm: %d, index: %d] at term %d",
-				r.id, lastID.term, lastID.index, r.Vote, m.Type, m.From, candLastID.term, candLastID.index, r.Term)
+			r.logger.Infof(
+				"%x [logterm: %d, index: %d, vote: %x] cast %s for %x [logterm: %d, index: %d] at term %d",
+				r.id,
+				lastID.term,
+				lastID.index,
+				r.Vote,
+				m.Type,
+				m.From,
+				candLastID.term,
+				candLastID.index,
+				r.Term,
+			)
 			// When responding to Msg{Pre,}Vote messages we include the term
 			// from the message, not the local term. To see why, consider the
 			// case where a single node was previously partitioned away and
@@ -1338,9 +1428,21 @@ func (r *raft) Step(m pb.Message) error {
 				r.Vote = m.From
 			}
 		} else {
-			r.logger.Infof("%x [logterm: %d, index: %d, vote: %x] rejected %s from %x [logterm: %d, index: %d] at term %d",
-				r.id, lastID.term, lastID.index, r.Vote, m.Type, m.From, candLastID.term, candLastID.index, r.Term)
-			r.send(pb.Message{To: m.From, Term: r.Term, Type: voteRespMsgType(m.Type), Reject: true})
+			r.logger.Infof(
+				"%x [logterm: %d, index: %d, vote: %x] rejected %s from %x [logterm: %d, index: %d] at term %d",
+				r.id,
+				lastID.term,
+				lastID.index,
+				r.Vote,
+				m.Type,
+				m.From,
+				candLastID.term,
+				candLastID.index,
+				r.Term,
+			)
+			r.send(
+				pb.Message{To: m.From, Term: r.Term, Type: voteRespMsgType(m.Type), Reject: true},
+			)
 		}
 
 	default:
@@ -1384,7 +1486,12 @@ func stepLeader(r *raft, m pb.Message) error {
 			return ErrProposalDropped
 		}
 		if r.leadTransferee != None {
-			r.logger.Debugf("%x [term %d] transfer leadership to %x is in progress; dropping proposal", r.id, r.Term, r.leadTransferee)
+			r.logger.Debugf(
+				"%x [term %d] transfer leadership to %x is in progress; dropping proposal",
+				r.id,
+				r.Term,
+				r.leadTransferee,
+			)
 			return ErrProposalDropped
 		}
 
@@ -1412,7 +1519,11 @@ func stepLeader(r *raft, m pb.Message) error {
 
 				var failedCheck string
 				if alreadyPending {
-					failedCheck = fmt.Sprintf("possible unapplied conf change at index %d (applied to %d)", r.pendingConfIndex, r.raftLog.applied)
+					failedCheck = fmt.Sprintf(
+						"possible unapplied conf change at index %d (applied to %d)",
+						r.pendingConfIndex,
+						r.raftLog.applied,
+					)
 				} else if alreadyJoint && !wantsLeaveJoint {
 					failedCheck = "must transition out of joint config first"
 				} else if !alreadyJoint && wantsLeaveJoint {
@@ -1420,7 +1531,13 @@ func stepLeader(r *raft, m pb.Message) error {
 				}
 
 				if failedCheck != "" && !r.disableConfChangeValidation {
-					r.logger.Infof("%x ignoring conf change %v at config %s: %s", r.id, cc, r.trk.Config, failedCheck)
+					r.logger.Infof(
+						"%x ignoring conf change %v at config %s: %s",
+						r.id,
+						cc,
+						r.trk.Config,
+						failedCheck,
+					)
 					m.Entries[i] = pb.Entry{Type: pb.EntryNormal}
 				} else {
 					r.pendingConfIndex = r.raftLog.lastIndex() + uint64(i) + 1
@@ -1491,8 +1608,14 @@ func stepLeader(r *raft, m pb.Message) error {
 			// which can easily result in hours of time spent probing and can
 			// even cause outright outages. The probes are thus optimized as
 			// described below.
-			r.logger.Debugf("%x received MsgAppResp(rejected, hint: (index %d, term %d)) from %x for index %d",
-				r.id, m.RejectHint, m.LogTerm, m.From, m.Index)
+			r.logger.Debugf(
+				"%x received MsgAppResp(rejected, hint: (index %d, term %d)) from %x for index %d",
+				r.id,
+				m.RejectHint,
+				m.LogTerm,
+				m.From,
+				m.Index,
+			)
 			nextProbeIdx := m.RejectHint
 			if m.LogTerm > 0 {
 				// If the follower has an uncommitted log tail, we would end up
@@ -1623,7 +1746,12 @@ func stepLeader(r *raft, m pb.Message) error {
 					// the follower from the log, we will accept it. This gives
 					// systems more flexibility in how they implement snapshots;
 					// see the comments on PendingSnapshot.
-					r.logger.Debugf("%x recovered from needing snapshot, resumed sending replication messages to %x [%s]", r.id, m.From, pr)
+					r.logger.Debugf(
+						"%x recovered from needing snapshot, resumed sending replication messages to %x [%s]",
+						r.id,
+						m.From,
+						pr,
+					)
 					// Transition back to replicating state via probing state
 					// (which takes the snapshot into account). If we didn't
 					// move to replicating state, that would only happen with
@@ -1639,7 +1767,8 @@ func stepLeader(r *raft, m pb.Message) error {
 					// Leader's cache is always valid up to its committed index,
 					// so bump its CacheIdx before broadcasting.
 					if r.raftLog.uniCache != nil {
-						if prL := r.trk.Progress[r.id]; prL != nil && r.raftLog.committed > prL.CacheIdx {
+						if prL := r.trk.Progress[r.id]; prL != nil &&
+							r.raftLog.committed > prL.CacheIdx {
 							prL.CacheIdx = r.raftLog.committed
 						}
 					}
@@ -1667,7 +1796,11 @@ func stepLeader(r *raft, m pb.Message) error {
 				}
 				// Transfer leadership is in progress.
 				if m.From == r.leadTransferee && pr.Match == r.raftLog.lastIndex() {
-					r.logger.Infof("%x sent MsgTimeoutNow to %x after received MsgAppResp", r.id, m.From)
+					r.logger.Infof(
+						"%x sent MsgTimeoutNow to %x after received MsgAppResp",
+						r.id,
+						m.From,
+					)
 					r.sendTimeoutNow(m.From)
 				}
 			}
@@ -1713,13 +1846,23 @@ func stepLeader(r *raft, m pb.Message) error {
 		}
 		if !m.Reject {
 			pr.BecomeProbe()
-			r.logger.Debugf("%x snapshot succeeded, resumed sending replication messages to %x [%s]", r.id, m.From, pr)
+			r.logger.Debugf(
+				"%x snapshot succeeded, resumed sending replication messages to %x [%s]",
+				r.id,
+				m.From,
+				pr,
+			)
 		} else {
 			// NB: the order here matters or we'll be probing erroneously from
 			// the snapshot index, but the snapshot never applied.
 			pr.PendingSnapshot = 0
 			pr.BecomeProbe()
-			r.logger.Debugf("%x snapshot failed, resumed sending replication messages to %x [%s]", r.id, m.From, pr)
+			r.logger.Debugf(
+				"%x snapshot failed, resumed sending replication messages to %x [%s]",
+				r.id,
+				m.From,
+				pr,
+			)
 		}
 		// If snapshot finish, wait for the MsgAppResp from the remote node before sending
 		// out the next MsgApp.
@@ -1731,7 +1874,12 @@ func stepLeader(r *raft, m pb.Message) error {
 		if pr.State == tracker.StateReplicate {
 			pr.BecomeProbe()
 		}
-		r.logger.Debugf("%x failed to send message to %x because it is unreachable [%s]", r.id, m.From, pr)
+		r.logger.Debugf(
+			"%x failed to send message to %x because it is unreachable [%s]",
+			r.id,
+			m.From,
+			pr,
+		)
 	case pb.MsgTransferLeader:
 		if pr.IsLearner {
 			r.logger.Debugf("%x is learner. Ignored transferring leadership", r.id)
@@ -1741,25 +1889,45 @@ func stepLeader(r *raft, m pb.Message) error {
 		lastLeadTransferee := r.leadTransferee
 		if lastLeadTransferee != None {
 			if lastLeadTransferee == leadTransferee {
-				r.logger.Infof("%x [term %d] transfer leadership to %x is in progress, ignores request to same node %x",
-					r.id, r.Term, leadTransferee, leadTransferee)
+				r.logger.Infof(
+					"%x [term %d] transfer leadership to %x is in progress, ignores request to same node %x",
+					r.id,
+					r.Term,
+					leadTransferee,
+					leadTransferee,
+				)
 				return nil
 			}
 			r.abortLeaderTransfer()
-			r.logger.Infof("%x [term %d] abort previous transferring leadership to %x", r.id, r.Term, lastLeadTransferee)
+			r.logger.Infof(
+				"%x [term %d] abort previous transferring leadership to %x",
+				r.id,
+				r.Term,
+				lastLeadTransferee,
+			)
 		}
 		if leadTransferee == r.id {
 			r.logger.Debugf("%x is already leader. Ignored transferring leadership to self", r.id)
 			return nil
 		}
 		// Transfer leadership to third party.
-		r.logger.Infof("%x [term %d] starts to transfer leadership to %x", r.id, r.Term, leadTransferee)
+		r.logger.Infof(
+			"%x [term %d] starts to transfer leadership to %x",
+			r.id,
+			r.Term,
+			leadTransferee,
+		)
 		// Transfer leadership should be finished in one electionTimeout, so reset r.electionElapsed.
 		r.electionElapsed = 0
 		r.leadTransferee = leadTransferee
 		if pr.Match == r.raftLog.lastIndex() {
 			r.sendTimeoutNow(leadTransferee)
-			r.logger.Infof("%x sends MsgTimeoutNow to %x immediately as %x already has up-to-date log", r.id, leadTransferee, leadTransferee)
+			r.logger.Infof(
+				"%x sends MsgTimeoutNow to %x immediately as %x already has up-to-date log",
+				r.id,
+				leadTransferee,
+				leadTransferee,
+			)
 		} else {
 			r.sendAppend(leadTransferee)
 		}
@@ -1809,7 +1977,13 @@ func stepCandidate(r *raft, m pb.Message) error {
 			r.becomeFollower(r.Term, None)
 		}
 	case pb.MsgTimeoutNow:
-		r.logger.Debugf("%x [term %d state %v] ignored MsgTimeoutNow from %x", r.id, r.Term, r.state, m.From)
+		r.logger.Debugf(
+			"%x [term %d state %v] ignored MsgTimeoutNow from %x",
+			r.id,
+			r.Term,
+			r.state,
+			m.From,
+		)
 	}
 	return nil
 }
@@ -1821,7 +1995,12 @@ func stepFollower(r *raft, m pb.Message) error {
 			r.logger.Infof("%x no leader at term %d; dropping proposal", r.id, r.Term)
 			return ErrProposalDropped
 		} else if r.disableProposalForwarding {
-			r.logger.Infof("%x not forwarding to leader %x at term %d; dropping proposal", r.id, r.lead, r.Term)
+			r.logger.Infof(
+				"%x not forwarding to leader %x at term %d; dropping proposal",
+				r.id,
+				r.lead,
+				r.Term,
+			)
 			return ErrProposalDropped
 		}
 		m.To = r.lead
@@ -1855,7 +2034,12 @@ func stepFollower(r *raft, m pb.Message) error {
 			r.lead = None
 		}
 	case pb.MsgTimeoutNow:
-		r.logger.Infof("%x [term %d] received MsgTimeoutNow from %x and starts an election to get leadership.", r.id, r.Term, m.From)
+		r.logger.Infof(
+			"%x [term %d] received MsgTimeoutNow from %x and starts an election to get leadership.",
+			r.id,
+			r.Term,
+			m.From,
+		)
 		// Leadership transfers never use pre-vote even if r.preVote is true; we
 		// know we are not recovering from a partition so there is no need for the
 		// extra round trip.
@@ -1869,10 +2053,18 @@ func stepFollower(r *raft, m pb.Message) error {
 		r.send(m)
 	case pb.MsgReadIndexResp:
 		if len(m.Entries) != 1 {
-			r.logger.Errorf("%x invalid format of MsgReadIndexResp from %x, entries count: %d", r.id, m.From, len(m.Entries))
+			r.logger.Errorf(
+				"%x invalid format of MsgReadIndexResp from %x, entries count: %d",
+				r.id,
+				m.From,
+				len(m.Entries),
+			)
 			return nil
 		}
-		r.readStates = append(r.readStates, ReadState{Index: m.Index, RequestCtx: m.Entries[0].Data})
+		r.readStates = append(
+			r.readStates,
+			ReadState{Index: m.Index, RequestCtx: m.Entries[0].Data},
+		)
 	}
 	return nil
 }
@@ -1893,7 +2085,6 @@ func (r *raft) handleAppendEntries(m pb.Message) {
 			if m.Entries[i].Type == pb.EntryNormal && unicache.IsEncodedData(m.Entries[i].Data) {
 				if decoded, ok := r.raftLog.uniCache.DecodeEntry(m.Entries[i]); ok {
 					m.Entries[i] = decoded
-					m.Entries[i].EncodedID = 0 // Clear leader's ID; follower cache IDs may differ
 				} else {
 					panic(fmt.Sprintf("cache decode failed for index %d committed %d with data: %d",
 						m.Entries[i].Index, r.raftLog.committed, m.Entries[i].Data))
@@ -1907,15 +2098,36 @@ func (r *raft) handleAppendEntries(m pb.Message) {
 	a := logSliceFromMsgApp(&m)
 
 	if a.prev.index < r.raftLog.committed {
-		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: r.raftLog.committed, Commit: r.raftLog.cacheWaterMark})
+		r.send(
+			pb.Message{
+				To:     m.From,
+				Type:   pb.MsgAppResp,
+				Index:  r.raftLog.committed,
+				Commit: r.raftLog.cacheWaterMark,
+			},
+		)
 		return
 	}
 	if mlastIndex, ok := r.raftLog.maybeAppend(a, m.Commit); ok {
-		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: mlastIndex, Commit: r.raftLog.cacheWaterMark})
+		r.send(
+			pb.Message{
+				To:     m.From,
+				Type:   pb.MsgAppResp,
+				Index:  mlastIndex,
+				Commit: r.raftLog.cacheWaterMark,
+			},
+		)
 		return
 	}
-	r.logger.Debugf("%x [logterm: %d, index: %d] rejected MsgApp [logterm: %d, index: %d] from %x",
-		r.id, r.raftLog.zeroTermOnOutOfBounds(r.raftLog.term(m.Index)), m.Index, m.LogTerm, m.Index, m.From)
+	r.logger.Debugf(
+		"%x [logterm: %d, index: %d] rejected MsgApp [logterm: %d, index: %d] from %x",
+		r.id,
+		r.raftLog.zeroTermOnOutOfBounds(r.raftLog.term(m.Index)),
+		m.Index,
+		m.LogTerm,
+		m.Index,
+		m.From,
+	)
 
 	// Our log does not match the leader's at index m.Index. Return a hint to the
 	// leader - a guess on the maximal (index, term) at which the logs match. Do
@@ -2015,7 +2227,8 @@ func (r *raft) restore(s pb.Snapshot) bool {
 	if !found {
 		r.logger.Warningf(
 			"%x attempted to restore snapshot but it is not in the ConfState %v; should never happen",
-			r.id, cs,
+			r.id,
+			cs,
 		)
 		return false
 	}
@@ -2026,8 +2239,15 @@ func (r *raft) restore(s pb.Snapshot) bool {
 	if r.raftLog.matchTerm(id) {
 		// TODO(pav-kv): can print %+v of the id, but it will change the format.
 		last := r.raftLog.lastEntryID()
-		r.logger.Infof("%x [commit: %d, lastindex: %d, lastterm: %d] fast-forwarded commit to snapshot [index: %d, term: %d]",
-			r.id, r.raftLog.committed, last.index, last.term, id.index, id.term)
+		r.logger.Infof(
+			"%x [commit: %d, lastindex: %d, lastterm: %d] fast-forwarded commit to snapshot [index: %d, term: %d]",
+			r.id,
+			r.raftLog.committed,
+			last.index,
+			last.term,
+			id.index,
+			id.term,
+		)
 		r.raftLog.commitTo(s.Metadata.Index)
 		return false
 	}
@@ -2050,8 +2270,15 @@ func (r *raft) restore(s pb.Snapshot) bool {
 	assertConfStatesEquivalent(r.logger, cs, r.switchToConfig(cfg, trk))
 
 	last := r.raftLog.lastEntryID()
-	r.logger.Infof("%x [commit: %d, lastindex: %d, lastterm: %d] restored snapshot [index: %d, term: %d]",
-		r.id, r.raftLog.committed, last.index, last.term, id.index, id.term)
+	r.logger.Infof(
+		"%x [commit: %d, lastindex: %d, lastterm: %d] restored snapshot [index: %d, term: %d]",
+		r.id,
+		r.raftLog.committed,
+		last.index,
+		last.term,
+		id.index,
+		id.term,
+	)
 	return true
 }
 
@@ -2151,7 +2378,13 @@ func (r *raft) switchToConfig(cfg tracker.Config, trk tracker.ProgressMap) pb.Co
 
 func (r *raft) loadState(state pb.HardState) {
 	if state.Commit < r.raftLog.committed || state.Commit > r.raftLog.lastIndex() {
-		r.logger.Panicf("%x state.commit %d is out of range [%d, %d]", r.id, state.Commit, r.raftLog.committed, r.raftLog.lastIndex())
+		r.logger.Panicf(
+			"%x state.commit %d is out of range [%d, %d]",
+			r.id,
+			state.Commit,
+			r.raftLog.committed,
+			r.raftLog.lastIndex(),
+		)
 	}
 	r.raftLog.committed = state.Commit
 	r.Term = state.Term
@@ -2246,7 +2479,9 @@ func releasePendingReadIndexMessages(r *raft) {
 		return
 	}
 	if !r.committedEntryInCurrentTerm() {
-		r.logger.Error("pending MsgReadIndex should be released only after first commit in current term")
+		r.logger.Error(
+			"pending MsgReadIndex should be released only after first commit in current term",
+		)
 		return
 	}
 
