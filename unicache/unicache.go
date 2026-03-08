@@ -220,8 +220,8 @@ func (uc *uniCache) SafeEncode(data []byte, appendIdx uint64, encodedID uint32) 
 		}
 		//fmt.Println("[SafeEncode] evicted restore failed:", err)
 	}
-	fmt.Printf("[SafeEncode] index=%d didnt find data for ID=%d, capacity=%d, cache size=%d, evicted size=%d, nextId=%d\n",
-		appendIdx, encodedID, uc.capacity, len(uc.cache), len(uc.evicted), uc.nextID)
+	//fmt.Printf("[SafeEncode] index=%d didnt find data for ID=%d, capacity=%d, cache size=%d, evicted size=%d, nextId=%d\n",
+	//	appendIdx, encodedID, uc.capacity, len(uc.cache), len(uc.evicted), uc.nextID)
 	return nil, nil
 }
 
@@ -295,7 +295,7 @@ func (uc *uniCache) DecodeEntry(entry pb.Entry) (pb.Entry, bool) {
 
 		elem, ok := uc.cache[uint32(id)]
 		if !ok {
-			fmt.Println("[decode cache] not in cache: ", id, "index", entry.Index, "type ", entry.Type)
+			//fmt.Println("[decode cache] not in cache: ", id, "index", entry.Index, "type ", entry.Type)
 			return entry, false
 		}
 
