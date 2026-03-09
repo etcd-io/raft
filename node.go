@@ -220,7 +220,12 @@ type Node interface {
 	// index, any linearizable read requests issued before the read request can be
 	// processed safely. The read state will have the same rctx attached.
 	// Note that request can be lost without notice, therefore it is user's job
-	// to ensure read index retries.
+	// to retry ReadIndex.
+	//
+	// Retries must always use new rctxes, and never reuse an rctx already
+	// passed into ReadIndex. Starting with release-3.7, this restriction is
+	// lifted, and it is ok to retry the same rctx. Refer to
+	// https://github.com/etcd-io/raft/issues/392 for more details.
 	ReadIndex(ctx context.Context, rctx []byte) error
 
 	// Status returns the current status of the raft state machine.
