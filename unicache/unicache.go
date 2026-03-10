@@ -25,7 +25,6 @@ type UniCache interface {
 	EncodeData(data []byte, currCacheIdx uint64) ([]byte, uint32)
 	DecodeEntry(entry pb.Entry) (pb.Entry, bool)
 	SafeEncode(data []byte, appendIdx uint64, encodedID uint32) ([]byte, []byte)
-	BatchSafeEncode(entries []pb.Entry) (fullData [][]byte, logData [][]byte)
 	GetNextId() uint32
 	UpdateCache(entry pb.Entry) (pb.Entry, bool)
 	BatchUpdateCache(entries []pb.Entry) ([]pb.Entry, bool)
@@ -137,6 +136,18 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
 
 	//fmt.Printf("[evictLRU] index=%d evicting ID=%d lenCache:%d, lastIdx=%d capacity=%d len evicted=%d\n", currIdx, entry.id, len(uc.cache), entry.lastIdx, uc.capacity, len(uc.evicted))
 
+	evictedElem := uc.evictOrder.PushBack(entry)
+	uc.evicted[entry.id] = evictedElem
+
+	delete(uc.cache, entry.id)
+	delete(uc.reverseCache, string(entry.key))
+	delete(uc.lruMap, entry.id)
+	uc.lruList.Remove(elem)
+
+	// Cap the evicted buffer to prevent unbounded growth.
+	for len(uc.evicted) > uc.evictedCapacity {
+		front := uc.evictOrder.Front()
+		if front == nil {
 			break
 		}
 		oldest := front.Value.(*cacheEntry)
