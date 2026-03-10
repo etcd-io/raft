@@ -67,8 +67,6 @@ func (env *InteractionEnv) handleAddNodes(t *testing.T, d datadriven.TestData) e
 				default:
 					return fmt.Errorf("invalid read-only option %q", arg.Vals[i])
 				}
-			case "step-down-on-removal":
-				arg.Scan(t, i, &cfg.StepDownOnRemoval)
 			}
 		}
 	}
