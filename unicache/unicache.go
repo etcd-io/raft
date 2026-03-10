@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"errors"
 	"fmt"
+	"math"
 	"sync/atomic"
 
 	pb "go.etcd.io/raft/v3/raftpb"
@@ -24,12 +25,14 @@ type UniCache interface {
 	EncodeData(data []byte, currCacheIdx uint64) ([]byte, uint32)
 	DecodeEntry(entry pb.Entry) (pb.Entry, bool)
 	SafeEncode(data []byte, appendIdx uint64, encodedID uint32) ([]byte, []byte)
+	BatchSafeEncode(entries []pb.Entry) (fullData [][]byte, logData [][]byte)
 	GetNextId() uint32
 	UpdateCache(entry pb.Entry) (pb.Entry, bool)
 	BatchUpdateCache(entries []pb.Entry) ([]pb.Entry, bool)
 	PurgeEvicted()
 	CacheHits() uint64
 	ResetCacheHits() uint64
+	GetMinCacheIdx(currMinIdx uint64) uint64
 }
 
 type cacheEntry struct {
@@ -55,7 +58,8 @@ type uniCache struct {
 	maxCommit       *uint64
 	minCacheVersion func() uint64
 
-	cachehits uint64
+	cachehits    uint64
+	lastInFlight uint64
 }
 
 // NewUniCache constructs a UniCache with simple LRU caching.
@@ -76,7 +80,8 @@ func NewUniCache(minCacheVersion func() uint64, capacity int) UniCache {
 
 		minCacheVersion: minCacheVersion,
 
-		cachehits: uint64(0),
+		cachehits:    uint64(0),
+		lastInFlight: math.MaxUint64,
 	}
 }
 
@@ -92,6 +97,13 @@ func (uc *uniCache) ResetCacheHits() uint64 {
 // NewUniCache implements the UniCache interface.
 func (uc *uniCache) NewUniCache(minCacheVersion func() uint64, capacity int) UniCache {
 	return NewUniCache(minCacheVersion, capacity)
+}
+
+func (uc *uniCache) GetMinCacheIdx(currMinIdx uint64) uint64 {
+	if uc.lastInFlight == math.MaxUint64 {
+		return currMinIdx
+	}
+	return uc.lastInFlight
 }
 
 func (uc *uniCache) updateLRU(id uint32) {
@@ -125,18 +137,6 @@ func (uc *uniCache) evictLRU(currIdx uint64) {
 
 	//fmt.Printf("[evictLRU] index=%d evicting ID=%d lenCache:%d, lastIdx=%d capacity=%d len evicted=%d\n", currIdx, entry.id, len(uc.cache), entry.lastIdx, uc.capacity, len(uc.evicted))
 
-	evictedElem := uc.evictOrder.PushBack(entry)
-	uc.evicted[entry.id] = evictedElem
-
-	delete(uc.cache, entry.id)
-	delete(uc.reverseCache, string(entry.key))
-	delete(uc.lruMap, entry.id)
-	uc.lruList.Remove(elem)
-
-	// Cap the evicted buffer to prevent unbounded growth.
-	for len(uc.evicted) > uc.evictedCapacity {
-		front := uc.evictOrder.Front()
-		if front == nil {
 			break
 		}
 		oldest := front.Value.(*cacheEntry)
