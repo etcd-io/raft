@@ -28,7 +28,6 @@ import (
 	_ "github.com/google/addlicense"
 	_ "github.com/gordonklaus/ineffassign"
 	_ "github.com/gyuho/gocovmerge"
-	_ "github.com/hexfusion/schwag"
 	_ "github.com/mdempsky/unconvert"
 	_ "github.com/mgechev/revive"
 	_ "github.com/mikefarah/yq/v4"
