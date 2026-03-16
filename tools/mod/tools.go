@@ -31,6 +31,7 @@ import (
 	_ "github.com/mdempsky/unconvert"
 	_ "github.com/mgechev/revive"
 	_ "github.com/mikefarah/yq/v4"
+	_ "golang.org/x/tools/cmd/goimports"
 	_ "gotest.tools/gotestsum"
 	_ "gotest.tools/v3"
 	_ "honnef.co/go/tools/cmd/staticcheck"
