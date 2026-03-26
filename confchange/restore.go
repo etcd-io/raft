@@ -57,7 +57,7 @@ func toConfChangeSingle(cs pb.ConfState) (out []pb.ConfChangeSingle, in []pb.Con
 		// (non-joint) config has them all.
 		out = append(out, pb.ConfChangeSingle{
 			Type:   pb.ConfChangeAddNode,
-			NodeID: id,
+			NodeId: id,
 		})
 
 	}
@@ -69,20 +69,20 @@ func toConfChangeSingle(cs pb.ConfState) (out []pb.ConfChangeSingle, in []pb.Con
 	for _, id := range cs.VotersOutgoing {
 		in = append(in, pb.ConfChangeSingle{
 			Type:   pb.ConfChangeRemoveNode,
-			NodeID: id,
+			NodeId: id,
 		})
 	}
 	// Then we'll add the incoming voters and learners.
 	for _, id := range cs.Voters {
 		in = append(in, pb.ConfChangeSingle{
 			Type:   pb.ConfChangeAddNode,
-			NodeID: id,
+			NodeId: id,
 		})
 	}
 	for _, id := range cs.Learners {
 		in = append(in, pb.ConfChangeSingle{
 			Type:   pb.ConfChangeAddLearnerNode,
-			NodeID: id,
+			NodeId: id,
 		})
 	}
 	// Same for LearnersNext; these are nodes we want to be learners but which
@@ -90,7 +90,7 @@ func toConfChangeSingle(cs pb.ConfState) (out []pb.ConfChangeSingle, in []pb.Con
 	for _, id := range cs.LearnersNext {
 		in = append(in, pb.ConfChangeSingle{
 			Type:   pb.ConfChangeAddLearnerNode,
-			NodeID: id,
+			NodeId: id,
 		})
 	}
 	return out, in

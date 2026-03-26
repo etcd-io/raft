@@ -244,17 +244,17 @@ func traceChangeConfEvent(cci raftpb.ConfChangeI, r *raft) {
 		switch c.Type {
 		case raftpb.ConfChangeAddNode:
 			cc.Changes = append(cc.Changes, SingleConfChange{
-				NodeID: strconv.FormatUint(c.NodeID, 10),
+				NodeID: strconv.FormatUint(c.NodeId, 10),
 				Action: ConfChangeAddNewServer,
 			})
 		case raftpb.ConfChangeRemoveNode:
 			cc.Changes = append(cc.Changes, SingleConfChange{
-				NodeID: strconv.FormatUint(c.NodeID, 10),
+				NodeID: strconv.FormatUint(c.NodeId, 10),
 				Action: ConfChangeRemoveServer,
 			})
 		case raftpb.ConfChangeAddLearnerNode:
 			cc.Changes = append(cc.Changes, SingleConfChange{
-				NodeID: strconv.FormatUint(c.NodeID, 10),
+				NodeID: strconv.FormatUint(c.NodeId, 10),
 				Action: ConfChangeAddLearner,
 			})
 		}

@@ -50,7 +50,7 @@ func (rn *RawNode) Bootstrap(peers []Peer) error {
 	rn.raft.becomeFollower(1, None)
 	ents := make([]pb.Entry, len(peers))
 	for i, peer := range peers {
-		cc := pb.ConfChange{Type: pb.ConfChangeAddNode, NodeID: peer.ID, Context: peer.Context}
+		cc := pb.ConfChange{Type: pb.ConfChangeAddNode, NodeId: peer.ID, Context: peer.Context}
 		data, err := cc.Marshal()
 		if err != nil {
 			return err
@@ -74,7 +74,7 @@ func (rn *RawNode) Bootstrap(peers []Peer) error {
 	// the invariant that committed < unstable?
 	rn.raft.raftLog.committed = uint64(len(ents))
 	for _, peer := range peers {
-		rn.raft.applyConfChange(pb.ConfChange{NodeID: peer.ID, Type: pb.ConfChangeAddNode}.AsV2())
+		rn.raft.applyConfChange(pb.ConfChange{NodeId: peer.ID, Type: pb.ConfChangeAddNode}.AsV2())
 	}
 	return nil
 }

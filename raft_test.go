@@ -373,8 +373,8 @@ func TestLearnerPromotion(t *testing.T) {
 
 	nt.send(pb.Message{From: 1, To: 1, Type: pb.MsgBeat})
 
-	n1.applyConfChange(pb.ConfChange{NodeID: 2, Type: pb.ConfChangeAddNode}.AsV2())
-	n2.applyConfChange(pb.ConfChange{NodeID: 2, Type: pb.ConfChangeAddNode}.AsV2())
+	n1.applyConfChange(pb.ConfChange{NodeId: 2, Type: pb.ConfChangeAddNode}.AsV2())
+	n2.applyConfChange(pb.ConfChange{NodeId: 2, Type: pb.ConfChangeAddNode}.AsV2())
 	assert.False(t, n2.isLearner)
 
 	// n2 start election, should become leader
@@ -1028,7 +1028,7 @@ func TestCommit(t *testing.T) {
 		for j := 0; j < len(tt.matches); j++ {
 			id := uint64(j) + 1
 			if id > 1 {
-				sm.applyConfChange(pb.ConfChange{Type: pb.ConfChangeAddNode, NodeID: id}.AsV2())
+				sm.applyConfChange(pb.ConfChange{Type: pb.ConfChangeAddNode, NodeId: id}.AsV2())
 			}
 			pr := sm.trk.Progress[id]
 			pr.Match, pr.Next = tt.matches[j], tt.matches[j]+1
@@ -1754,7 +1754,7 @@ func TestNonPromotableVoterWithCheckQuorum(t *testing.T) {
 	nt := newNetwork(a, b)
 	setRandomizedElectionTimeout(b, b.electionTimeout+1)
 	// Need to remove 2 again to make it a non-promotable node since newNetwork overwritten some internal states
-	b.applyConfChange(pb.ConfChange{Type: pb.ConfChangeRemoveNode, NodeID: 2}.AsV2())
+	b.applyConfChange(pb.ConfChange{Type: pb.ConfChangeRemoveNode, NodeId: 2}.AsV2())
 
 	require.False(t, b.promotable())
 
@@ -2795,7 +2795,7 @@ func TestNewLeaderPendingConfig(t *testing.T) {
 // TestAddNode tests that addNode could update nodes correctly.
 func TestAddNode(t *testing.T) {
 	r := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1)))
-	r.applyConfChange(pb.ConfChange{NodeID: 2, Type: pb.ConfChangeAddNode}.AsV2())
+	r.applyConfChange(pb.ConfChange{NodeId: 2, Type: pb.ConfChangeAddNode}.AsV2())
 	nodes := r.trk.VoterNodes()
 	assert.Equal(t, []uint64{1, 2}, nodes)
 }
@@ -2804,23 +2804,23 @@ func TestAddNode(t *testing.T) {
 func TestAddLearner(t *testing.T) {
 	r := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1)))
 	// Add new learner peer.
-	r.applyConfChange(pb.ConfChange{NodeID: 2, Type: pb.ConfChangeAddLearnerNode}.AsV2())
+	r.applyConfChange(pb.ConfChange{NodeId: 2, Type: pb.ConfChangeAddLearnerNode}.AsV2())
 	require.False(t, r.isLearner)
 	nodes := r.trk.LearnerNodes()
 	assert.Equal(t, []uint64{2}, nodes)
 	require.True(t, r.trk.Progress[2].IsLearner)
 
 	// Promote peer to voter.
-	r.applyConfChange(pb.ConfChange{NodeID: 2, Type: pb.ConfChangeAddNode}.AsV2())
+	r.applyConfChange(pb.ConfChange{NodeId: 2, Type: pb.ConfChangeAddNode}.AsV2())
 	require.False(t, r.trk.Progress[2].IsLearner)
 
 	// Demote r.
-	r.applyConfChange(pb.ConfChange{NodeID: 1, Type: pb.ConfChangeAddLearnerNode}.AsV2())
+	r.applyConfChange(pb.ConfChange{NodeId: 1, Type: pb.ConfChangeAddLearnerNode}.AsV2())
 	require.True(t, r.trk.Progress[1].IsLearner)
 	require.True(t, r.isLearner)
 
 	// Promote r again.
-	r.applyConfChange(pb.ConfChange{NodeID: 1, Type: pb.ConfChangeAddNode}.AsV2())
+	r.applyConfChange(pb.ConfChange{NodeId: 1, Type: pb.ConfChangeAddNode}.AsV2())
 	require.False(t, r.trk.Progress[1].IsLearner)
 	require.False(t, r.isLearner)
 }
@@ -2838,7 +2838,7 @@ func TestAddNodeCheckQuorum(t *testing.T) {
 		r.tick()
 	}
 
-	r.applyConfChange(pb.ConfChange{NodeID: 2, Type: pb.ConfChangeAddNode}.AsV2())
+	r.applyConfChange(pb.ConfChange{NodeId: 2, Type: pb.ConfChangeAddNode}.AsV2())
 
 	// This tick will reach electionTimeout, which triggers a quorum check.
 	r.tick()
@@ -2859,7 +2859,7 @@ func TestAddNodeCheckQuorum(t *testing.T) {
 // removed list correctly.
 func TestRemoveNode(t *testing.T) {
 	r := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1, 2)))
-	r.applyConfChange(pb.ConfChange{NodeID: 2, Type: pb.ConfChangeRemoveNode}.AsV2())
+	r.applyConfChange(pb.ConfChange{NodeId: 2, Type: pb.ConfChangeRemoveNode}.AsV2())
 	w := []uint64{1}
 	assert.Equal(t, w, r.trk.VoterNodes())
 
@@ -2867,14 +2867,14 @@ func TestRemoveNode(t *testing.T) {
 	defer func() {
 		assert.NotNil(t, recover(), "did not panic")
 	}()
-	r.applyConfChange(pb.ConfChange{NodeID: 1, Type: pb.ConfChangeRemoveNode}.AsV2())
+	r.applyConfChange(pb.ConfChange{NodeId: 1, Type: pb.ConfChangeRemoveNode}.AsV2())
 }
 
 // TestRemoveLearner tests that removeNode could update nodes and
 // removed list correctly.
 func TestRemoveLearner(t *testing.T) {
 	r := newTestLearnerRaft(1, 10, 1, newTestMemoryStorage(withPeers(1), withLearners(2)))
-	r.applyConfChange(pb.ConfChange{NodeID: 2, Type: pb.ConfChangeRemoveNode}.AsV2())
+	r.applyConfChange(pb.ConfChange{NodeId: 2, Type: pb.ConfChangeRemoveNode}.AsV2())
 	w := []uint64{1}
 	assert.Equal(t, w, r.trk.VoterNodes())
 
@@ -2885,7 +2885,7 @@ func TestRemoveLearner(t *testing.T) {
 	defer func() {
 		assert.NotNil(t, recover(), "did not panic")
 	}()
-	r.applyConfChange(pb.ConfChange{NodeID: 1, Type: pb.ConfChangeRemoveNode}.AsV2())
+	r.applyConfChange(pb.ConfChange{NodeId: 1, Type: pb.ConfChangeRemoveNode}.AsV2())
 }
 
 func TestPromotable(t *testing.T) {
@@ -2963,7 +2963,7 @@ func TestCommitAfterRemoveNode(t *testing.T) {
 	// Begin to remove the second node.
 	cc := pb.ConfChange{
 		Type:   pb.ConfChangeRemoveNode,
-		NodeID: 2,
+		NodeId: 2,
 	}
 	ccData, err := cc.Marshal()
 	require.NoError(t, err)
@@ -3246,7 +3246,7 @@ func TestLeaderTransferRemoveNode(t *testing.T) {
 	nt.send(pb.Message{From: 3, To: 1, Type: pb.MsgTransferLeader})
 	require.Equal(t, uint64(3), lead.leadTransferee)
 
-	lead.applyConfChange(pb.ConfChange{NodeID: 3, Type: pb.ConfChangeRemoveNode}.AsV2())
+	lead.applyConfChange(pb.ConfChange{NodeId: 3, Type: pb.ConfChangeRemoveNode}.AsV2())
 
 	checkLeaderTransferState(t, lead, StateLeader, 1)
 }
@@ -3267,11 +3267,11 @@ func TestLeaderTransferDemoteNode(t *testing.T) {
 		Changes: []pb.ConfChangeSingle{
 			{
 				Type:   pb.ConfChangeRemoveNode,
-				NodeID: 3,
+				NodeId: 3,
 			},
 			{
 				Type:   pb.ConfChangeAddLearnerNode,
-				NodeID: 3,
+				NodeId: 3,
 			},
 		},
 	})
@@ -3533,9 +3533,9 @@ func TestPreVoteWithCheckQuorum(t *testing.T) {
 // a MsgHup or MsgTimeoutNow.
 func TestLearnerCampaign(t *testing.T) {
 	n1 := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1)))
-	n1.applyConfChange(pb.ConfChange{NodeID: 2, Type: pb.ConfChangeAddLearnerNode}.AsV2())
+	n1.applyConfChange(pb.ConfChange{NodeId: 2, Type: pb.ConfChangeAddLearnerNode}.AsV2())
 	n2 := newTestRaft(2, 10, 1, newTestMemoryStorage(withPeers(1)))
-	n2.applyConfChange(pb.ConfChange{NodeID: 2, Type: pb.ConfChangeAddLearnerNode}.AsV2())
+	n2.applyConfChange(pb.ConfChange{NodeId: 2, Type: pb.ConfChangeAddLearnerNode}.AsV2())
 	nt := newNetwork(n1, n2)
 	nt.send(pb.Message{From: 2, To: 2, Type: pb.MsgHup})
 
@@ -3667,7 +3667,7 @@ func testConfChangeCheckBeforeCampaign(t *testing.T, v2 bool) {
 	// Begin to remove the third node.
 	cc := pb.ConfChange{
 		Type:   pb.ConfChangeRemoveNode,
-		NodeID: 2,
+		NodeId: 2,
 	}
 	var ccData []byte
 	var err error

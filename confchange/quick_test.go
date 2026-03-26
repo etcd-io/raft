@@ -138,7 +138,7 @@ func genCC(num func() int, id func() uint64, typ func() pb.ConfChangeType) []pb.
 	var ccs []pb.ConfChangeSingle
 	n := num()
 	for i := 0; i < n; i++ {
-		ccs = append(ccs, pb.ConfChangeSingle{Type: typ(), NodeID: id()})
+		ccs = append(ccs, pb.ConfChangeSingle{Type: typ(), NodeId: id()})
 	}
 	return ccs
 }
@@ -149,7 +149,7 @@ func (confChanges) Generate(rand *rand.Rand, _ int) reflect.Value {
 	}
 	id := func() uint64 {
 		// Note that num() >= 1, so we're never returning 1 from this method,
-		// meaning that we'll never touch NodeID one, which is special to avoid
+		// meaning that we'll never touch NodeId one, which is special to avoid
 		// voterless configs altogether in this test.
 		return 1 + uint64(num())
 	}
@@ -169,9 +169,9 @@ func (initialChanges) Generate(rand *rand.Rand, _ int) reflect.Value {
 	typ := func() pb.ConfChangeType {
 		return pb.ConfChangeAddNode
 	}
-	// NodeID one is special - it's in the initial config and will be a voter
+	// NodeId one is special - it's in the initial config and will be a voter
 	// always (this is to avoid uninteresting edge cases where the simple conf
 	// changes can't easily make progress).
-	ccs := append([]pb.ConfChangeSingle{{Type: pb.ConfChangeAddNode, NodeID: 1}}, genCC(num, id, typ)...)
+	ccs := append([]pb.ConfChangeSingle{{Type: pb.ConfChangeAddNode, NodeId: 1}}, genCC(num, id, typ)...)
 	return reflect.ValueOf(ccs)
 }

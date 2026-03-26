@@ -265,7 +265,7 @@ func TestNodeProposeConfig(t *testing.T) {
 		}
 		n.Advance()
 	}
-	cc := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode, NodeID: 1}
+	cc := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode, NodeId: 1}
 	ccdata, err := cc.Marshal()
 	require.NoError(t, err)
 	n.ProposeConfChange(t.Context(), cc)
@@ -325,7 +325,7 @@ func TestNodeProposeAddDuplicateNode(t *testing.T) {
 		}
 	}()
 
-	cc1 := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode, NodeID: 1}
+	cc1 := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode, NodeId: 1}
 	ccdata1, _ := cc1.Marshal()
 	n.ProposeConfChange(ctx, cc1)
 	<-applyConfChan
@@ -335,7 +335,7 @@ func TestNodeProposeAddDuplicateNode(t *testing.T) {
 	<-applyConfChan
 
 	// the new node join should be ok
-	cc2 := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode, NodeID: 2}
+	cc2 := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode, NodeId: 2}
 	ccdata2, _ := cc2.Marshal()
 	n.ProposeConfChange(ctx, cc2)
 	<-applyConfChan
@@ -480,7 +480,7 @@ func TestNodeStop(t *testing.T) {
 // start with correct configuration change entries, and can accept and commit
 // proposals.
 func TestNodeStart(t *testing.T) {
-	cc := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode, NodeID: 1}
+	cc := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode, NodeId: 1}
 	ccdata, err := cc.Marshal()
 	require.NoError(t, err)
 	wants := []Ready{
@@ -743,7 +743,7 @@ func TestNodeProposeAddLearnerNode(t *testing.T) {
 					var cc raftpb.ConfChange
 					cc.Unmarshal(ent.Data)
 					state := n.ApplyConfChange(cc)
-					assert.True(t, len(state.Learners) > 0 && state.Learners[0] == cc.NodeID && cc.NodeID == 2,
+					assert.True(t, len(state.Learners) > 0 && state.Learners[0] == cc.NodeId && cc.NodeId == 2,
 						"apply conf change should return new added learner: %v", state.String())
 					assert.Len(t, state.Voters, 1,
 						"add learner should not change the nodes: %v", state.String())
@@ -755,7 +755,7 @@ func TestNodeProposeAddLearnerNode(t *testing.T) {
 			}
 		}
 	}()
-	cc := raftpb.ConfChange{Type: raftpb.ConfChangeAddLearnerNode, NodeID: 2}
+	cc := raftpb.ConfChange{Type: raftpb.ConfChangeAddLearnerNode, NodeId: 2}
 	n.ProposeConfChange(t.Context(), cc)
 	<-applyConfChan
 	close(stop)
