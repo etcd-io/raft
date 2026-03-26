@@ -66,7 +66,7 @@ func (env *InteractionEnv) handleProposeConfChange(t *testing.T, d datadriven.Te
 		}
 		c = raftpb.ConfChange{
 			Type:   ccs[0].Type,
-			NodeID: ccs[0].NodeID,
+			NodeId: ccs[0].NodeId,
 		}
 	} else {
 		c = raftpb.ConfChangeV2{

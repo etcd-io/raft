@@ -149,19 +149,19 @@ func (c Changer) Simple(ccs ...pb.ConfChangeSingle) (tracker.Config, tracker.Pro
 // empty or preserves the outgoing majority configuration while in a joint state.
 func (c Changer) apply(cfg *tracker.Config, trk tracker.ProgressMap, ccs ...pb.ConfChangeSingle) error {
 	for _, cc := range ccs {
-		if cc.NodeID == 0 {
-			// etcd replaces the NodeID with zero if it decides (downstream of
+		if cc.NodeId == 0 {
+			// etcd replaces the NodeId with zero if it decides (downstream of
 			// raft) to not apply a change, so we have to have explicit code
 			// here to ignore these.
 			continue
 		}
 		switch cc.Type {
 		case pb.ConfChangeAddNode:
-			c.makeVoter(cfg, trk, cc.NodeID)
+			c.makeVoter(cfg, trk, cc.NodeId)
 		case pb.ConfChangeAddLearnerNode:
-			c.makeLearner(cfg, trk, cc.NodeID)
+			c.makeLearner(cfg, trk, cc.NodeId)
 		case pb.ConfChangeRemoveNode:
-			c.remove(cfg, trk, cc.NodeID)
+			c.remove(cfg, trk, cc.NodeId)
 		case pb.ConfChangeUpdateNode:
 		default:
 			return fmt.Errorf("unexpected conf type %d", cc.Type)
@@ -405,7 +405,7 @@ func incoming(voters quorum.JointConfig) quorum.MajorityConfig      { return vot
 func outgoing(voters quorum.JointConfig) quorum.MajorityConfig      { return voters[1] }
 func outgoingPtr(voters *quorum.JointConfig) *quorum.MajorityConfig { return &voters[1] }
 
-// Describe prints the type and NodeID of the configuration changes as a
+// Describe prints the type and NodeId of the configuration changes as a
 // space-delimited string.
 func Describe(ccs ...pb.ConfChangeSingle) string {
 	var buf strings.Builder
@@ -413,7 +413,7 @@ func Describe(ccs ...pb.ConfChangeSingle) string {
 		if buf.Len() > 0 {
 			buf.WriteByte(' ')
 		}
-		fmt.Fprintf(&buf, "%s(%d)", cc.Type, cc.NodeID)
+		fmt.Fprintf(&buf, "%s(%d)", cc.Type, cc.NodeId)
 	}
 	return buf.String()
 }

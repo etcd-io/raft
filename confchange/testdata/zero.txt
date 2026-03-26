@@ -1,4 +1,4 @@
-# NodeID zero is ignored.
+# NodeId zero is ignored.
 simple
 v1 r0 v0 l0
 ----

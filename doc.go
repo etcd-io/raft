@@ -93,7 +93,7 @@ your main raft loop.
 3. Apply Snapshot (if any) and CommittedEntries to the state machine.
 If any committed Entry has Type EntryConfChange, call Node.ApplyConfChange()
 to apply it to the node. The configuration change may be cancelled at this point
-by setting the NodeID field to zero before calling ApplyConfChange
+by setting the NodeId field to zero before calling ApplyConfChange
 (but ApplyConfChange must be called one way or the other, and the decision to cancel
 must be based solely on the state machine and not external information such as
 the observed health of the node).

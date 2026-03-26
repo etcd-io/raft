@@ -117,7 +117,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 	}{
 		// V1 config change.
 		{
-			pb.ConfChange{Type: pb.ConfChangeAddNode, NodeID: 2},
+			pb.ConfChange{Type: pb.ConfChangeAddNode, NodeId: 2},
 			pb.ConfState{Voters: []uint64{1, 2}},
 			nil,
 		},
@@ -125,7 +125,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		// a joint config.
 		{
 			pb.ConfChangeV2{Changes: []pb.ConfChangeSingle{
-				{Type: pb.ConfChangeAddNode, NodeID: 2},
+				{Type: pb.ConfChangeAddNode, NodeId: 2},
 			},
 			},
 			pb.ConfState{Voters: []uint64{1, 2}},
@@ -134,7 +134,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		// Ditto if we add it as a learner instead.
 		{
 			pb.ConfChangeV2{Changes: []pb.ConfChangeSingle{
-				{Type: pb.ConfChangeAddLearnerNode, NodeID: 2},
+				{Type: pb.ConfChangeAddLearnerNode, NodeId: 2},
 			},
 			},
 			pb.ConfState{Voters: []uint64{1}, Learners: []uint64{2}},
@@ -143,7 +143,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		// We can ask explicitly for joint consensus if we want it.
 		{
 			pb.ConfChangeV2{Changes: []pb.ConfChangeSingle{
-				{Type: pb.ConfChangeAddLearnerNode, NodeID: 2},
+				{Type: pb.ConfChangeAddLearnerNode, NodeId: 2},
 			},
 				Transition: pb.ConfChangeTransitionJointExplicit,
 			},
@@ -153,7 +153,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		// Ditto, but with implicit transition (the harness checks this).
 		{
 			pb.ConfChangeV2{Changes: []pb.ConfChangeSingle{
-				{Type: pb.ConfChangeAddLearnerNode, NodeID: 2},
+				{Type: pb.ConfChangeAddLearnerNode, NodeId: 2},
 			},
 				Transition: pb.ConfChangeTransitionJointImplicit,
 			},
@@ -167,9 +167,9 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		// which we really need joint config changes and also need LearnersNext.
 		{
 			pb.ConfChangeV2{Changes: []pb.ConfChangeSingle{
-				{NodeID: 2, Type: pb.ConfChangeAddNode},
-				{NodeID: 1, Type: pb.ConfChangeAddLearnerNode},
-				{NodeID: 3, Type: pb.ConfChangeAddLearnerNode},
+				{NodeId: 2, Type: pb.ConfChangeAddNode},
+				{NodeId: 1, Type: pb.ConfChangeAddLearnerNode},
+				{NodeId: 3, Type: pb.ConfChangeAddLearnerNode},
 			},
 			},
 			pb.ConfState{
@@ -184,9 +184,9 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		// Ditto explicit.
 		{
 			pb.ConfChangeV2{Changes: []pb.ConfChangeSingle{
-				{NodeID: 2, Type: pb.ConfChangeAddNode},
-				{NodeID: 1, Type: pb.ConfChangeAddLearnerNode},
-				{NodeID: 3, Type: pb.ConfChangeAddLearnerNode},
+				{NodeId: 2, Type: pb.ConfChangeAddNode},
+				{NodeId: 1, Type: pb.ConfChangeAddLearnerNode},
+				{NodeId: 3, Type: pb.ConfChangeAddLearnerNode},
 			},
 				Transition: pb.ConfChangeTransitionJointExplicit,
 			},
@@ -202,9 +202,9 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		{
 			pb.ConfChangeV2{
 				Changes: []pb.ConfChangeSingle{
-					{NodeID: 2, Type: pb.ConfChangeAddNode},
-					{NodeID: 1, Type: pb.ConfChangeAddLearnerNode},
-					{NodeID: 3, Type: pb.ConfChangeAddLearnerNode},
+					{NodeId: 2, Type: pb.ConfChangeAddNode},
+					{NodeId: 1, Type: pb.ConfChangeAddLearnerNode},
+					{NodeId: 3, Type: pb.ConfChangeAddLearnerNode},
 				},
 				Transition: pb.ConfChangeTransitionJointImplicit,
 			},
@@ -342,7 +342,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 // lost leadership.
 func TestRawNodeJointAutoLeave(t *testing.T) {
 	testCc := pb.ConfChangeV2{Changes: []pb.ConfChangeSingle{
-		{Type: pb.ConfChangeAddLearnerNode, NodeID: 2},
+		{Type: pb.ConfChangeAddLearnerNode, NodeId: 2},
 	},
 		Transition: pb.ConfChangeTransitionJointImplicit,
 	}
@@ -480,7 +480,7 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 		rawNode.Advance(rd)
 	}
 
-	cc1 := pb.ConfChange{Type: pb.ConfChangeAddNode, NodeID: 1}
+	cc1 := pb.ConfChange{Type: pb.ConfChangeAddNode, NodeId: 1}
 	ccdata1, err := cc1.Marshal()
 	require.NoError(t, err)
 	proposeConfChangeAndApply(cc1)
@@ -489,7 +489,7 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 	proposeConfChangeAndApply(cc1)
 
 	// the new node join should be ok
-	cc2 := pb.ConfChange{Type: pb.ConfChangeAddNode, NodeID: 2}
+	cc2 := pb.ConfChange{Type: pb.ConfChangeAddNode, NodeId: 2}
 	ccdata2, err := cc2.Marshal()
 	require.NoError(t, err)
 	proposeConfChangeAndApply(cc2)

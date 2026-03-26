@@ -75,7 +75,7 @@ func TestConfChangeDataDriven(t *testing.T) {
 				if err != nil {
 					return err.Error()
 				}
-				cc.NodeID = id
+				cc.NodeId = id
 				ccs = append(ccs, cc)
 			}
 

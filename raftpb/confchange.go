@@ -57,7 +57,7 @@ func (c ConfChange) AsV2() ConfChangeV2 {
 	return ConfChangeV2{
 		Changes: []ConfChangeSingle{{
 			Type:   c.Type,
-			NodeID: c.NodeID,
+			NodeId: c.NodeId,
 		}},
 		Context: c.Context,
 	}
@@ -145,7 +145,7 @@ func ConfChangesFromString(s string) ([]ConfChangeSingle, error) {
 		if err != nil {
 			return nil, err
 		}
-		cc.NodeID = id
+		cc.NodeId = id
 		ccs = append(ccs, cc)
 	}
 	return ccs, nil
@@ -170,7 +170,7 @@ func ConfChangesToString(ccs []ConfChangeSingle) string {
 		default:
 			buf.WriteString("unknown")
 		}
-		fmt.Fprintf(&buf, "%d", cc.NodeID)
+		fmt.Fprintf(&buf, "%d", cc.NodeId)
 	}
 	return buf.String()
 }
