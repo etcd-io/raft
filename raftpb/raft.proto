@@ -154,20 +154,20 @@ enum ConfChangeType {
 
 message ConfChange {
 	optional ConfChangeType  type    = 2 [(gogoproto.nullable) = false];
-	optional uint64          node_id = 3 [(gogoproto.nullable) = false, (gogoproto.customname) = "NodeID"];
+	optional uint64          node_id = 3 [(gogoproto.nullable) = false];
 	optional bytes           context = 4;
 
 	// NB: this is used only by etcd to thread through a unique identifier.
 	// Ideally it should really use the Context instead. No counterpart to
 	// this field exists in ConfChangeV2.
-	optional uint64          id      = 1 [(gogoproto.nullable) = false, (gogoproto.customname) = "ID"];
+	optional uint64          id      = 1 [(gogoproto.nullable) = false];
 }
 
 // ConfChangeSingle is an individual configuration change operation. Multiple
 // such operations can be carried out atomically via a ConfChangeV2.
 message ConfChangeSingle {
 	optional ConfChangeType  type    = 1 [(gogoproto.nullable) = false];
-	optional uint64          node_id = 2 [(gogoproto.nullable) = false, (gogoproto.customname) = "NodeID"];
+	optional uint64          node_id = 2 [(gogoproto.nullable) = false];
 }
 
 // ConfChangeV2 messages initiate configuration changes. They support both the
