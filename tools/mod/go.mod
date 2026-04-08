@@ -2,7 +2,7 @@ module go.etcd.io/raft/tools/v3
 
 go 1.25
 
-toolchain go1.25.8
+toolchain go1.25.9
 
 require (
 	github.com/alexkohler/nakedret v1.0.0
