@@ -90,8 +90,8 @@ func TestFindConflictByTerm(t *testing.T) {
 			st := NewMemoryStorage()
 			require.NotEmpty(t, tt.ents)
 			st.ApplySnapshot(pb.Snapshot{Metadata: pb.SnapshotMetadata{
-				Index: tt.ents[0].Index,
-				Term:  tt.ents[0].Term,
+				Index: tt.ents[0].GetIndex(),
+				Term:  tt.ents[0].GetTerm(),
 			}})
 			l := newLog(st, raftLogger)
 			l.append(tt.ents[1:]...)
@@ -350,7 +350,7 @@ func TestCompactionSideEffects(t *testing.T) {
 
 	unstableEnts := raftLog.nextUnstableEnts()
 	require.Equal(t, 250, len(unstableEnts))
-	require.Equal(t, uint64(751), unstableEnts[0].Index)
+	require.Equal(t, uint64(751), unstableEnts[0].GetIndex())
 
 	prev := raftLog.lastIndex()
 	raftLog.append(pb.Entry{Index: raftLog.lastIndex() + 1, Term: raftLog.lastIndex() + 1})
@@ -595,7 +595,7 @@ func TestNextUnstableEnts(t *testing.T) {
 				raftLog.stableTo(pbEntryID(&ents[l-1]))
 			}
 			require.Equal(t, tt.wents, ents)
-			require.Equal(t, previousEnts[len(previousEnts)-1].Index+1, raftLog.unstable.offset)
+			require.Equal(t, previousEnts[len(previousEnts)-1].GetIndex()+1, raftLog.unstable.offset)
 		})
 	}
 }

@@ -137,8 +137,8 @@ func TestStorageCompact(t *testing.T) {
 		t.Run("", func(t *testing.T) {
 			s := &MemoryStorage{ents: ents}
 			require.Equal(t, tt.werr, s.Compact(tt.i))
-			require.Equal(t, tt.windex, s.ents[0].Index)
-			require.Equal(t, tt.wterm, s.ents[0].Term)
+			require.Equal(t, tt.windex, s.ents[0].GetIndex())
+			require.Equal(t, tt.wterm, s.ents[0].GetTerm())
 			require.Equal(t, tt.wlen, len(s.ents))
 		})
 	}

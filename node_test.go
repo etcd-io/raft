@@ -160,7 +160,7 @@ func TestNodePropose(t *testing.T) {
 
 	require.Len(t, msgs, 1)
 	assert.Equal(t, raftpb.MsgProp, msgs[0].Type)
-	assert.Equal(t, []byte("somedata"), msgs[0].Entries[0].Data)
+	assert.Equal(t, []byte("somedata"), msgs[0].Entries[0].GetData())
 }
 
 // TestDisableProposalForwarding ensures that proposals are not forwarded to
@@ -273,7 +273,7 @@ func TestNodeProposeConfig(t *testing.T) {
 
 	require.Len(t, msgs, 1)
 	assert.Equal(t, raftpb.MsgProp, msgs[0].Type)
-	assert.Equal(t, ccdata, msgs[0].Entries[0].Data)
+	assert.Equal(t, ccdata, msgs[0].Entries[0].GetData())
 }
 
 // TestNodeProposeAddDuplicateNode ensures that two proposes to add the same node should
@@ -308,11 +308,11 @@ func TestNodeProposeAddDuplicateNode(t *testing.T) {
 				applied := false
 				for _, e := range rd.CommittedEntries {
 					allCommittedEntries = append(allCommittedEntries, e)
-					switch e.Type {
+					switch e.GetType() {
 					case raftpb.EntryNormal:
 					case raftpb.EntryConfChange:
 						var cc raftpb.ConfChange
-						cc.Unmarshal(e.Data)
+						cc.Unmarshal(e.GetData())
 						n.ApplyConfChange(cc)
 						applied = true
 					}
@@ -344,8 +344,8 @@ func TestNodeProposeAddDuplicateNode(t *testing.T) {
 	<-goroutineStopped
 
 	assert.Len(t, allCommittedEntries, 4)
-	assert.Equal(t, ccdata1, allCommittedEntries[1].Data)
-	assert.Equal(t, ccdata2, allCommittedEntries[3].Data)
+	assert.Equal(t, ccdata1, allCommittedEntries[1].GetData())
+	assert.Equal(t, ccdata2, allCommittedEntries[3].GetData())
 }
 
 // TestBlockProposal ensures that node will block proposal when it does not
@@ -737,11 +737,11 @@ func TestNodeProposeAddLearnerNode(t *testing.T) {
 				s.Append(rd.Entries)
 				t.Logf("raft: %v", rd.Entries)
 				for _, ent := range rd.Entries {
-					if ent.Type != raftpb.EntryConfChange {
+					if ent.GetType() != raftpb.EntryConfChange {
 						continue
 					}
 					var cc raftpb.ConfChange
-					cc.Unmarshal(ent.Data)
+					cc.Unmarshal(ent.GetData())
 					state := n.ApplyConfChange(cc)
 					assert.True(t, len(state.Learners) > 0 && state.Learners[0] == cc.NodeId && cc.NodeId == 2,
 						"apply conf change should return new added learner: %v", state.String())
@@ -776,7 +776,7 @@ func TestAppendPagination(t *testing.T) {
 		if m.Type == raftpb.MsgApp {
 			size := 0
 			for _, e := range m.Entries {
-				size += len(e.Data)
+				size += len(e.GetData())
 			}
 			assert.LessOrEqual(t, size, maxSizePerMsg, "sent MsgApp that is too large")
 			if size > maxSizePerMsg/2 {

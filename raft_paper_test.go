@@ -554,14 +554,14 @@ func TestFollowerCheckMsgApp(t *testing.T) {
 	}{
 		// match with committed entries
 		{0, 0, 1, false, 0, 0},
-		{ents[0].Term, ents[0].Index, 1, false, 0, 0},
+		{ents[0].GetTerm(), ents[0].GetIndex(), 1, false, 0, 0},
 		// match with uncommitted entries
-		{ents[1].Term, ents[1].Index, 2, false, 0, 0},
+		{ents[1].GetTerm(), ents[1].GetIndex(), 2, false, 0, 0},
 
 		// unmatch with existing entry
-		{ents[0].Term, ents[1].Index, ents[1].Index, true, 1, 1},
+		{ents[0].GetTerm(), ents[1].GetIndex(), ents[1].GetIndex(), true, 1, 1},
 		// unexisting entry
-		{ents[1].Term + 1, ents[1].Index + 1, ents[1].Index + 1, true, 2, 2},
+		{ents[1].GetTerm() + 1, ents[1].GetIndex() + 1, ents[1].GetIndex() + 1, true, 2, 2},
 	}
 	for i, tt := range tests {
 		storage := newTestMemoryStorage(withPeers(1, 2, 3))
@@ -695,8 +695,8 @@ func TestVoteRequest(t *testing.T) {
 			assert.Equal(t, uint64(i+2), m.To, "#%d.%d", j, i)
 			assert.Equal(t, tt.wterm, m.Term, "#%d.%d", j, i)
 
-			assert.Equal(t, tt.ents[len(tt.ents)-1].Index, m.Index, "#%d.%d", j, i)
-			assert.Equal(t, tt.ents[len(tt.ents)-1].Term, m.LogTerm, "#%d.%d", j, i)
+			assert.Equal(t, tt.ents[len(tt.ents)-1].GetIndex(), m.Index, "#%d.%d", j, i)
+			assert.Equal(t, tt.ents[len(tt.ents)-1].GetTerm(), m.LogTerm, "#%d.%d", j, i)
 		}
 	}
 }
@@ -788,7 +788,7 @@ func commitNoopEntry(r *raft, s *MemoryStorage) {
 	// simulate the response of MsgApp
 	msgs := r.readMessages()
 	for _, m := range msgs {
-		if m.Type != pb.MsgApp || len(m.Entries) != 1 || m.Entries[0].Data != nil {
+		if m.Type != pb.MsgApp || len(m.Entries) != 1 || m.Entries[0].GetData() != nil {
 			panic("not a message to append noop entry")
 		}
 		r.Step(acceptAndReply(m))

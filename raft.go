@@ -1003,7 +1003,7 @@ func (r *raft) hasUnappliedConfChanges() bool {
 	pageSize := r.raftLog.maxApplyingEntsSize
 	if err := r.raftLog.scan(lo, hi, pageSize, func(ents []pb.Entry) error {
 		for i := range ents {
-			if ents[i].Type == pb.EntryConfChange || ents[i].Type == pb.EntryConfChangeV2 {
+			if ents[i].GetType() == pb.EntryConfChange || ents[i].GetType() == pb.EntryConfChangeV2 {
 				found = true
 				return errBreak
 			}
@@ -1191,7 +1191,7 @@ func (r *raft) Step(m pb.Message) error {
 
 	case pb.MsgStorageApplyResp:
 		if len(m.Entries) > 0 {
-			index := m.Entries[len(m.Entries)-1].Index
+			index := m.Entries[len(m.Entries)-1].GetIndex()
 			r.appliedTo(index, entsSize(m.Entries))
 			r.reduceUncommittedSize(payloadsSize(m.Entries))
 		}
@@ -1296,15 +1296,15 @@ func stepLeader(r *raft, m pb.Message) error {
 		for i := range m.Entries {
 			e := &m.Entries[i]
 			var cc pb.ConfChangeI
-			if e.Type == pb.EntryConfChange {
+			if e.GetType() == pb.EntryConfChange {
 				var ccc pb.ConfChange
-				if err := ccc.Unmarshal(e.Data); err != nil {
+				if err := ccc.Unmarshal(e.GetData()); err != nil {
 					panic(err)
 				}
 				cc = ccc
-			} else if e.Type == pb.EntryConfChangeV2 {
+			} else if e.GetType() == pb.EntryConfChangeV2 {
 				var ccc pb.ConfChangeV2
-				if err := ccc.Unmarshal(e.Data); err != nil {
+				if err := ccc.Unmarshal(e.GetData()); err != nil {
 					panic(err)
 				}
 				cc = ccc
@@ -1760,7 +1760,7 @@ func stepFollower(r *raft, m pb.Message) error {
 			r.logger.Errorf("%x invalid format of MsgReadIndexResp from %x, entries count: %d", r.id, m.From, len(m.Entries))
 			return nil
 		}
-		r.readStates = append(r.readStates, ReadState{Index: m.Index, RequestCtx: m.Entries[0].Data})
+		r.readStates = append(r.readStates, ReadState{Index: m.Index, RequestCtx: m.Entries[0].GetData()})
 	}
 	return nil
 }

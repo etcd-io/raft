@@ -109,8 +109,8 @@ func TestProgressLeader(t *testing.T) {
 
 	ents := r.raftLog.nextUnstableEnts()
 	require.Len(t, ents, 6)
-	require.Len(t, ents[0].Data, 0)
-	require.Equal(t, "foo", string(ents[5].Data))
+	require.Len(t, ents[0].GetData(), 0)
+	require.Equal(t, "foo", string(ents[5].GetData()))
 
 	r.advanceMessagesAfterAppend()
 
@@ -181,8 +181,8 @@ func TestProgressFlowControl(t *testing.T) {
 
 	require.Len(t, ms[0].Entries, 2)
 
-	require.Empty(t, ms[0].Entries[0].Data)
-	require.Len(t, ms[0].Entries[1].Data, 1000)
+	require.Empty(t, ms[0].Entries[0].GetData())
+	require.Len(t, ms[0].Entries[1].GetData(), 1000)
 
 	ackAndVerify := func(index uint64, expEntries ...int) uint64 {
 		r.Step(pb.Message{From: 2, To: 1, Type: pb.MsgAppResp, Index: index})
@@ -197,12 +197,12 @@ func TestProgressFlowControl(t *testing.T) {
 		if len(last) == 0 {
 			return index
 		}
-		return last[len(last)-1].Index
+		return last[len(last)-1].GetIndex()
 	}
 
 	// When this append is acked, we change to replicate state and can
 	// send multiple messages at once.
-	index := ackAndVerify(ms[0].Entries[1].Index, 2, 2, 2)
+	index := ackAndVerify(ms[0].Entries[1].GetIndex(), 2, 2, 2)
 	// Ack all three of those messages together and get another 3 messages. The
 	// third message contains a single large entry, in contrast to 2 before.
 	index = ackAndVerify(index, 2, 1, 1)
@@ -494,8 +494,8 @@ func testLeaderElectionOverwriteNewerLogs(t *testing.T, preVote bool) {
 		sm := n.peers[i].(*raft)
 		entries := sm.raftLog.allEntries()
 		require.Len(t, entries, 2)
-		assert.Equal(t, uint64(1), entries[0].Term)
-		assert.Equal(t, uint64(3), entries[1].Term)
+		assert.Equal(t, uint64(1), entries[0].GetTerm())
+		assert.Equal(t, uint64(3), entries[1].GetTerm())
 	}
 }
 
@@ -599,7 +599,7 @@ func TestLogReplication(t *testing.T) {
 
 			var ents []pb.Entry
 			for _, e := range nextEnts(sm, tt.network.storage[j]) {
-				if e.Data != nil {
+				if e.GetData() != nil {
 					ents = append(ents, e)
 				}
 			}
@@ -610,7 +610,7 @@ func TestLogReplication(t *testing.T) {
 				}
 			}
 			for k, m := range props {
-				assert.Equal(t, m.Entries[0].Data, ents[k].Data, "#%d.%d", i, j)
+				assert.Equal(t, m.Entries[0].GetData(), ents[k].GetData(), "#%d.%d", i, j)
 			}
 		}
 	}
@@ -1253,7 +1253,7 @@ func TestMsgAppRespWaitReset(t *testing.T) {
 	assert.Equal(t, pb.MsgApp, msgs[0].Type)
 	assert.Equal(t, uint64(2), msgs[0].To)
 	assert.Len(t, msgs[0].Entries, 1)
-	assert.Equal(t, uint64(2), msgs[0].Entries[0].Index)
+	assert.Equal(t, uint64(2), msgs[0].Entries[0].GetIndex())
 
 	// Now Node 3 acks the first entry. This releases the wait and entry 2 is sent.
 	sm.Step(pb.Message{
@@ -1266,7 +1266,7 @@ func TestMsgAppRespWaitReset(t *testing.T) {
 	assert.Equal(t, pb.MsgApp, msgs[0].Type)
 	assert.Equal(t, uint64(3), msgs[0].To)
 	assert.Len(t, msgs[0].Entries, 1)
-	assert.Equal(t, uint64(2), msgs[0].Entries[0].Index)
+	assert.Equal(t, uint64(2), msgs[0].Entries[0].GetIndex())
 }
 
 func TestRecvMsgVote(t *testing.T) {
@@ -2994,17 +2994,17 @@ func TestCommitAfterRemoveNode(t *testing.T) {
 	})
 	ents := nextEnts(r, s)
 	require.Len(t, ents, 2)
-	require.Equal(t, pb.EntryNormal, ents[0].Type)
-	require.Nil(t, ents[0].Data)
-	require.Equal(t, pb.EntryConfChange, ents[1].Type)
+	require.Equal(t, pb.EntryNormal, ents[0].GetType())
+	require.Nil(t, ents[0].GetData())
+	require.Equal(t, pb.EntryConfChange, ents[1].GetType())
 
 	// Apply the config change. This reduces quorum requirements so the
 	// pending command can now commit.
 	r.applyConfChange(cc.AsV2())
 	ents = nextEnts(r, s)
 	require.Len(t, ents, 1)
-	require.Equal(t, pb.EntryNormal, ents[0].Type)
-	require.Equal(t, []byte("hello"), ents[0].Data)
+	require.Equal(t, pb.EntryNormal, ents[0].GetType())
+	require.Equal(t, []byte("hello"), ents[0].GetData())
 }
 
 // TestLeaderTransferToUpToDateNode verifies transferring should succeed
@@ -3854,18 +3854,18 @@ func TestFastLogRejection(t *testing.T) {
 			s1.Append(test.leaderLog)
 			last := test.leaderLog[len(test.leaderLog)-1]
 			s1.SetHardState(pb.HardState{
-				Term:   last.Term - 1,
-				Commit: last.Index,
+				Term:   last.GetTerm() - 1,
+				Commit: last.GetIndex(),
 			})
 			n1 := newTestRaft(1, 10, 1, s1)
-			n1.becomeCandidate() // bumps Term to last.Term
+			n1.becomeCandidate() // bumps Term to last.GetTerm()
 			n1.becomeLeader()
 
 			s2 := NewMemoryStorage()
 			s2.snapshot.Metadata.ConfState = pb.ConfState{Voters: []uint64{1, 2, 3}}
 			s2.Append(test.followerLog)
 			s2.SetHardState(pb.HardState{
-				Term:   last.Term,
+				Term:   last.GetTerm(),
 				Vote:   1,
 				Commit: 0,
 			})

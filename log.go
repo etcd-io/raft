@@ -132,7 +132,7 @@ func (l *raftLog) append(ents ...pb.Entry) uint64 {
 	if len(ents) == 0 {
 		return l.lastIndex()
 	}
-	if after := ents[0].Index - 1; after < l.committed {
+	if after := ents[0].GetIndex() - 1; after < l.committed {
 		l.logger.Panicf("after(%d) is out of range [committed(%d)]", after, l.committed)
 	}
 	l.unstable.truncateAndAppend(ents)
