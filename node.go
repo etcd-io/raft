@@ -484,7 +484,7 @@ func confChangeToMsg(c pb.ConfChangeI) (pb.Message, error) {
 	if err != nil {
 		return pb.Message{}, err
 	}
-	return pb.Message{Type: pb.MsgProp, Entries: []pb.Entry{{Type: typ, Data: data}}}, nil
+	return pb.Message{Type: pb.MsgProp, Entries: []pb.Entry{{Type: typ.Enum(), Data: data}}}, nil
 }
 
 func (n *node) ProposeConfChange(ctx context.Context, cc pb.ConfChangeI) error {

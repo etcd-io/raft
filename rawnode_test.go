@@ -80,7 +80,7 @@ func TestRawNodeStep(t *testing.T) {
 		t.Run(msgn, func(t *testing.T) {
 			s := NewMemoryStorage()
 			s.SetHardState(pb.HardState{Term: 1, Commit: 1})
-			s.Append([]pb.Entry{{Term: 1, Index: 1}})
+			s.Append([]pb.Entry{{Term: new(uint64(1)), Index: new(uint64(1))}})
 			require.NoError(t, s.ApplySnapshot(pb.Snapshot{Metadata: pb.SnapshotMetadata{
 				ConfState: pb.ConfState{
 					Voters: []uint64{1},
@@ -566,8 +566,8 @@ func TestRawNodeReadIndex(t *testing.T) {
 // and will not create faux configuration change entries.
 func TestRawNodeStart(t *testing.T) {
 	entries := []pb.Entry{
-		{Term: 1, Index: 2, Data: nil},           // empty entry
-		{Term: 1, Index: 3, Data: []byte("foo")}, // non-empty entry
+		{Term: new(uint64(1)), Index: new(uint64(2)), Data: nil},           // empty entry
+		{Term: new(uint64(1)), Index: new(uint64(3)), Data: []byte("foo")}, // non-empty entry
 	}
 	want := Ready{
 		SoftState:        &SoftState{Lead: 1, RaftState: StateLeader},
@@ -578,7 +578,7 @@ func TestRawNodeStart(t *testing.T) {
 	}
 
 	storage := NewMemoryStorage()
-	storage.ents[0].Index = 1
+	storage.ents[0].Index = new(uint64(1))
 
 	// TODO(tbg): this is a first prototype of what bootstrapping could look
 	// like (without the annoying faux ConfChanges). We want to persist a
@@ -657,8 +657,8 @@ func TestRawNodeStart(t *testing.T) {
 
 func TestRawNodeRestart(t *testing.T) {
 	entries := []pb.Entry{
-		{Term: 1, Index: 1},
-		{Term: 1, Index: 2, Data: []byte("foo")},
+		{Term: new(uint64(1)), Index: new(uint64(1))},
+		{Term: new(uint64(1)), Index: new(uint64(2)), Data: []byte("foo")},
 	}
 	st := pb.HardState{Term: 1, Commit: 1}
 
@@ -689,7 +689,7 @@ func TestRawNodeRestartFromSnapshot(t *testing.T) {
 		},
 	}
 	entries := []pb.Entry{
-		{Term: 1, Index: 3, Data: []byte("foo")},
+		{Term: new(uint64(1)), Index: new(uint64(3)), Data: []byte("foo")},
 	}
 	st := pb.HardState{Term: 1, Commit: 3}
 
@@ -766,12 +766,7 @@ func TestRawNodeCommitPaginationAfterRestart(t *testing.T) {
 	s.ents = make([]pb.Entry, 10)
 	var size uint64
 	for i := range s.ents {
-		ent := pb.Entry{
-			Term:  1,
-			Index: uint64(i + 1),
-			Type:  pb.EntryNormal,
-			Data:  []byte("a"),
-		}
+		ent := pb.Entry{Term: new(uint64(1)), Index: new(uint64(i + 1)), Type: pb.EntryNormal.Enum(), Data: []byte("a")}
 
 		s.ents[i] = ent
 		size += uint64(ent.Size())
@@ -783,12 +778,7 @@ func TestRawNodeCommitPaginationAfterRestart(t *testing.T) {
 	// this and *will* return it (which is how the Commit index ended up being 10 initially).
 	cfg.MaxSizePerMsg = size - uint64(s.ents[len(s.ents)-1].Size()) - 1
 
-	s.ents = append(s.ents, pb.Entry{
-		Term:  1,
-		Index: uint64(11),
-		Type:  pb.EntryNormal,
-		Data:  []byte("boom"),
-	})
+	s.ents = append(s.ents, pb.Entry{Term: new(uint64(1)), Index: new(uint64(11)), Type: pb.EntryNormal.Enum(), Data: []byte("boom")})
 
 	rawNode, err := NewRawNode(cfg)
 	require.NoError(t, err)

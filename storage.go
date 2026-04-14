@@ -219,7 +219,7 @@ func (ms *MemoryStorage) ApplySnapshot(snap pb.Snapshot) error {
 	}
 
 	ms.snapshot = snap
-	ms.ents = []pb.Entry{{Term: snap.Metadata.Term, Index: snap.Metadata.Index}}
+	ms.ents = []pb.Entry{{Term: new(snap.Metadata.Term), Index: new(snap.Metadata.Index)}}
 	return nil
 }
 
@@ -267,8 +267,8 @@ func (ms *MemoryStorage) Compact(compactIndex uint64) error {
 	// ms.ents are immutable, and can be referenced from outside MemoryStorage
 	// through slices returned by ms.Entries().
 	ents := make([]pb.Entry, 1, uint64(len(ms.ents))-i)
-	ents[0].Index = ms.ents[i].Index
-	ents[0].Term = ms.ents[i].Term
+	ents[0].Index = new(ms.ents[i].GetIndex())
+	ents[0].Term = new(ms.ents[i].GetTerm())
 	ents = append(ents, ms.ents[i+1:]...)
 	ms.ents = ents
 	return nil

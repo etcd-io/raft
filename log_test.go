@@ -353,7 +353,7 @@ func TestCompactionSideEffects(t *testing.T) {
 	require.Equal(t, uint64(751), unstableEnts[0].GetIndex())
 
 	prev := raftLog.lastIndex()
-	raftLog.append(pb.Entry{Index: raftLog.lastIndex() + 1, Term: raftLog.lastIndex() + 1})
+	raftLog.append(pb.Entry{Index: new(raftLog.lastIndex() + 1), Term: new(raftLog.lastIndex() + 1)})
 	require.Equal(t, prev+1, raftLog.lastIndex())
 
 	ents, err := raftLog.entries(raftLog.lastIndex(), noLimit)
@@ -877,7 +877,7 @@ func TestSlice(t *testing.T) {
 	num := uint64(100)
 	last := offset + num
 	half := offset + num/2
-	halfe := pb.Entry{Index: half, Term: half}
+	halfe := pb.Entry{Index: new(half), Term: new(half)}
 
 	entries := func(from, to uint64) []pb.Entry {
 		return index(from).termRange(from, to)
@@ -1030,7 +1030,7 @@ func (i index) terms(terms ...uint64) []pb.Entry {
 	index := uint64(i)
 	entries := make([]pb.Entry, 0, len(terms))
 	for _, term := range terms {
-		entries = append(entries, pb.Entry{Term: term, Index: index})
+		entries = append(entries, pb.Entry{Term: new(term), Index: new(index)})
 		index++
 	}
 	return entries
@@ -1042,7 +1042,7 @@ func (i index) termRange(from, to uint64) []pb.Entry {
 	index := uint64(i)
 	entries := make([]pb.Entry, 0, to-from)
 	for term := from; term < to; term++ {
-		entries = append(entries, pb.Entry{Term: term, Index: index})
+		entries = append(entries, pb.Entry{Term: new(term), Index: new(index)})
 		index++
 	}
 	return entries

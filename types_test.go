@@ -33,8 +33,8 @@ func TestEntryID(t *testing.T) {
 		want  entryID
 	}{
 		{entry: pb.Entry{}, want: entryID{term: 0, index: 0}},
-		{entry: pb.Entry{Term: 1, Index: 2, Data: []byte("data")}, want: entryID{term: 1, index: 2}},
-		{entry: pb.Entry{Term: 10, Index: 123}, want: entryID{term: 10, index: 123}},
+		{entry: pb.Entry{Term: new(uint64(1)), Index: new(uint64(2)), Data: []byte("data")}, want: entryID{term: 1, index: 2}},
+		{entry: pb.Entry{Term: new(uint64(10)), Index: new(uint64(123))}, want: entryID{term: 10, index: 123}},
 	} {
 		require.Equal(t, tt.want, pbEntryID(&tt.entry))
 	}
@@ -45,7 +45,7 @@ func TestLogSlice(t *testing.T) {
 		return entryID{term: term, index: index}
 	}
 	e := func(index, term uint64) pb.Entry {
-		return pb.Entry{Term: term, Index: index}
+		return pb.Entry{Term: new(term), Index: new(index)}
 	}
 	for _, tt := range []struct {
 		term    uint64

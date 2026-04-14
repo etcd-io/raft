@@ -487,23 +487,23 @@ func TestNodeStart(t *testing.T) {
 		{
 			HardState: raftpb.HardState{Term: 1, Commit: 1, Vote: 0},
 			Entries: []raftpb.Entry{
-				{Type: raftpb.EntryConfChange, Term: 1, Index: 1, Data: ccdata},
+				{Type: raftpb.EntryConfChange.Enum(), Term: new(uint64(1)), Index: new(uint64(1)), Data: ccdata},
 			},
 			CommittedEntries: []raftpb.Entry{
-				{Type: raftpb.EntryConfChange, Term: 1, Index: 1, Data: ccdata},
+				{Type: raftpb.EntryConfChange.Enum(), Term: new(uint64(1)), Index: new(uint64(1)), Data: ccdata},
 			},
 			MustSync: true,
 		},
 		{
 			HardState:        raftpb.HardState{Term: 2, Commit: 2, Vote: 1},
-			Entries:          []raftpb.Entry{{Term: 2, Index: 3, Data: []byte("foo")}},
-			CommittedEntries: []raftpb.Entry{{Term: 2, Index: 2, Data: nil}},
+			Entries:          []raftpb.Entry{{Term: new(uint64(2)), Index: new(uint64(3)), Data: []byte("foo")}},
+			CommittedEntries: []raftpb.Entry{{Term: new(uint64(2)), Index: new(uint64(2)), Data: nil}},
 			MustSync:         true,
 		},
 		{
 			HardState:        raftpb.HardState{Term: 2, Commit: 3, Vote: 1},
 			Entries:          nil,
-			CommittedEntries: []raftpb.Entry{{Term: 2, Index: 3, Data: []byte("foo")}},
+			CommittedEntries: []raftpb.Entry{{Term: new(uint64(2)), Index: new(uint64(3)), Data: []byte("foo")}},
 			MustSync:         false,
 		},
 	}
@@ -564,8 +564,8 @@ func TestNodeStart(t *testing.T) {
 
 func TestNodeRestart(t *testing.T) {
 	entries := []raftpb.Entry{
-		{Term: 1, Index: 1},
-		{Term: 1, Index: 2, Data: []byte("foo")},
+		{Term: new(uint64(1)), Index: new(uint64(1))},
+		{Term: new(uint64(1)), Index: new(uint64(2)), Data: []byte("foo")},
 	}
 	st := raftpb.HardState{Term: 1, Commit: 1}
 
@@ -610,7 +610,7 @@ func TestNodeRestartFromSnapshot(t *testing.T) {
 		},
 	}
 	entries := []raftpb.Entry{
-		{Term: 1, Index: 3, Data: []byte("foo")},
+		{Term: new(uint64(1)), Index: new(uint64(3)), Data: []byte("foo")},
 	}
 	st := raftpb.HardState{Term: 1, Commit: 3}
 
@@ -1029,9 +1029,9 @@ func TestNodeCommitPaginationAfterRestart(t *testing.T) {
 	var size uint64
 	for i := range s.ents {
 		ent := raftpb.Entry{
-			Term:  1,
-			Index: uint64(i + 1),
-			Type:  raftpb.EntryNormal,
+			Term:  new(uint64(1)),
+			Index: new(uint64(i + 1)),
+			Type:  raftpb.EntryNormal.Enum(),
 			Data:  []byte("a"),
 		}
 
