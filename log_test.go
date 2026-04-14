@@ -877,7 +877,7 @@ func TestSlice(t *testing.T) {
 	num := uint64(100)
 	last := offset + num
 	half := offset + num/2
-	halfe := pb.Entry{Index: new(half), Term: new(half)}
+	halfe := pb.Entry{Index: new(half), Term: new(half), Type: pb.EntryNormal.Enum()}
 
 	entries := func(from, to uint64) []pb.Entry {
 		return index(from).termRange(from, to)
@@ -1042,7 +1042,7 @@ func (i index) termRange(from, to uint64) []pb.Entry {
 	index := uint64(i)
 	entries := make([]pb.Entry, 0, to-from)
 	for term := from; term < to; term++ {
-		entries = append(entries, pb.Entry{Term: new(term), Index: new(index)})
+		entries = append(entries, pb.Entry{Term: new(term), Index: new(index), Type: pb.EntryNormal.Enum()})
 		index++
 	}
 	return entries
