@@ -435,7 +435,7 @@ func (rn *RawNode) acceptReady(rd Ready) {
 	rn.raft.raftLog.acceptUnstable()
 	if len(rd.CommittedEntries) > 0 {
 		ents := rd.CommittedEntries
-		index := ents[len(ents)-1].Index
+		index := ents[len(ents)-1].GetIndex()
 		rn.raft.raftLog.acceptApplying(index, entsSize(ents), rn.applyUnstableEntries())
 	}
 

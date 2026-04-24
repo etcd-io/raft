@@ -32,7 +32,7 @@ type entryID struct {
 
 // pbEntryID returns the ID of the given pb.Entry.
 func pbEntryID(entry *pb.Entry) entryID {
-	return entryID{term: entry.Term, index: entry.Index}
+	return entryID{term: entry.GetTerm(), index: entry.GetIndex()}
 }
 
 // logSlice describes a correct slice of a raft log.

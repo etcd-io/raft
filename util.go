@@ -215,19 +215,19 @@ func DescribeEntry(e pb.Entry, f EntryFormatter) string {
 	}
 
 	var formatted string
-	switch e.Type {
+	switch e.GetType() {
 	case pb.EntryNormal:
-		formatted = f(e.Data)
+		formatted = f(e.GetData())
 	case pb.EntryConfChange:
 		var cc pb.ConfChange
-		if err := cc.Unmarshal(e.Data); err != nil {
+		if err := cc.Unmarshal(e.GetData()); err != nil {
 			formatted = err.Error()
 		} else {
 			formatted = formatConfChange(cc)
 		}
 	case pb.EntryConfChangeV2:
 		var cc pb.ConfChangeV2
-		if err := cc.Unmarshal(e.Data); err != nil {
+		if err := cc.Unmarshal(e.GetData()); err != nil {
 			formatted = err.Error()
 		} else {
 			formatted = formatConfChange(cc)
@@ -236,7 +236,7 @@ func DescribeEntry(e pb.Entry, f EntryFormatter) string {
 	if formatted != "" {
 		formatted = " " + formatted
 	}
-	return fmt.Sprintf("%d/%d %s%s", e.Term, e.Index, e.Type, formatted)
+	return fmt.Sprintf("%d/%d %s%s", e.GetTerm(), e.GetIndex(), e.GetType(), formatted)
 }
 
 // DescribeEntries calls DescribeEntry for each Entry, adding a newline to
@@ -287,7 +287,7 @@ type entryPayloadSize uint64
 
 // payloadSize is the size of the payload of the provided entry.
 func payloadSize(e pb.Entry) entryPayloadSize {
-	return entryPayloadSize(len(e.Data))
+	return entryPayloadSize(len(e.GetData()))
 }
 
 // payloadsSize is the size of the payloads of the provided entries.

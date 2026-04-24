@@ -107,7 +107,7 @@ func TestLeaderBcastBeat(t *testing.T) {
 	r.becomeCandidate()
 	r.becomeLeader()
 	for i := 0; i < 10; i++ {
-		mustAppendEntry(r, pb.Entry{Index: uint64(i) + 1})
+		mustAppendEntry(r, pb.Entry{Index: new(uint64(i) + 1)})
 	}
 
 	for i := 0; i < hi; i++ {
@@ -376,13 +376,13 @@ func TestLeaderStartReplication(t *testing.T) {
 	assert.Equal(t, li, r.raftLog.committed)
 	msgs := r.readMessages()
 	sort.Sort(messageSlice(msgs))
-	wents := []pb.Entry{{Index: li + 1, Term: 1, Data: []byte("some data")}}
+	wents := []pb.Entry{{Index: new(li + 1), Term: new(uint64(1)), Data: []byte("some data")}}
 	assert.Equal(t, []pb.Message{
 		{From: 1, To: 2, Term: 1, Type: pb.MsgApp, Index: li, LogTerm: 1, Entries: wents, Commit: li},
 		{From: 1, To: 3, Term: 1, Type: pb.MsgApp, Index: li, LogTerm: 1, Entries: wents, Commit: li},
 	}, msgs)
 	assert.Equal(t, []pb.Entry{
-		{Index: li + 1, Term: 1, Data: []byte("some data")},
+		{Index: new(li + 1), Term: new(uint64(1)), Data: []byte("some data")},
 	}, r.raftLog.nextUnstableEnts())
 }
 
@@ -408,7 +408,7 @@ func TestLeaderCommitEntry(t *testing.T) {
 
 	assert.Equal(t, li+1, r.raftLog.committed)
 	assert.Equal(t, []pb.Entry{
-		{Index: li + 1, Term: 1, Data: []byte("some data")},
+		{Index: new(li + 1), Term: new(uint64(1)), Data: []byte("some data")},
 	}, r.raftLog.nextCommittedEnts(true))
 	msgs := r.readMessages()
 	sort.Sort(messageSlice(msgs))
@@ -465,9 +465,9 @@ func TestLeaderAcknowledgeCommit(t *testing.T) {
 func TestLeaderCommitPrecedingEntries(t *testing.T) {
 	tests := [][]pb.Entry{
 		{},
-		{{Term: 2, Index: 1}},
-		{{Term: 1, Index: 1}, {Term: 2, Index: 2}},
-		{{Term: 1, Index: 1}},
+		{{Term: new(uint64(2)), Index: new(uint64(1))}},
+		{{Term: new(uint64(1)), Index: new(uint64(1))}, {Term: new(uint64(2)), Index: new(uint64(2))}},
+		{{Term: new(uint64(1)), Index: new(uint64(1))}},
 	}
 	for i, tt := range tests {
 		storage := newTestMemoryStorage(withPeers(1, 2, 3))
@@ -484,8 +484,8 @@ func TestLeaderCommitPrecedingEntries(t *testing.T) {
 
 		li := uint64(len(tt))
 		assert.Equal(t, append(tt,
-			pb.Entry{Term: 3, Index: li + 1},
-			pb.Entry{Term: 3, Index: li + 2, Data: []byte("some data")},
+			pb.Entry{Term: new(uint64(3)), Index: new(li + 1)},
+			pb.Entry{Term: new(uint64(3)), Index: new(li + 2), Data: []byte("some data")},
 		), r.raftLog.nextCommittedEnts(true), "#%d", i)
 	}
 }
@@ -500,28 +500,28 @@ func TestFollowerCommitEntry(t *testing.T) {
 	}{
 		{
 			[]pb.Entry{
-				{Term: 1, Index: 1, Data: []byte("some data")},
+				{Term: new(uint64(1)), Index: new(uint64(1)), Data: []byte("some data")},
 			},
 			1,
 		},
 		{
 			[]pb.Entry{
-				{Term: 1, Index: 1, Data: []byte("some data")},
-				{Term: 1, Index: 2, Data: []byte("some data2")},
+				{Term: new(uint64(1)), Index: new(uint64(1)), Data: []byte("some data")},
+				{Term: new(uint64(1)), Index: new(uint64(2)), Data: []byte("some data2")},
 			},
 			2,
 		},
 		{
 			[]pb.Entry{
-				{Term: 1, Index: 1, Data: []byte("some data2")},
-				{Term: 1, Index: 2, Data: []byte("some data")},
+				{Term: new(uint64(1)), Index: new(uint64(1)), Data: []byte("some data2")},
+				{Term: new(uint64(1)), Index: new(uint64(2)), Data: []byte("some data")},
 			},
 			2,
 		},
 		{
 			[]pb.Entry{
-				{Term: 1, Index: 1, Data: []byte("some data")},
-				{Term: 1, Index: 2, Data: []byte("some data2")},
+				{Term: new(uint64(1)), Index: new(uint64(1)), Data: []byte("some data")},
+				{Term: new(uint64(1)), Index: new(uint64(2)), Data: []byte("some data2")},
 			},
 			1,
 		},
@@ -543,7 +543,7 @@ func TestFollowerCommitEntry(t *testing.T) {
 // append entries.
 // Reference: section 5.3
 func TestFollowerCheckMsgApp(t *testing.T) {
-	ents := []pb.Entry{{Term: 1, Index: 1}, {Term: 2, Index: 2}}
+	ents := []pb.Entry{{Term: new(uint64(1)), Index: new(uint64(1))}, {Term: new(uint64(2)), Index: new(uint64(2))}}
 	tests := []struct {
 		term        uint64
 		index       uint64
@@ -554,14 +554,14 @@ func TestFollowerCheckMsgApp(t *testing.T) {
 	}{
 		// match with committed entries
 		{0, 0, 1, false, 0, 0},
-		{ents[0].Term, ents[0].Index, 1, false, 0, 0},
+		{ents[0].GetTerm(), ents[0].GetIndex(), 1, false, 0, 0},
 		// match with uncommitted entries
-		{ents[1].Term, ents[1].Index, 2, false, 0, 0},
+		{ents[1].GetTerm(), ents[1].GetIndex(), 2, false, 0, 0},
 
 		// unmatch with existing entry
-		{ents[0].Term, ents[1].Index, ents[1].Index, true, 1, 1},
+		{ents[0].GetTerm(), ents[1].GetIndex(), ents[1].GetIndex(), true, 1, 1},
 		// unexisting entry
-		{ents[1].Term + 1, ents[1].Index + 1, ents[1].Index + 1, true, 2, 2},
+		{ents[1].GetTerm() + 1, ents[1].GetIndex() + 1, ents[1].GetIndex() + 1, true, 2, 2},
 	}
 	for i, tt := range tests {
 		storage := newTestMemoryStorage(withPeers(1, 2, 3))
@@ -617,7 +617,7 @@ func TestFollowerAppendEntries(t *testing.T) {
 	}
 	for i, tt := range tests {
 		storage := newTestMemoryStorage(withPeers(1, 2, 3))
-		storage.Append([]pb.Entry{{Term: 1, Index: 1}, {Term: 2, Index: 2}})
+		storage.Append([]pb.Entry{{Term: new(uint64(1)), Index: new(uint64(1))}, {Term: new(uint64(2)), Index: new(uint64(2))}})
 		r := newTestRaft(1, 10, 1, storage)
 		r.becomeFollower(2, 2)
 
@@ -695,8 +695,8 @@ func TestVoteRequest(t *testing.T) {
 			assert.Equal(t, uint64(i+2), m.To, "#%d.%d", j, i)
 			assert.Equal(t, tt.wterm, m.Term, "#%d.%d", j, i)
 
-			assert.Equal(t, tt.ents[len(tt.ents)-1].Index, m.Index, "#%d.%d", j, i)
-			assert.Equal(t, tt.ents[len(tt.ents)-1].Term, m.LogTerm, "#%d.%d", j, i)
+			assert.Equal(t, tt.ents[len(tt.ents)-1].GetIndex(), m.Index, "#%d.%d", j, i)
+			assert.Equal(t, tt.ents[len(tt.ents)-1].GetTerm(), m.LogTerm, "#%d.%d", j, i)
 		}
 	}
 }
@@ -719,7 +719,7 @@ func TestVoter(t *testing.T) {
 		// candidate higher logterm
 		{index(1).terms(1), 2, 1, false},
 		{index(1).terms(1), 2, 2, false},
-		{[]pb.Entry{{Term: 1, Index: 1}, {Term: 1, Index: 2}}, 2, 1, false},
+		{[]pb.Entry{{Term: new(uint64(1)), Index: new(uint64(1))}, {Term: new(uint64(1)), Index: new(uint64(2))}}, 2, 1, false},
 		// voter higher logterm
 		{index(1).terms(2), 1, 1, true},
 		{index(1).terms(2), 1, 2, true},
@@ -745,7 +745,7 @@ func TestVoter(t *testing.T) {
 // current term are committed by counting replicas.
 // Reference: section 5.4.2
 func TestLeaderOnlyCommitsLogFromCurrentTerm(t *testing.T) {
-	ents := []pb.Entry{{Term: 1, Index: 1}, {Term: 2, Index: 2}}
+	ents := []pb.Entry{{Term: new(uint64(1)), Index: new(uint64(1))}, {Term: new(uint64(2)), Index: new(uint64(2))}}
 	tests := []struct {
 		index   uint64
 		wcommit uint64
@@ -788,7 +788,7 @@ func commitNoopEntry(r *raft, s *MemoryStorage) {
 	// simulate the response of MsgApp
 	msgs := r.readMessages()
 	for _, m := range msgs {
-		if m.Type != pb.MsgApp || len(m.Entries) != 1 || m.Entries[0].Data != nil {
+		if m.Type != pb.MsgApp || len(m.Entries) != 1 || m.Entries[0].GetData() != nil {
 			panic("not a message to append noop entry")
 		}
 		r.Step(acceptAndReply(m))

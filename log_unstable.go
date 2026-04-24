@@ -88,7 +88,7 @@ func (u *unstable) maybeTerm(i uint64) (uint64, bool) {
 		return 0, false
 	}
 
-	return u.entries[i-u.offset].Term, true
+	return u.entries[i-u.offset].GetTerm(), true
 }
 
 // nextEntries returns the unstable entries that are not already in the process
@@ -118,7 +118,7 @@ func (u *unstable) nextSnapshot() *pb.Snapshot {
 func (u *unstable) acceptInProgress() {
 	if len(u.entries) > 0 {
 		// NOTE: +1 because offsetInProgress is exclusive, like offset.
-		u.offsetInProgress = u.entries[len(u.entries)-1].Index + 1
+		u.offsetInProgress = u.entries[len(u.entries)-1].GetIndex() + 1
 	}
 	if u.snapshot != nil {
 		u.snapshotInProgress = true
@@ -194,7 +194,7 @@ func (u *unstable) restore(s pb.Snapshot) {
 }
 
 func (u *unstable) truncateAndAppend(ents []pb.Entry) {
-	fromIndex := ents[0].Index
+	fromIndex := ents[0].GetIndex()
 	switch {
 	case fromIndex == u.offset+uint64(len(u.entries)):
 		// fromIndex is the next index in the u.entries, so append directly.

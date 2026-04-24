@@ -32,9 +32,9 @@ var testFormatter EntryFormatter = func(data []byte) string {
 
 func TestDescribeEntry(t *testing.T) {
 	entry := pb.Entry{
-		Term:  1,
-		Index: 2,
-		Type:  pb.EntryNormal,
+		Term:  new(uint64(1)),
+		Index: new(uint64(2)),
+		Type:  pb.EntryNormal.Enum(),
 		Data:  []byte("hello\x00world"),
 	}
 	require.Equal(t, `1/2 EntryNormal "hello\x00world"`, DescribeEntry(entry, nil))
@@ -42,7 +42,7 @@ func TestDescribeEntry(t *testing.T) {
 }
 
 func TestLimitSize(t *testing.T) {
-	ents := []pb.Entry{{Index: 4, Term: 4}, {Index: 5, Term: 5}, {Index: 6, Term: 6}}
+	ents := []pb.Entry{{Index: new(uint64(4)), Term: new(uint64(4))}, {Index: new(uint64(5)), Term: new(uint64(5))}, {Index: new(uint64(6)), Term: new(uint64(6))}}
 	prefix := func(size int) []pb.Entry {
 		return append([]pb.Entry{}, ents[:size]...) // protect the original slice
 	}

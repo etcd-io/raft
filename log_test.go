@@ -90,8 +90,8 @@ func TestFindConflictByTerm(t *testing.T) {
 			st := NewMemoryStorage()
 			require.NotEmpty(t, tt.ents)
 			st.ApplySnapshot(pb.Snapshot{Metadata: pb.SnapshotMetadata{
-				Index: tt.ents[0].Index,
-				Term:  tt.ents[0].Term,
+				Index: tt.ents[0].GetIndex(),
+				Term:  tt.ents[0].GetTerm(),
 			}})
 			l := newLog(st, raftLogger)
 			l.append(tt.ents[1:]...)
@@ -350,10 +350,10 @@ func TestCompactionSideEffects(t *testing.T) {
 
 	unstableEnts := raftLog.nextUnstableEnts()
 	require.Equal(t, 250, len(unstableEnts))
-	require.Equal(t, uint64(751), unstableEnts[0].Index)
+	require.Equal(t, uint64(751), unstableEnts[0].GetIndex())
 
 	prev := raftLog.lastIndex()
-	raftLog.append(pb.Entry{Index: raftLog.lastIndex() + 1, Term: raftLog.lastIndex() + 1})
+	raftLog.append(pb.Entry{Index: new(raftLog.lastIndex() + 1), Term: new(raftLog.lastIndex() + 1)})
 	require.Equal(t, prev+1, raftLog.lastIndex())
 
 	ents, err := raftLog.entries(raftLog.lastIndex(), noLimit)
@@ -595,7 +595,7 @@ func TestNextUnstableEnts(t *testing.T) {
 				raftLog.stableTo(pbEntryID(&ents[l-1]))
 			}
 			require.Equal(t, tt.wents, ents)
-			require.Equal(t, previousEnts[len(previousEnts)-1].Index+1, raftLog.unstable.offset)
+			require.Equal(t, previousEnts[len(previousEnts)-1].GetIndex()+1, raftLog.unstable.offset)
 		})
 	}
 }
@@ -877,7 +877,7 @@ func TestSlice(t *testing.T) {
 	num := uint64(100)
 	last := offset + num
 	half := offset + num/2
-	halfe := pb.Entry{Index: half, Term: half}
+	halfe := pb.Entry{Index: new(half), Term: new(half), Type: pb.EntryNormal.Enum()}
 
 	entries := func(from, to uint64) []pb.Entry {
 		return index(from).termRange(from, to)
@@ -1030,7 +1030,7 @@ func (i index) terms(terms ...uint64) []pb.Entry {
 	index := uint64(i)
 	entries := make([]pb.Entry, 0, len(terms))
 	for _, term := range terms {
-		entries = append(entries, pb.Entry{Term: term, Index: index})
+		entries = append(entries, pb.Entry{Term: new(term), Index: new(index)})
 		index++
 	}
 	return entries
@@ -1042,7 +1042,7 @@ func (i index) termRange(from, to uint64) []pb.Entry {
 	index := uint64(i)
 	entries := make([]pb.Entry, 0, to-from)
 	for term := from; term < to; term++ {
-		entries = append(entries, pb.Entry{Term: term, Index: index})
+		entries = append(entries, pb.Entry{Term: new(term), Index: new(index), Type: pb.EntryNormal.Enum()})
 		index++
 	}
 	return entries
