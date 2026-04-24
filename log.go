@@ -321,7 +321,11 @@ func (l *raftLog) commitTo(tocommit uint64) {
 	// never decrease commit
 	if l.committed < tocommit {
 		if l.lastIndex() < tocommit {
-			l.logger.Panicf("tocommit(%d) is out of range [lastIndex(%d)]. Was the raft log corrupted, truncated, or lost?", tocommit, l.lastIndex())
+			// this can happen when the follower crashed before the commit index persistent
+			// after the leader received its ack (it is too expensive to do fsync on every write)
+			l.logger.Warningf("tocommit(%d) is out of range [lastIndex(%d)]. Was the raft log corrupted, truncated, or lost?", tocommit, l.lastIndex())
+			l.committed = l.lastIndex()
+			return
 		}
 		l.committed = tocommit
 	}
