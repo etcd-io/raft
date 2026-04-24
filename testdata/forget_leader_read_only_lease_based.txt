@@ -1,24 +1,12 @@
 log-level none
-----
-ok
-
 add-nodes 3 voters=(1,2,3) index=10 checkquorum=true read-only=lease-based
-----
-ok
-
 campaign 1
-----
-ok
-
 stabilize
 ----
 ok
 
-log-level debug
-----
-ok
-
 # ForgetLeader fails with lease-based reads, as it's not safe.
+log-level debug
 forget-leader 2
 ----
 ERROR ignoring MsgForgetLeader due to ReadOnlyLeaseBased
