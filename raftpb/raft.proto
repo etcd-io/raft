@@ -21,14 +21,14 @@ message Entry {
 }
 
 message SnapshotMetadata {
-	optional ConfState conf_state = 1 [(gogoproto.nullable) = false];
-	optional uint64    index      = 2 [(gogoproto.nullable) = false];
-	optional uint64    term       = 3 [(gogoproto.nullable) = false];
+	optional ConfState conf_state = 1;
+	optional uint64    index      = 2;
+	optional uint64    term       = 3;
 }
 
 message Snapshot {
 	optional bytes            data     = 1;
-	optional SnapshotMetadata metadata = 2 [(gogoproto.nullable) = false];
+	optional SnapshotMetadata metadata = 2;
 }
 
 // For description of different message types, see:
