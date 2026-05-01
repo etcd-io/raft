@@ -36,16 +36,16 @@ func (env *InteractionEnv) handleAddNodes(t *testing.T, d datadriven.TestData) e
 			case "voters":
 				var id uint64
 				arg.Scan(t, i, &id)
-				snap.Metadata.ConfState.Voters = append(snap.Metadata.ConfState.Voters, id)
+				snap.GetMetadata().GetConfState().Voters = append(snap.GetMetadata().GetConfState().Voters, id)
 			case "learners":
 				var id uint64
 				arg.Scan(t, i, &id)
-				snap.Metadata.ConfState.Learners = append(snap.Metadata.ConfState.Learners, id)
+				snap.GetMetadata().GetConfState().Learners = append(snap.GetMetadata().GetConfState().Learners, id)
 			case "inflight":
 				arg.Scan(t, i, &cfg.MaxInflightMsgs)
 			case "index":
 				arg.Scan(t, i, &snap.Metadata.Index)
-				cfg.Applied = snap.Metadata.Index
+				cfg.Applied = snap.GetMetadata().GetIndex()
 			case "content":
 				arg.Scan(t, i, &snap.Data)
 			case "async-storage-writes":
@@ -111,7 +111,7 @@ func (env *InteractionEnv) AddNodes(n int, cfg raft.Config, snap pb.Snapshot) er
 		if bootstrap {
 			// NB: we could make this work with 1, but MemoryStorage just
 			// doesn't play well with that and it's not a loss of generality.
-			if snap.Metadata.Index <= 1 {
+			if snap.GetMetadata().GetIndex() <= 1 {
 				return errors.New("index must be specified as > 1 due to bootstrap")
 			}
 			snap.Metadata.Term = 1
@@ -125,7 +125,7 @@ func (env *InteractionEnv) AddNodes(n int, cfg raft.Config, snap pb.Snapshot) er
 			// At the time of writing and for *MemoryStorage, applying a
 			// snapshot also truncates appropriately, but this would change with
 			// other storage engines potentially.
-			if exp := snap.Metadata.Index + 1; fi != exp {
+			if exp := snap.GetMetadata().GetIndex() + 1; fi != exp {
 				return fmt.Errorf("failed to establish first index %d; got %d", exp, fi)
 			}
 		}

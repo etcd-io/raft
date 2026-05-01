@@ -2462,9 +2462,9 @@ func TestRestore(t *testing.T) {
 	sm := newTestRaft(1, 10, 1, storage)
 	require.True(t, sm.restore(s))
 
-	assert.Equal(t, s.Metadata.Index, sm.raftLog.lastIndex())
-	assert.Equal(t, s.Metadata.Term, mustTerm(sm.raftLog.term(s.Metadata.Index)))
-	assert.Equal(t, s.Metadata.ConfState.Voters, sm.trk.VoterNodes())
+	assert.Equal(t, s.GetMetadata().GetIndex(), sm.raftLog.lastIndex())
+	assert.Equal(t, s.GetMetadata().GetTerm(), mustTerm(sm.raftLog.term(s.GetMetadata().GetIndex())))
+	assert.Equal(t, s.GetMetadata().GetConfState().Voters, sm.trk.VoterNodes())
 
 	require.False(t, sm.restore(s))
 	for i := 0; i < sm.randomizedElectionTimeout; i++ {
@@ -2487,19 +2487,19 @@ func TestRestoreWithLearner(t *testing.T) {
 	sm := newTestLearnerRaft(3, 8, 2, storage)
 	assert.True(t, sm.restore(s))
 
-	assert.Equal(t, s.Metadata.Index, sm.raftLog.lastIndex())
-	assert.Equal(t, s.Metadata.Term, mustTerm(sm.raftLog.term(s.Metadata.Index)))
+	assert.Equal(t, s.GetMetadata().GetIndex(), sm.raftLog.lastIndex())
+	assert.Equal(t, s.GetMetadata().GetTerm(), mustTerm(sm.raftLog.term(s.GetMetadata().GetIndex())))
 
 	sg := sm.trk.VoterNodes()
-	assert.Len(t, sg, len(s.Metadata.ConfState.Voters))
+	assert.Len(t, sg, len(s.GetMetadata().GetConfState().Voters))
 
 	lns := sm.trk.LearnerNodes()
-	assert.Len(t, lns, len(s.Metadata.ConfState.Learners))
+	assert.Len(t, lns, len(s.GetMetadata().GetConfState().Learners))
 
-	for _, n := range s.Metadata.ConfState.Voters {
+	for _, n := range s.GetMetadata().GetConfState().Voters {
 		assert.False(t, sm.trk.Progress[n].IsLearner)
 	}
-	for _, n := range s.Metadata.ConfState.Learners {
+	for _, n := range s.GetMetadata().GetConfState().Learners {
 		assert.True(t, sm.trk.Progress[n].IsLearner)
 	}
 
@@ -2520,8 +2520,8 @@ func TestRestoreWithVotersOutgoing(t *testing.T) {
 	sm := newTestRaft(1, 10, 1, storage)
 	require.True(t, sm.restore(s))
 
-	assert.Equal(t, s.Metadata.Index, sm.raftLog.lastIndex())
-	assert.Equal(t, mustTerm(sm.raftLog.term(s.Metadata.Index)), s.Metadata.Term)
+	assert.Equal(t, s.GetMetadata().GetIndex(), sm.raftLog.lastIndex())
+	assert.Equal(t, mustTerm(sm.raftLog.term(s.GetMetadata().GetIndex())), s.GetMetadata().GetTerm())
 
 	sg := sm.trk.VoterNodes()
 	assert.Equal(t, []uint64{1, 2, 3, 4}, sg)

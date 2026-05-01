@@ -53,7 +53,7 @@ type unstable struct {
 // if it has a snapshot.
 func (u *unstable) maybeFirstIndex() (uint64, bool) {
 	if u.snapshot != nil {
-		return u.snapshot.Metadata.Index + 1, true
+		return u.snapshot.GetMetadata().GetIndex() + 1, true
 	}
 	return 0, false
 }
@@ -65,7 +65,7 @@ func (u *unstable) maybeLastIndex() (uint64, bool) {
 		return u.offset + uint64(l) - 1, true
 	}
 	if u.snapshot != nil {
-		return u.snapshot.Metadata.Index, true
+		return u.snapshot.GetMetadata().GetIndex(), true
 	}
 	return 0, false
 }
@@ -74,8 +74,8 @@ func (u *unstable) maybeLastIndex() (uint64, bool) {
 // is any.
 func (u *unstable) maybeTerm(i uint64) (uint64, bool) {
 	if i < u.offset {
-		if u.snapshot != nil && u.snapshot.Metadata.Index == i {
-			return u.snapshot.Metadata.Term, true
+		if u.snapshot != nil && u.snapshot.GetMetadata().GetIndex() == i {
+			return u.snapshot.GetMetadata().GetTerm(), true
 		}
 		return 0, false
 	}
@@ -179,14 +179,14 @@ func (u *unstable) shrinkEntriesArray() {
 }
 
 func (u *unstable) stableSnapTo(i uint64) {
-	if u.snapshot != nil && u.snapshot.Metadata.Index == i {
+	if u.snapshot != nil && u.snapshot.GetMetadata().GetIndex() == i {
 		u.snapshot = nil
 		u.snapshotInProgress = false
 	}
 }
 
 func (u *unstable) restore(s pb.Snapshot) {
-	u.offset = s.Metadata.Index + 1
+	u.offset = s.GetMetadata().GetIndex() + 1
 	u.offsetInProgress = u.offset
 	u.entries = nil
 	u.snapshot = &s

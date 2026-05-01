@@ -103,7 +103,7 @@ type MemoryStorage struct {
 
 	hardState pb.HardState
 	snapshot  pb.Snapshot
-	// ents[i] has raft log position i+snapshot.Metadata.Index
+	// ents[i] has raft log position i+ms.snapshot.GetMetadata().GetIndex()
 	ents []pb.Entry
 
 	callStats inMemStorageCallStats
@@ -120,7 +120,8 @@ func NewMemoryStorage() *MemoryStorage {
 // InitialState implements the Storage interface.
 func (ms *MemoryStorage) InitialState() (pb.HardState, pb.ConfState, error) {
 	ms.callStats.initialState++
-	return ms.hardState, ms.snapshot.Metadata.ConfState, nil
+	cs := ms.snapshot.GetMetadata().GetConfState()
+	return ms.hardState, *cs, nil
 }
 
 // SetHardState saves the current HardState.
@@ -209,8 +210,8 @@ func (ms *MemoryStorage) ApplySnapshot(snap pb.Snapshot) error {
 	defer ms.Unlock()
 
 	//handle check for old snapshot being applied
-	msIndex := ms.snapshot.Metadata.Index
-	snapIndex := snap.Metadata.Index
+	msIndex := ms.snapshot.GetMetadata().GetIndex()
+	snapIndex := snap.GetMetadata().GetIndex()
 	// During bootstrap, applications (e.g., etcd) may initialize only the
 	// ConfState in the snapshot. In this case, both the snapshot index and
 	// term are 0.
@@ -219,7 +220,7 @@ func (ms *MemoryStorage) ApplySnapshot(snap pb.Snapshot) error {
 	}
 
 	ms.snapshot = snap
-	ms.ents = []pb.Entry{{Term: new(snap.Metadata.Term), Index: new(snap.Metadata.Index)}}
+	ms.ents = []pb.Entry{{Term: new(snap.GetMetadata().GetTerm()), Index: new(snap.GetMetadata().GetIndex())}}
 	return nil
 }
 
@@ -230,7 +231,7 @@ func (ms *MemoryStorage) ApplySnapshot(snap pb.Snapshot) error {
 func (ms *MemoryStorage) CreateSnapshot(i uint64, cs *pb.ConfState, data []byte) (pb.Snapshot, error) {
 	ms.Lock()
 	defer ms.Unlock()
-	if i <= ms.snapshot.Metadata.Index {
+	if i <= ms.snapshot.GetMetadata().GetIndex() {
 		return pb.Snapshot{}, ErrSnapOutOfDate
 	}
 

@@ -125,7 +125,7 @@ func IsEmptyHardState(st pb.HardState) bool {
 
 // IsEmptySnap returns true if the given Snapshot is empty.
 func IsEmptySnap(sp pb.Snapshot) bool {
-	return sp.Metadata.Index == 0
+	return sp.GetMetadata().GetIndex() == 0
 }
 
 // Node represents a node in a raft cluster.

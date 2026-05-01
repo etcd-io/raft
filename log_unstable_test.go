@@ -203,8 +203,8 @@ func TestUnstableRestore(t *testing.T) {
 	s := pb.Snapshot{Metadata: pb.SnapshotMetadata{Index: 6, Term: 2}}
 	u.restore(s)
 
-	require.Equal(t, s.Metadata.Index+1, u.offset)
-	require.Equal(t, s.Metadata.Index+1, u.offsetInProgress)
+	require.Equal(t, s.GetMetadata().GetIndex()+1, u.offset)
+	require.Equal(t, s.GetMetadata().GetIndex()+1, u.offsetInProgress)
 	require.Zero(t, len(u.entries))
 	require.Equal(t, &s, u.snapshot)
 	require.False(t, u.snapshotInProgress)
