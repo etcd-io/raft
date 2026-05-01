@@ -111,10 +111,12 @@ type MemoryStorage struct {
 
 // NewMemoryStorage creates an empty MemoryStorage.
 func NewMemoryStorage() *MemoryStorage {
-	return &MemoryStorage{
+	ms := &MemoryStorage{
 		// When starting from scratch populate the list with a dummy entry at term zero.
 		ents: make([]pb.Entry, 1),
 	}
+	pb.EnsureSnapshot(&ms.snapshot)
+	return ms
 }
 
 // InitialState implements the Storage interface.
@@ -200,6 +202,7 @@ func (ms *MemoryStorage) Snapshot() (pb.Snapshot, error) {
 	ms.Lock()
 	defer ms.Unlock()
 	ms.callStats.snapshot++
+	pb.EnsureSnapshot(&ms.snapshot)
 	return ms.snapshot, nil
 }
 
@@ -240,6 +243,7 @@ func (ms *MemoryStorage) CreateSnapshot(i uint64, cs *pb.ConfState, data []byte)
 		getLogger().Panicf("snapshot %d is out of bound lastindex(%d)", i, ms.lastIndex())
 	}
 
+	pb.EnsureSnapshot(&ms.snapshot)
 	ms.snapshot.Metadata.Index = new(i)
 	ms.snapshot.Metadata.Term = new(ms.ents[i-offset].GetTerm())
 	if cs != nil {

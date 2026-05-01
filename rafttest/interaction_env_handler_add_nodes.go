@@ -29,6 +29,7 @@ import (
 func (env *InteractionEnv) handleAddNodes(t *testing.T, d datadriven.TestData) error {
 	n := firstAsInt(t, d)
 	var snap pb.Snapshot
+	pb.EnsureSnapshot(&snap)
 	cfg := raftConfigStub()
 	for _, arg := range d.CmdArgs[1:] {
 		for i := range arg.Vals {
@@ -94,7 +95,9 @@ var _ raft.Storage = snapOverrideStorage{}
 // AddNodes adds n new nodes initialized from the given snapshot (which may be
 // empty), and using the cfg as template. They will be assigned consecutive IDs.
 func (env *InteractionEnv) AddNodes(n int, cfg raft.Config, snap pb.Snapshot) error {
-	bootstrap := !reflect.DeepEqual(snap, pb.Snapshot{})
+	emptySnapshot := &pb.Snapshot{}
+	pb.EnsureSnapshot(emptySnapshot)
+	bootstrap := !reflect.DeepEqual(&snap, emptySnapshot)
 	for i := 0; i < n; i++ {
 		id := uint64(1 + len(env.Nodes))
 		s := snapOverrideStorage{
