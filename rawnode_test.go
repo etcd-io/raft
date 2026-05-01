@@ -81,12 +81,12 @@ func TestRawNodeStep(t *testing.T) {
 			s := NewMemoryStorage()
 			s.SetHardState(pb.HardState{Term: 1, Commit: 1})
 			s.Append([]pb.Entry{{Term: new(uint64(1)), Index: new(uint64(1))}})
-			require.NoError(t, s.ApplySnapshot(pb.Snapshot{Metadata: pb.SnapshotMetadata{
-				ConfState: pb.ConfState{
+			require.NoError(t, s.ApplySnapshot(pb.Snapshot{Metadata: &pb.SnapshotMetadata{
+				ConfState: &pb.ConfState{
 					Voters: []uint64{1},
 				},
-				Index: 1,
-				Term:  1,
+				Index: new(uint64(1)),
+				Term:  new(uint64(1)),
 			}}), "#%d", i)
 			// Append an empty entry to make sure the non-local messages (like
 			// vote requests) are ignored and don't trigger assertions.
@@ -617,11 +617,11 @@ func TestRawNodeStart(t *testing.T) {
 		require.Empty(t, ics.Voters)
 
 		meta := pb.SnapshotMetadata{
-			Index:     1,
-			Term:      0,
-			ConfState: cs,
+			Index:     new(uint64(1)),
+			Term:      new(uint64(0)),
+			ConfState: &cs,
 		}
-		snap := pb.Snapshot{Metadata: meta}
+		snap := pb.Snapshot{Metadata: &meta}
 		return storage.ApplySnapshot(snap)
 	}
 
@@ -682,10 +682,10 @@ func TestRawNodeRestart(t *testing.T) {
 
 func TestRawNodeRestartFromSnapshot(t *testing.T) {
 	snap := pb.Snapshot{
-		Metadata: pb.SnapshotMetadata{
-			ConfState: pb.ConfState{Voters: []uint64{1, 2}},
-			Index:     2,
-			Term:      1,
+		Metadata: &pb.SnapshotMetadata{
+			ConfState: &pb.ConfState{Voters: []uint64{1, 2}},
+			Index:     new(uint64(2)),
+			Term:      new(uint64(1)),
 		},
 	}
 	entries := []pb.Entry{

@@ -240,10 +240,10 @@ func (ms *MemoryStorage) CreateSnapshot(i uint64, cs *pb.ConfState, data []byte)
 		getLogger().Panicf("snapshot %d is out of bound lastindex(%d)", i, ms.lastIndex())
 	}
 
-	ms.snapshot.Metadata.Index = i
-	ms.snapshot.Metadata.Term = ms.ents[i-offset].GetTerm()
+	ms.snapshot.Metadata.Index = new(i)
+	ms.snapshot.Metadata.Term = new(ms.ents[i-offset].GetTerm())
 	if cs != nil {
-		ms.snapshot.Metadata.ConfState = *cs
+		ms.snapshot.Metadata.ConfState = cs
 	}
 	ms.snapshot.Data = data
 	return ms.snapshot, nil
