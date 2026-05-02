@@ -18,6 +18,8 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/gogo/protobuf/proto"
+
 	pb "go.etcd.io/raft/v3/raftpb"
 )
 
@@ -247,7 +249,8 @@ func (ms *MemoryStorage) CreateSnapshot(i uint64, cs *pb.ConfState, data []byte)
 	ms.snapshot.Metadata.Index = new(i)
 	ms.snapshot.Metadata.Term = new(ms.ents[i-offset].GetTerm())
 	if cs != nil {
-		ms.snapshot.Metadata.ConfState = cs
+		// TODO: use the official protobuf clone after we switch to protoc-gen-go
+		ms.snapshot.Metadata.ConfState = proto.Clone(cs).(*pb.ConfState)
 	}
 	ms.snapshot.Data = data
 	return ms.snapshot, nil
