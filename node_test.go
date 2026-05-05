@@ -174,18 +174,18 @@ func TestDisableProposalForwarding(t *testing.T) {
 	nt := newNetwork(r1, r2, r3)
 
 	// elect r1 as leader
-	nt.send(raftpb.Message{From: 1, To: 1, Type: raftpb.MsgHup})
+	nt.send(raftpb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: raftpb.MsgHup.Enum()})
 
 	var testEntries = []raftpb.Entry{{Data: []byte("testdata")}}
 
 	// send proposal to r2(follower) where DisableProposalForwarding is false
-	r2.Step(raftpb.Message{From: 2, To: 2, Type: raftpb.MsgProp, Entries: testEntries})
+	r2.Step(raftpb.Message{From: new(uint64(2)), To: new(uint64(2)), Type: raftpb.MsgProp.Enum(), Entries: testEntries})
 
 	// verify r2(follower) does forward the proposal when DisableProposalForwarding is false
 	require.Len(t, r2.msgs, 1)
 
 	// send proposal to r3(follower) where DisableProposalForwarding is true
-	r3.Step(raftpb.Message{From: 3, To: 3, Type: raftpb.MsgProp, Entries: testEntries})
+	r3.Step(raftpb.Message{From: new(uint64(3)), To: new(uint64(3)), Type: raftpb.MsgProp.Enum(), Entries: testEntries})
 
 	// verify r3(follower) does not forward the proposal when DisableProposalForwarding is true
 	require.Empty(t, r3.msgs)
@@ -201,28 +201,28 @@ func TestNodeReadIndexToOldLeader(t *testing.T) {
 	nt := newNetwork(r1, r2, r3)
 
 	// elect r1 as leader
-	nt.send(raftpb.Message{From: 1, To: 1, Type: raftpb.MsgHup})
+	nt.send(raftpb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: raftpb.MsgHup.Enum()})
 
 	var testEntries = []raftpb.Entry{{Data: []byte("testdata")}}
 
 	// send readindex request to r2(follower)
-	r2.Step(raftpb.Message{From: 2, To: 2, Type: raftpb.MsgReadIndex, Entries: testEntries})
+	r2.Step(raftpb.Message{From: new(uint64(2)), To: new(uint64(2)), Type: raftpb.MsgReadIndex.Enum(), Entries: testEntries})
 
 	// verify r2(follower) forwards this message to r1(leader) with term not set
 	require.Len(t, r2.msgs, 1)
-	readIndxMsg1 := raftpb.Message{From: 2, To: 1, Type: raftpb.MsgReadIndex, Entries: testEntries}
+	readIndxMsg1 := raftpb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: raftpb.MsgReadIndex.Enum(), Entries: testEntries}
 	require.Equal(t, readIndxMsg1, r2.msgs[0])
 
 	// send readindex request to r3(follower)
-	r3.Step(raftpb.Message{From: 3, To: 3, Type: raftpb.MsgReadIndex, Entries: testEntries})
+	r3.Step(raftpb.Message{From: new(uint64(3)), To: new(uint64(3)), Type: raftpb.MsgReadIndex.Enum(), Entries: testEntries})
 
 	// verify r3(follower) forwards this message to r1(leader) with term not set as well.
 	require.Len(t, r3.msgs, 1)
-	readIndxMsg2 := raftpb.Message{From: 3, To: 1, Type: raftpb.MsgReadIndex, Entries: testEntries}
+	readIndxMsg2 := raftpb.Message{From: new(uint64(3)), To: new(uint64(1)), Type: raftpb.MsgReadIndex.Enum(), Entries: testEntries}
 	require.Equal(t, readIndxMsg2, r3.msgs[0])
 
 	// now elect r3 as leader
-	nt.send(raftpb.Message{From: 3, To: 3, Type: raftpb.MsgHup})
+	nt.send(raftpb.Message{From: new(uint64(3)), To: new(uint64(3)), Type: raftpb.MsgHup.Enum()})
 
 	// let r1 steps the two messages previously we got from r2, r3
 	r1.Step(readIndxMsg1)
@@ -230,9 +230,9 @@ func TestNodeReadIndexToOldLeader(t *testing.T) {
 
 	// verify r1(follower) forwards these messages again to r3(new leader)
 	require.Len(t, r1.msgs, 2)
-	readIndxMsg3 := raftpb.Message{From: 2, To: 3, Type: raftpb.MsgReadIndex, Entries: testEntries}
+	readIndxMsg3 := raftpb.Message{From: new(uint64(2)), To: new(uint64(3)), Type: raftpb.MsgReadIndex.Enum(), Entries: testEntries}
 	require.Equal(t, readIndxMsg3, r1.msgs[0])
-	readIndxMsg3 = raftpb.Message{From: 3, To: 3, Type: raftpb.MsgReadIndex, Entries: testEntries}
+	readIndxMsg3 = raftpb.Message{From: new(uint64(3)), To: new(uint64(3)), Type: raftpb.MsgReadIndex.Enum(), Entries: testEntries}
 	require.Equal(t, readIndxMsg3, r1.msgs[1])
 }
 
@@ -786,20 +786,20 @@ func TestAppendPagination(t *testing.T) {
 		return true
 	}
 
-	n.send(raftpb.Message{From: 1, To: 1, Type: raftpb.MsgHup})
+	n.send(raftpb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: raftpb.MsgHup.Enum()})
 
 	// Partition the network while we make our proposals. This forces
 	// the entries to be batched into larger messages.
 	n.isolate(1)
 	blob := []byte(strings.Repeat("a", 1000))
 	for i := 0; i < 5; i++ {
-		n.send(raftpb.Message{From: 1, To: 1, Type: raftpb.MsgProp, Entries: []raftpb.Entry{{Data: blob}}})
+		n.send(raftpb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: raftpb.MsgProp.Enum(), Entries: []raftpb.Entry{{Data: blob}}})
 	}
 	n.recover()
 
 	// After the partition recovers, tick the clock to wake everything
 	// back up and send the messages.
-	n.send(raftpb.Message{From: 1, To: 1, Type: raftpb.MsgBeat})
+	n.send(raftpb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: raftpb.MsgBeat.Enum()})
 	assert.True(t, seenFullMessage, "didn't see any messages more than half the max size; something is wrong with this test")
 }
 

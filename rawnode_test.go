@@ -377,7 +377,7 @@ func TestRawNodeJointAutoLeave(t *testing.T) {
 			}
 			if cc != nil {
 				// Force it step down.
-				rawNode.Step(pb.Message{Type: pb.MsgHeartbeatResp, From: 1, Term: rawNode.raft.Term + 1})
+				rawNode.Step(pb.Message{Type: pb.MsgHeartbeatResp.Enum(), From: new(uint64(1)), Term: new(rawNode.raft.Term + 1)})
 				cs = rawNode.ApplyConfChange(cc)
 			}
 		}
@@ -1016,7 +1016,7 @@ func benchmarkRawNodeImpl(b *testing.B, peers ...uint64) {
 			s.Append(rd.Entries)
 			for _, m := range rd.Messages {
 				if m.GetType() == pb.MsgVote {
-					resp := pb.Message{To: m.From, From: m.To, Term: m.Term, Type: pb.MsgVoteResp}
+					resp := pb.Message{To: m.From, From: m.To, Term: m.Term, Type: pb.MsgVoteResp.Enum()}
 					if debug {
 						b.Log(DescribeMessage(resp, nil))
 					}
@@ -1027,7 +1027,7 @@ func benchmarkRawNodeImpl(b *testing.B, peers ...uint64) {
 					if n := len(m.GetEntries()); n > 0 {
 						idx = m.GetEntries()[n-1].GetIndex()
 					}
-					resp := pb.Message{To: m.From, From: m.To, Type: pb.MsgAppResp, Term: m.Term, Index: idx}
+					resp := pb.Message{To: m.From, From: m.To, Type: pb.MsgAppResp.Enum(), Term: m.Term, Index: new(idx)}
 					if debug {
 						b.Log(DescribeMessage(resp, nil))
 					}

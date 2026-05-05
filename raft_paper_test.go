@@ -64,7 +64,7 @@ func testUpdateTermFromMessage(t *testing.T, state StateType) {
 		r.becomeLeader()
 	}
 
-	r.Step(pb.Message{Type: pb.MsgApp, Term: 2})
+	r.Step(pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(2))})
 
 	assert.Equal(t, uint64(2), r.Term)
 	assert.Equal(t, StateFollower, r.state)
@@ -84,7 +84,7 @@ func TestRejectStaleTermMessage(t *testing.T) {
 	r.step = fakeStep
 	r.loadState(pb.HardState{Term: 2})
 
-	r.Step(pb.Message{Type: pb.MsgApp, Term: r.Term - 1})
+	r.Step(pb.Message{Type: pb.MsgApp.Enum(), Term: new(r.Term - 1)})
 
 	assert.False(t, called)
 }
@@ -117,8 +117,8 @@ func TestLeaderBcastBeat(t *testing.T) {
 	msgs := r.readMessages()
 	sort.Sort(messageSlice(msgs))
 	assert.Equal(t, []pb.Message{
-		{From: 1, To: 2, Term: 1, Type: pb.MsgHeartbeat},
-		{From: 1, To: 3, Term: 1, Type: pb.MsgHeartbeat},
+		{From: new(uint64(1)), To: new(uint64(2)), Term: new(uint64(1)), Type: pb.MsgHeartbeat.Enum()},
+		{From: new(uint64(1)), To: new(uint64(3)), Term: new(uint64(1)), Type: pb.MsgHeartbeat.Enum()},
 	}, msgs)
 }
 
@@ -162,8 +162,8 @@ func testNonleaderStartElection(t *testing.T, state StateType) {
 	msgs := r.readMessages()
 	sort.Sort(messageSlice(msgs))
 	assert.Equal(t, []pb.Message{
-		{From: 1, To: 2, Term: 2, Type: pb.MsgVote},
-		{From: 1, To: 3, Term: 2, Type: pb.MsgVote},
+		{From: new(uint64(1)), To: new(uint64(2)), Term: new(uint64(2)), Type: pb.MsgVote.Enum()},
+		{From: new(uint64(1)), To: new(uint64(3)), Term: new(uint64(2)), Type: pb.MsgVote.Enum()},
 	}, msgs)
 }
 
@@ -201,10 +201,10 @@ func TestLeaderElectionInOneRoundRPC(t *testing.T) {
 	for i, tt := range tests {
 		r := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(idsBySize(tt.size)...)))
 
-		r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgHup})
+		r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgHup.Enum()})
 		r.advanceMessagesAfterAppend()
 		for id, vote := range tt.votes {
-			r.Step(pb.Message{From: id, To: 1, Term: r.Term, Type: pb.MsgVoteResp, Reject: !vote})
+			r.Step(pb.Message{From: new(id), To: new(uint64(1)), Term: new(r.Term), Type: pb.MsgVoteResp.Enum(), Reject: new(!vote)})
 		}
 
 		assert.Equal(t, tt.state, r.state, "#%d", i)
@@ -232,10 +232,10 @@ func TestFollowerVote(t *testing.T) {
 		r := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1, 2, 3)))
 		r.loadState(pb.HardState{Term: 1, Vote: tt.vote})
 
-		r.Step(pb.Message{From: tt.nvote, To: 1, Term: 1, Type: pb.MsgVote})
+		r.Step(pb.Message{From: new(tt.nvote), To: new(uint64(1)), Term: new(uint64(1)), Type: pb.MsgVote.Enum()})
 
 		assert.Equal(t, []pb.Message{
-			{From: 1, To: tt.nvote, Term: 1, Type: pb.MsgVoteResp, Reject: tt.wreject},
+			{From: new(uint64(1)), To: new(tt.nvote), Term: new(uint64(1)), Type: pb.MsgVoteResp.Enum(), Reject: new(tt.wreject)},
 		}, r.msgsAfterAppend, "#%d", i)
 	}
 }
@@ -247,12 +247,12 @@ func TestFollowerVote(t *testing.T) {
 // Reference: section 5.2
 func TestCandidateFallback(t *testing.T) {
 	tests := []pb.Message{
-		{From: 2, To: 1, Term: 1, Type: pb.MsgApp},
-		{From: 2, To: 1, Term: 2, Type: pb.MsgApp},
+		{From: new(uint64(2)), To: new(uint64(1)), Term: new(uint64(1)), Type: pb.MsgApp.Enum()},
+		{From: new(uint64(2)), To: new(uint64(1)), Term: new(uint64(2)), Type: pb.MsgApp.Enum()},
 	}
 	for i, tt := range tests {
 		r := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1, 2, 3)))
-		r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgHup})
+		r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgHup.Enum()})
 		require.Equal(t, StateCandidate, r.state, "#%d", i)
 
 		r.Step(tt)
@@ -370,7 +370,7 @@ func TestLeaderStartReplication(t *testing.T) {
 	li := r.raftLog.lastIndex()
 
 	ents := []pb.Entry{{Data: []byte("some data")}}
-	r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: ents})
+	r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: ents})
 
 	assert.Equal(t, li+1, r.raftLog.lastIndex())
 	assert.Equal(t, li, r.raftLog.committed)
@@ -378,8 +378,8 @@ func TestLeaderStartReplication(t *testing.T) {
 	sort.Sort(messageSlice(msgs))
 	wents := []pb.Entry{{Index: new(li + 1), Term: new(uint64(1)), Data: []byte("some data")}}
 	assert.Equal(t, []pb.Message{
-		{From: 1, To: 2, Term: 1, Type: pb.MsgApp, Index: li, LogTerm: 1, Entries: wents, Commit: li},
-		{From: 1, To: 3, Term: 1, Type: pb.MsgApp, Index: li, LogTerm: 1, Entries: wents, Commit: li},
+		{From: new(uint64(1)), To: new(uint64(2)), Term: new(uint64(1)), Type: pb.MsgApp.Enum(), Index: new(li), LogTerm: new(uint64(1)), Entries: wents, Commit: new(li)},
+		{From: new(uint64(1)), To: new(uint64(3)), Term: new(uint64(1)), Type: pb.MsgApp.Enum(), Index: new(li), LogTerm: new(uint64(1)), Entries: wents, Commit: new(li)},
 	}, msgs)
 	assert.Equal(t, []pb.Entry{
 		{Index: new(li + 1), Term: new(uint64(1)), Data: []byte("some data")},
@@ -400,7 +400,7 @@ func TestLeaderCommitEntry(t *testing.T) {
 	r.becomeLeader()
 	commitNoopEntry(r, s)
 	li := r.raftLog.lastIndex()
-	r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Data: []byte("some data")}}})
+	r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []pb.Entry{{Data: []byte("some data")}}})
 
 	for _, m := range r.readMessages() {
 		r.Step(acceptAndReply(m))
@@ -445,7 +445,7 @@ func TestLeaderAcknowledgeCommit(t *testing.T) {
 		r.becomeLeader()
 		commitNoopEntry(r, s)
 		li := r.raftLog.lastIndex()
-		r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Data: []byte("some data")}}})
+		r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []pb.Entry{{Data: []byte("some data")}}})
 		r.advanceMessagesAfterAppend()
 		for _, m := range r.msgs {
 			if tt.nonLeaderAcceptors[m.GetTo()] {
@@ -476,7 +476,7 @@ func TestLeaderCommitPrecedingEntries(t *testing.T) {
 		r.loadState(pb.HardState{Term: 2})
 		r.becomeCandidate()
 		r.becomeLeader()
-		r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Data: []byte("some data")}}})
+		r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []pb.Entry{{Data: []byte("some data")}}})
 
 		for _, m := range r.readMessages() {
 			r.Step(acceptAndReply(m))
@@ -530,7 +530,7 @@ func TestFollowerCommitEntry(t *testing.T) {
 		r := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1, 2, 3)))
 		r.becomeFollower(1, 2)
 
-		r.Step(pb.Message{From: 2, To: 1, Type: pb.MsgApp, Term: 1, Entries: tt.ents, Commit: tt.commit})
+		r.Step(pb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: pb.MsgApp.Enum(), Term: new(uint64(1)), Entries: tt.ents, Commit: new(tt.commit)})
 
 		assert.Equal(t, tt.commit, r.raftLog.committed, "#%d", i)
 		assert.Equal(t, tt.ents[:int(tt.commit)], r.raftLog.nextCommittedEnts(true), "#%d", i)
@@ -570,10 +570,10 @@ func TestFollowerCheckMsgApp(t *testing.T) {
 		r.loadState(pb.HardState{Commit: 1})
 		r.becomeFollower(2, 2)
 
-		r.Step(pb.Message{From: 2, To: 1, Type: pb.MsgApp, Term: 2, LogTerm: tt.term, Index: tt.index})
+		r.Step(pb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(tt.term), Index: new(tt.index)})
 
 		assert.Equal(t, []pb.Message{
-			{From: 1, To: 2, Type: pb.MsgAppResp, Term: 2, Index: tt.windex, Reject: tt.wreject, RejectHint: tt.wrejectHint, LogTerm: tt.wlogterm},
+			{From: new(uint64(1)), To: new(uint64(2)), Type: pb.MsgAppResp.Enum(), Term: new(uint64(2)), Index: new(tt.windex), Reject: new(tt.wreject), RejectHint: new(tt.wrejectHint), LogTerm: new(tt.wlogterm)},
 		}, r.readMessages(), "#%d", i)
 	}
 }
@@ -621,7 +621,7 @@ func TestFollowerAppendEntries(t *testing.T) {
 		r := newTestRaft(1, 10, 1, storage)
 		r.becomeFollower(2, 2)
 
-		r.Step(pb.Message{From: 2, To: 1, Type: pb.MsgApp, Term: 2, LogTerm: tt.term, Index: tt.index, Entries: tt.ents})
+		r.Step(pb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(tt.term), Index: new(tt.index), Entries: tt.ents})
 
 		assert.Equal(t, tt.wents, r.raftLog.allEntries(), "#%d", i)
 		assert.Equal(t, tt.wunstable, r.raftLog.nextUnstableEnts(), "#%d", i)
@@ -654,12 +654,12 @@ func TestLeaderSyncFollowerLog(t *testing.T) {
 		// The second may have more up-to-date log than the first one, so the
 		// first node needs the vote from the third node to become the leader.
 		n := newNetwork(lead, follower, nopStepper)
-		n.send(pb.Message{From: 1, To: 1, Type: pb.MsgHup})
+		n.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgHup.Enum()})
 		// The election occurs in the term after the one we loaded with
 		// lead.loadState above.
-		n.send(pb.Message{From: 3, To: 1, Type: pb.MsgVoteResp, Term: term + 1})
+		n.send(pb.Message{From: new(uint64(3)), To: new(uint64(1)), Type: pb.MsgVoteResp.Enum(), Term: new(term + 1)})
 
-		n.send(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{}}})
+		n.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []pb.Entry{{}}})
 
 		assert.Empty(t, diffu(ltoa(lead.raftLog), ltoa(follower.raftLog)), "#%d", i)
 	}
@@ -679,7 +679,7 @@ func TestVoteRequest(t *testing.T) {
 	for j, tt := range tests {
 		r := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1, 2, 3)))
 		r.Step(pb.Message{
-			From: 2, To: 1, Type: pb.MsgApp, Term: tt.wterm - 1, LogTerm: 0, Index: 0, Entries: tt.ents,
+			From: new(uint64(2)), To: new(uint64(1)), Type: pb.MsgApp.Enum(), Term: new(tt.wterm - 1), LogTerm: new(uint64(0)), Index: new(uint64(0)), Entries: tt.ents,
 		})
 		r.readMessages()
 
@@ -731,7 +731,7 @@ func TestVoter(t *testing.T) {
 		storage.Append(tt.ents)
 		r := newTestRaft(1, 10, 1, storage)
 
-		r.Step(pb.Message{From: 2, To: 1, Type: pb.MsgVote, Term: 3, LogTerm: tt.logterm, Index: tt.index})
+		r.Step(pb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: pb.MsgVote.Enum(), Term: new(uint64(3)), LogTerm: new(tt.logterm), Index: new(tt.index)})
 
 		msgs := r.readMessages()
 		require.Len(t, msgs, 1, "#%d", i)
@@ -766,9 +766,9 @@ func TestLeaderOnlyCommitsLogFromCurrentTerm(t *testing.T) {
 		r.becomeLeader()
 		r.readMessages()
 		// propose a entry to current term
-		r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{}}})
+		r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []pb.Entry{{}}})
 
-		r.Step(pb.Message{From: 2, To: 1, Type: pb.MsgAppResp, Term: r.Term, Index: tt.index})
+		r.Step(pb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: pb.MsgAppResp.Enum(), Term: new(r.Term), Index: new(tt.index)})
 		r.advanceMessagesAfterAppend()
 		assert.Equal(t, tt.wcommit, r.raftLog.committed, "#%d", i)
 	}
@@ -808,7 +808,7 @@ func acceptAndReply(m pb.Message) pb.Message {
 		From:  m.To,
 		To:    m.From,
 		Term:  m.Term,
-		Type:  pb.MsgAppResp,
-		Index: m.GetIndex() + uint64(len(m.GetEntries())),
+		Type:  pb.MsgAppResp.Enum(),
+		Index: new(m.GetIndex() + uint64(len(m.GetEntries()))),
 	}
 }

@@ -82,15 +82,15 @@ func (rn *RawNode) TickQuiesced() {
 // Campaign causes this RawNode to transition to candidate state.
 func (rn *RawNode) Campaign() error {
 	return rn.raft.Step(pb.Message{
-		Type: pb.MsgHup,
+		Type: pb.MsgHup.Enum(),
 	})
 }
 
 // Propose proposes data be appended to the raft log.
 func (rn *RawNode) Propose(data []byte) error {
 	return rn.raft.Step(pb.Message{
-		Type: pb.MsgProp,
-		From: rn.raft.id,
+		Type: pb.MsgProp.Enum(),
+		From: new(rn.raft.id),
 		Entries: []pb.Entry{
 			{Data: data},
 		}})
@@ -224,9 +224,9 @@ func needStorageAppendRespMsg(r *raft, rd Ready) bool {
 // with AsyncStorageWrites.
 func newStorageAppendMsg(r *raft, rd Ready) pb.Message {
 	m := pb.Message{
-		Type:    pb.MsgStorageAppend,
-		To:      LocalAppendThread,
-		From:    r.id,
+		Type:    pb.MsgStorageAppend.Enum(),
+		To:      new(LocalAppendThread),
+		From:    new(r.id),
 		Entries: rd.Entries,
 	}
 	if !IsEmptyHardState(rd.HardState) {
@@ -237,9 +237,9 @@ func newStorageAppendMsg(r *raft, rd Ready) pb.Message {
 		// If the Ready does not include a HardState update, make sure to not
 		// assign a value to any of the fields so that a HardState reconstructed
 		// from them will be empty (return true from raft.IsEmptyHardState).
-		m.Term = rd.Term
-		m.Vote = rd.Vote
-		m.Commit = rd.Commit
+		m.Term = new(rd.Term)
+		m.Vote = new(rd.Vote)
+		m.Commit = new(rd.Commit)
 	}
 	if !IsEmptySnap(rd.Snapshot) {
 		snap := rd.Snapshot
@@ -267,11 +267,11 @@ func newStorageAppendMsg(r *raft, rd Ready) pb.Message {
 // storage.
 func newStorageAppendRespMsg(r *raft, rd Ready) pb.Message {
 	m := pb.Message{
-		Type: pb.MsgStorageAppendResp,
-		To:   r.id,
-		From: LocalAppendThread,
+		Type: pb.MsgStorageAppendResp.Enum(),
+		To:   new(r.id),
+		From: new(LocalAppendThread),
 		// Dropped after term change, see below.
-		Term: r.Term,
+		Term: new(r.Term),
 	}
 	if r.raftLog.hasNextOrInProgressUnstableEnts() {
 		// If the raft log has unstable entries, attach the last index and term of the
@@ -355,8 +355,8 @@ func newStorageAppendRespMsg(r *raft, rd Ready) pb.Message {
 		//
 		// [^1]: https://en.wikipedia.org/wiki/ABA_problem
 		last := r.raftLog.lastEntryID()
-		m.Index = last.index
-		m.LogTerm = last.term
+		m.Index = new(last.index)
+		m.LogTerm = new(last.term)
 	}
 	if !IsEmptySnap(rd.Snapshot) {
 		snap := rd.Snapshot
@@ -375,10 +375,10 @@ func needStorageApplyRespMsg(rd Ready) bool { return needStorageApplyMsg(rd) }
 func newStorageApplyMsg(r *raft, rd Ready) pb.Message {
 	ents := rd.CommittedEntries
 	return pb.Message{
-		Type:    pb.MsgStorageApply,
-		To:      LocalApplyThread,
-		From:    r.id,
-		Term:    0, // committed entries don't apply under a specific term
+		Type:    pb.MsgStorageApply.Enum(),
+		To:      new(LocalApplyThread),
+		From:    new(r.id),
+		Term:    new(uint64(0)), // committed entries don't apply under a specific term
 		Entries: ents,
 		Responses: []pb.Message{
 			newStorageApplyRespMsg(r, ents),
@@ -391,10 +391,10 @@ func newStorageApplyMsg(r *raft, rd Ready) pb.Message {
 // prior Ready structs) have been applied to the local state machine.
 func newStorageApplyRespMsg(r *raft, ents []pb.Entry) pb.Message {
 	return pb.Message{
-		Type:    pb.MsgStorageApplyResp,
-		To:      r.id,
-		From:    LocalApplyThread,
-		Term:    0, // committed entries don't apply under a specific term
+		Type:    pb.MsgStorageApplyResp.Enum(),
+		To:      new(r.id),
+		From:    new(LocalApplyThread),
+		Term:    new(uint64(0)), // committed entries don't apply under a specific term
 		Entries: ents,
 	}
 }
@@ -532,25 +532,25 @@ func (rn *RawNode) WithProgress(visitor func(id uint64, typ ProgressType, pr tra
 
 // ReportUnreachable reports the given node is not reachable for the last send.
 func (rn *RawNode) ReportUnreachable(id uint64) {
-	_ = rn.raft.Step(pb.Message{Type: pb.MsgUnreachable, From: id})
+	_ = rn.raft.Step(pb.Message{Type: pb.MsgUnreachable.Enum(), From: new(id)})
 }
 
 // ReportSnapshot reports the status of the sent snapshot.
 func (rn *RawNode) ReportSnapshot(id uint64, status SnapshotStatus) {
 	rej := status == SnapshotFailure
 
-	_ = rn.raft.Step(pb.Message{Type: pb.MsgSnapStatus, From: id, Reject: rej})
+	_ = rn.raft.Step(pb.Message{Type: pb.MsgSnapStatus.Enum(), From: new(id), Reject: new(rej)})
 }
 
 // TransferLeader tries to transfer leadership to the given transferee.
 func (rn *RawNode) TransferLeader(transferee uint64) {
-	_ = rn.raft.Step(pb.Message{Type: pb.MsgTransferLeader, From: transferee})
+	_ = rn.raft.Step(pb.Message{Type: pb.MsgTransferLeader.Enum(), From: new(transferee)})
 }
 
 // ForgetLeader forgets a follower's current leader, changing it to None.
 // See (Node).ForgetLeader for details.
 func (rn *RawNode) ForgetLeader() error {
-	return rn.raft.Step(pb.Message{Type: pb.MsgForgetLeader})
+	return rn.raft.Step(pb.Message{Type: pb.MsgForgetLeader.Enum()})
 }
 
 // ReadIndex requests a read state. The read state will be set in ready.
@@ -558,5 +558,5 @@ func (rn *RawNode) ForgetLeader() error {
 // index, any linearizable read requests issued before the read request can be
 // processed safely. The read state will have the same rctx attached.
 func (rn *RawNode) ReadIndex(rctx []byte) {
-	_ = rn.raft.Step(pb.Message{Type: pb.MsgReadIndex, Entries: []pb.Entry{{Data: rctx}}})
+	_ = rn.raft.Step(pb.Message{Type: pb.MsgReadIndex.Enum(), Entries: []pb.Entry{{Data: rctx}}})
 }
