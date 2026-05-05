@@ -66,7 +66,7 @@ func (env *InteractionEnv) ProcessAppendThread(idx int) error {
 	if m.GetSnapshot() != nil {
 		snap = *m.GetSnapshot()
 	}
-	if err := processAppend(n, st, m.GetEntries(), snap); err != nil {
+	if err := processAppend(n, st, raftpb.EntrySliceFromPointers(m.GetEntries()), snap); err != nil {
 		return err
 	}
 

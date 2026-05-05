@@ -89,11 +89,10 @@ func (rn *RawNode) Campaign() error {
 // Propose proposes data be appended to the raft log.
 func (rn *RawNode) Propose(data []byte) error {
 	return rn.raft.Step(pb.Message{
-		Type: pb.MsgProp.Enum(),
-		From: new(rn.raft.id),
-		Entries: []pb.Entry{
-			{Data: data},
-		}})
+		Type:    pb.MsgProp.Enum(),
+		From:    new(rn.raft.id),
+		Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: data}}),
+	})
 }
 
 // ProposeConfChange proposes a config change. See (Node).ProposeConfChange for
@@ -227,7 +226,7 @@ func newStorageAppendMsg(r *raft, rd Ready) pb.Message {
 		Type:    pb.MsgStorageAppend.Enum(),
 		To:      new(LocalAppendThread),
 		From:    new(r.id),
-		Entries: rd.Entries,
+		Entries: pb.EntrySliceToPointers(rd.Entries),
 	}
 	if !IsEmptyHardState(rd.HardState) {
 		// If the Ready includes a HardState update, assign each of its fields
@@ -379,7 +378,7 @@ func newStorageApplyMsg(r *raft, rd Ready) pb.Message {
 		To:      new(LocalApplyThread),
 		From:    new(r.id),
 		Term:    new(uint64(0)), // committed entries don't apply under a specific term
-		Entries: ents,
+		Entries: pb.EntrySliceToPointers(ents),
 		Responses: []pb.Message{
 			newStorageApplyRespMsg(r, ents),
 		},
@@ -395,7 +394,7 @@ func newStorageApplyRespMsg(r *raft, ents []pb.Entry) pb.Message {
 		To:      new(r.id),
 		From:    new(LocalApplyThread),
 		Term:    new(uint64(0)), // committed entries don't apply under a specific term
-		Entries: ents,
+		Entries: pb.EntrySliceToPointers(ents),
 	}
 }
 
@@ -558,5 +557,5 @@ func (rn *RawNode) ForgetLeader() error {
 // index, any linearizable read requests issued before the read request can be
 // processed safely. The read state will have the same rctx attached.
 func (rn *RawNode) ReadIndex(rctx []byte) {
-	_ = rn.raft.Step(pb.Message{Type: pb.MsgReadIndex.Enum(), Entries: []pb.Entry{{Data: rctx}}})
+	_ = rn.raft.Step(pb.Message{Type: pb.MsgReadIndex.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: rctx}})})
 }

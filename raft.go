@@ -651,7 +651,7 @@ func (r *raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 		Type:    pb.MsgApp.Enum(),
 		Index:   new(prevIndex),
 		LogTerm: new(prevTerm),
-		Entries: ents,
+		Entries: pb.EntrySliceToPointers(ents),
 		Commit:  new(r.raftLog.committed),
 	})
 	pr.SentEntries(len(ents), uint64(payloadsSize(ents)))
@@ -1192,8 +1192,8 @@ func (r *raft) Step(m pb.Message) error {
 	case pb.MsgStorageApplyResp:
 		if len(m.GetEntries()) > 0 {
 			index := m.GetEntries()[len(m.GetEntries())-1].GetIndex()
-			r.appliedTo(index, entsSize(m.GetEntries()))
-			r.reduceUncommittedSize(payloadsSize(m.GetEntries()))
+			r.appliedTo(index, entsSize(pb.EntrySliceFromPointers(m.GetEntries())))
+			r.reduceUncommittedSize(payloadsSize(pb.EntrySliceFromPointers(m.GetEntries())))
 		}
 
 	case pb.MsgVote, pb.MsgPreVote:
@@ -1333,7 +1333,7 @@ func stepLeader(r *raft, m pb.Message) error {
 			}
 		}
 
-		if !r.appendEntry(m.GetEntries()...) {
+		if !r.appendEntry(pb.EntrySliceFromPointers(m.GetEntries())...) {
 			return ErrProposalDropped
 		}
 		r.bcastAppend()
@@ -1771,7 +1771,7 @@ func logSliceFromMsgApp(m *pb.Message) logSlice {
 	return logSlice{
 		term:    m.GetTerm(),
 		prev:    entryID{term: m.GetLogTerm(), index: m.GetIndex()},
-		entries: m.GetEntries(),
+		entries: pb.EntrySliceFromPointers(m.GetEntries()),
 	}
 }
 

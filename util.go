@@ -164,11 +164,11 @@ func describeMessageWithIndent(indent string, m pb.Message, f EntryFormatter) st
 	if m.GetVote() != 0 {
 		fmt.Fprintf(&buf, " Vote:%d", m.GetVote())
 	}
-	if ln := len(m.GetEntries()); ln == 1 {
-		fmt.Fprintf(&buf, " Entries:[%s]", DescribeEntry(m.GetEntries()[0], f))
-	} else if ln > 1 {
+	if ents := pb.EntrySliceFromPointers(m.GetEntries()); len(ents) == 1 {
+		fmt.Fprintf(&buf, " Entries:[%s]", DescribeEntry(ents[0], f))
+	} else if len(ents) > 1 {
 		fmt.Fprint(&buf, " Entries:[")
-		for _, e := range m.GetEntries() {
+		for _, e := range ents {
 			fmt.Fprintf(&buf, "\n%s  ", indent)
 			buf.WriteString(DescribeEntry(e, f))
 		}

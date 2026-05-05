@@ -59,7 +59,7 @@ func TestPendingSnapshotPauseReplication(t *testing.T) {
 
 	sm.trk.Progress[2].BecomeSnapshot(11)
 
-	sm.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []pb.Entry{{Data: []byte("somedata")}}})
+	sm.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})})
 	msgs := sm.readMessages()
 	require.Empty(t, msgs)
 }

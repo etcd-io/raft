@@ -179,13 +179,13 @@ func TestDisableProposalForwarding(t *testing.T) {
 	var testEntries = []raftpb.Entry{{Data: []byte("testdata")}}
 
 	// send proposal to r2(follower) where DisableProposalForwarding is false
-	r2.Step(raftpb.Message{From: new(uint64(2)), To: new(uint64(2)), Type: raftpb.MsgProp.Enum(), Entries: testEntries})
+	r2.Step(raftpb.Message{From: new(uint64(2)), To: new(uint64(2)), Type: raftpb.MsgProp.Enum(), Entries: raftpb.EntrySliceToPointers(testEntries)})
 
 	// verify r2(follower) does forward the proposal when DisableProposalForwarding is false
 	require.Len(t, r2.msgs, 1)
 
 	// send proposal to r3(follower) where DisableProposalForwarding is true
-	r3.Step(raftpb.Message{From: new(uint64(3)), To: new(uint64(3)), Type: raftpb.MsgProp.Enum(), Entries: testEntries})
+	r3.Step(raftpb.Message{From: new(uint64(3)), To: new(uint64(3)), Type: raftpb.MsgProp.Enum(), Entries: raftpb.EntrySliceToPointers(testEntries)})
 
 	// verify r3(follower) does not forward the proposal when DisableProposalForwarding is true
 	require.Empty(t, r3.msgs)
@@ -206,19 +206,19 @@ func TestNodeReadIndexToOldLeader(t *testing.T) {
 	var testEntries = []raftpb.Entry{{Data: []byte("testdata")}}
 
 	// send readindex request to r2(follower)
-	r2.Step(raftpb.Message{From: new(uint64(2)), To: new(uint64(2)), Type: raftpb.MsgReadIndex.Enum(), Entries: testEntries})
+	r2.Step(raftpb.Message{From: new(uint64(2)), To: new(uint64(2)), Type: raftpb.MsgReadIndex.Enum(), Entries: raftpb.EntrySliceToPointers(testEntries)})
 
 	// verify r2(follower) forwards this message to r1(leader) with term not set
 	require.Len(t, r2.msgs, 1)
-	readIndxMsg1 := raftpb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: raftpb.MsgReadIndex.Enum(), Entries: testEntries}
+	readIndxMsg1 := raftpb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: raftpb.MsgReadIndex.Enum(), Entries: raftpb.EntrySliceToPointers(testEntries)}
 	require.Equal(t, readIndxMsg1, r2.msgs[0])
 
 	// send readindex request to r3(follower)
-	r3.Step(raftpb.Message{From: new(uint64(3)), To: new(uint64(3)), Type: raftpb.MsgReadIndex.Enum(), Entries: testEntries})
+	r3.Step(raftpb.Message{From: new(uint64(3)), To: new(uint64(3)), Type: raftpb.MsgReadIndex.Enum(), Entries: raftpb.EntrySliceToPointers(testEntries)})
 
 	// verify r3(follower) forwards this message to r1(leader) with term not set as well.
 	require.Len(t, r3.msgs, 1)
-	readIndxMsg2 := raftpb.Message{From: new(uint64(3)), To: new(uint64(1)), Type: raftpb.MsgReadIndex.Enum(), Entries: testEntries}
+	readIndxMsg2 := raftpb.Message{From: new(uint64(3)), To: new(uint64(1)), Type: raftpb.MsgReadIndex.Enum(), Entries: raftpb.EntrySliceToPointers(testEntries)}
 	require.Equal(t, readIndxMsg2, r3.msgs[0])
 
 	// now elect r3 as leader
@@ -230,9 +230,9 @@ func TestNodeReadIndexToOldLeader(t *testing.T) {
 
 	// verify r1(follower) forwards these messages again to r3(new leader)
 	require.Len(t, r1.msgs, 2)
-	readIndxMsg3 := raftpb.Message{From: new(uint64(2)), To: new(uint64(3)), Type: raftpb.MsgReadIndex.Enum(), Entries: testEntries}
+	readIndxMsg3 := raftpb.Message{From: new(uint64(2)), To: new(uint64(3)), Type: raftpb.MsgReadIndex.Enum(), Entries: raftpb.EntrySliceToPointers(testEntries)}
 	require.Equal(t, readIndxMsg3, r1.msgs[0])
-	readIndxMsg3 = raftpb.Message{From: new(uint64(3)), To: new(uint64(3)), Type: raftpb.MsgReadIndex.Enum(), Entries: testEntries}
+	readIndxMsg3 = raftpb.Message{From: new(uint64(3)), To: new(uint64(3)), Type: raftpb.MsgReadIndex.Enum(), Entries: raftpb.EntrySliceToPointers(testEntries)}
 	require.Equal(t, readIndxMsg3, r1.msgs[1])
 }
 
@@ -793,7 +793,7 @@ func TestAppendPagination(t *testing.T) {
 	n.isolate(1)
 	blob := []byte(strings.Repeat("a", 1000))
 	for i := 0; i < 5; i++ {
-		n.send(raftpb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: raftpb.MsgProp.Enum(), Entries: []raftpb.Entry{{Data: blob}}})
+		n.send(raftpb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: raftpb.MsgProp.Enum(), Entries: raftpb.EntrySliceToPointers([]raftpb.Entry{{Data: blob}})})
 	}
 	n.recover()
 
@@ -865,7 +865,7 @@ func TestCommitPaginationWithAsyncStorageWrites(t *testing.T) {
 	require.Len(t, rd.Messages, 1)
 	m := rd.Messages[0]
 	require.Equal(t, raftpb.MsgStorageAppend, m.GetType())
-	require.NoError(t, s.Append(m.GetEntries()))
+	require.NoError(t, s.Append(raftpb.EntrySliceFromPointers(m.GetEntries())))
 	for _, resp := range m.GetResponses() {
 		require.NoError(t, n.Step(ctx, resp))
 	}
@@ -874,7 +874,7 @@ func TestCommitPaginationWithAsyncStorageWrites(t *testing.T) {
 	require.Len(t, rd.Messages, 1)
 	m = rd.Messages[0]
 	require.Equal(t, raftpb.MsgStorageAppend, m.GetType())
-	require.NoError(t, s.Append(m.GetEntries()))
+	require.NoError(t, s.Append(raftpb.EntrySliceFromPointers(m.GetEntries())))
 	for _, resp := range m.GetResponses() {
 		require.NoError(t, n.Step(ctx, resp))
 	}
@@ -884,7 +884,7 @@ func TestCommitPaginationWithAsyncStorageWrites(t *testing.T) {
 	for _, m := range rd.Messages {
 		switch m.GetType() {
 		case raftpb.MsgStorageAppend:
-			require.NoError(t, s.Append(m.GetEntries()))
+			require.NoError(t, s.Append(raftpb.EntrySliceFromPointers(m.GetEntries())))
 			for _, resp := range m.GetResponses() {
 				require.NoError(t, n.Step(ctx, resp))
 			}
@@ -907,7 +907,7 @@ func TestCommitPaginationWithAsyncStorageWrites(t *testing.T) {
 	m = rd.Messages[0]
 	require.Equal(t, raftpb.MsgStorageAppend, m.GetType())
 	require.Len(t, m.GetEntries(), 1)
-	require.NoError(t, s.Append(m.GetEntries()))
+	require.NoError(t, s.Append(raftpb.EntrySliceFromPointers(m.GetEntries())))
 	for _, resp := range m.GetResponses() {
 		require.NoError(t, n.Step(ctx, resp))
 	}
@@ -922,7 +922,7 @@ func TestCommitPaginationWithAsyncStorageWrites(t *testing.T) {
 	for _, m := range rd.Messages {
 		switch m.GetType() {
 		case raftpb.MsgStorageAppend:
-			require.NoError(t, s.Append(m.GetEntries()))
+			require.NoError(t, s.Append(raftpb.EntrySliceFromPointers(m.GetEntries())))
 			for _, resp := range m.GetResponses() {
 				require.NoError(t, n.Step(ctx, resp))
 			}
@@ -944,7 +944,7 @@ func TestCommitPaginationWithAsyncStorageWrites(t *testing.T) {
 	for _, m := range rd.Messages {
 		switch m.GetType() {
 		case raftpb.MsgStorageAppend:
-			require.NoError(t, s.Append(m.GetEntries()))
+			require.NoError(t, s.Append(raftpb.EntrySliceFromPointers(m.GetEntries())))
 			for _, resp := range m.GetResponses() {
 				require.NoError(t, n.Step(ctx, resp))
 			}
