@@ -154,32 +154,32 @@ func DescribeMessage(m pb.Message, f EntryFormatter) string {
 func describeMessageWithIndent(indent string, m pb.Message, f EntryFormatter) string {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "%s%s->%s %v Term:%d Log:%d/%d", indent,
-		describeTarget(m.From), describeTarget(m.To), m.Type, m.Term, m.LogTerm, m.Index)
-	if m.Reject {
-		fmt.Fprintf(&buf, " Rejected (Hint: %d)", m.RejectHint)
+		describeTarget(m.GetFrom()), describeTarget(m.GetTo()), m.GetType(), m.GetTerm(), m.GetLogTerm(), m.GetIndex())
+	if m.GetReject() {
+		fmt.Fprintf(&buf, " Rejected (Hint: %d)", m.GetRejectHint())
 	}
-	if m.Commit != 0 {
-		fmt.Fprintf(&buf, " Commit:%d", m.Commit)
+	if m.GetCommit() != 0 {
+		fmt.Fprintf(&buf, " Commit:%d", m.GetCommit())
 	}
-	if m.Vote != 0 {
-		fmt.Fprintf(&buf, " Vote:%d", m.Vote)
+	if m.GetVote() != 0 {
+		fmt.Fprintf(&buf, " Vote:%d", m.GetVote())
 	}
-	if ln := len(m.Entries); ln == 1 {
-		fmt.Fprintf(&buf, " Entries:[%s]", DescribeEntry(m.Entries[0], f))
+	if ln := len(m.GetEntries()); ln == 1 {
+		fmt.Fprintf(&buf, " Entries:[%s]", DescribeEntry(m.GetEntries()[0], f))
 	} else if ln > 1 {
 		fmt.Fprint(&buf, " Entries:[")
-		for _, e := range m.Entries {
+		for _, e := range m.GetEntries() {
 			fmt.Fprintf(&buf, "\n%s  ", indent)
 			buf.WriteString(DescribeEntry(e, f))
 		}
 		fmt.Fprintf(&buf, "\n%s]", indent)
 	}
-	if s := m.Snapshot; s != nil && !IsEmptySnap(*s) {
+	if s := m.GetSnapshot(); s != nil && !IsEmptySnap(*s) {
 		fmt.Fprintf(&buf, "\n%s  Snapshot: %s", indent, DescribeSnapshot(*s))
 	}
-	if len(m.Responses) > 0 {
+	if len(m.GetResponses()) > 0 {
 		fmt.Fprintf(&buf, " Responses:[")
-		for _, m := range m.Responses {
+		for _, m := range m.GetResponses() {
 			buf.WriteString("\n")
 			buf.WriteString(describeMessageWithIndent(indent+"  ", m, f))
 		}

@@ -52,11 +52,11 @@ func (env *InteractionEnv) ProcessApplyThread(idx int) error {
 	m := n.ApplyWork[0]
 	n.ApplyWork = n.ApplyWork[1:]
 
-	resps := m.Responses
+	resps := m.GetResponses()
 	m.Responses = nil
 	env.Output.WriteString("Processing:\n")
 	env.Output.WriteString(raft.DescribeMessage(m, defaultEntryFormatter) + "\n")
-	if err := processApply(n, m.Entries); err != nil {
+	if err := processApply(n, m.GetEntries()); err != nil {
 		return err
 	}
 

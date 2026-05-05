@@ -53,20 +53,20 @@ func (env *InteractionEnv) ProcessAppendThread(idx int) error {
 	m := n.AppendWork[0]
 	n.AppendWork = n.AppendWork[1:]
 
-	resps := m.Responses
+	resps := m.GetResponses()
 	m.Responses = nil
 	env.Output.WriteString("Processing:\n")
 	env.Output.WriteString(raft.DescribeMessage(m, defaultEntryFormatter) + "\n")
 	st := raftpb.HardState{
-		Term:   m.Term,
-		Vote:   m.Vote,
-		Commit: m.Commit,
+		Term:   m.GetTerm(),
+		Vote:   m.GetVote(),
+		Commit: m.GetCommit(),
 	}
 	var snap raftpb.Snapshot
-	if m.Snapshot != nil {
-		snap = *m.Snapshot
+	if m.GetSnapshot() != nil {
+		snap = *m.GetSnapshot()
 	}
-	if err := processAppend(n, st, m.Entries, snap); err != nil {
+	if err := processAppend(n, st, m.GetEntries(), snap); err != nil {
 		return err
 	}
 

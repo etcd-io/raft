@@ -131,7 +131,7 @@ func TestNodePropose(t *testing.T) {
 	var msgs []raftpb.Message
 	appendStep := func(_ *raft, m raftpb.Message) error {
 		t.Log(DescribeMessage(m, nil))
-		if m.Type == raftpb.MsgAppResp {
+		if m.GetType() == raftpb.MsgAppResp {
 			return nil // injected by (*raft).advance
 		}
 		msgs = append(msgs, m)
@@ -241,7 +241,7 @@ func TestNodeReadIndexToOldLeader(t *testing.T) {
 func TestNodeProposeConfig(t *testing.T) {
 	var msgs []raftpb.Message
 	appendStep := func(_ *raft, m raftpb.Message) error {
-		if m.Type == raftpb.MsgAppResp {
+		if m.GetType() == raftpb.MsgAppResp {
 			return nil // injected by (*raft).advance
 		}
 		msgs = append(msgs, m)
@@ -387,11 +387,11 @@ func TestNodeProposeWaitDropped(t *testing.T) {
 	var msgs []raftpb.Message
 	droppingMsg := []byte("test_dropping")
 	dropStep := func(_ *raft, m raftpb.Message) error {
-		if m.Type == raftpb.MsgProp && strings.Contains(m.String(), string(droppingMsg)) {
+		if m.GetType() == raftpb.MsgProp && strings.Contains(m.String(), string(droppingMsg)) {
 			t.Logf("dropping message: %v", m.String())
 			return ErrProposalDropped
 		}
-		if m.Type == raftpb.MsgAppResp {
+		if m.GetType() == raftpb.MsgAppResp {
 			// This is produced by raft internally, see (*raft).advance.
 			return nil
 		}
@@ -773,9 +773,9 @@ func TestAppendPagination(t *testing.T) {
 	// Inspect all messages to see that we never exceed the limit, but
 	// we do see messages of larger than half the limit.
 	n.msgHook = func(m raftpb.Message) bool {
-		if m.Type == raftpb.MsgApp {
+		if m.GetType() == raftpb.MsgApp {
 			size := 0
-			for _, e := range m.Entries {
+			for _, e := range m.GetEntries() {
 				size += len(e.GetData())
 			}
 			assert.LessOrEqual(t, size, maxSizePerMsg, "sent MsgApp that is too large")
@@ -864,34 +864,34 @@ func TestCommitPaginationWithAsyncStorageWrites(t *testing.T) {
 	rd := readyWithTimeout(n)
 	require.Len(t, rd.Messages, 1)
 	m := rd.Messages[0]
-	require.Equal(t, raftpb.MsgStorageAppend, m.Type)
-	require.NoError(t, s.Append(m.Entries))
-	for _, resp := range m.Responses {
+	require.Equal(t, raftpb.MsgStorageAppend, m.GetType())
+	require.NoError(t, s.Append(m.GetEntries()))
+	for _, resp := range m.GetResponses() {
 		require.NoError(t, n.Step(ctx, resp))
 	}
 	// Append empty entry.
 	rd = readyWithTimeout(n)
 	require.Len(t, rd.Messages, 1)
 	m = rd.Messages[0]
-	require.Equal(t, raftpb.MsgStorageAppend, m.Type)
-	require.NoError(t, s.Append(m.Entries))
-	for _, resp := range m.Responses {
+	require.Equal(t, raftpb.MsgStorageAppend, m.GetType())
+	require.NoError(t, s.Append(m.GetEntries()))
+	for _, resp := range m.GetResponses() {
 		require.NoError(t, n.Step(ctx, resp))
 	}
 	// Apply empty entry.
 	rd = readyWithTimeout(n)
 	require.Len(t, rd.Messages, 2)
 	for _, m := range rd.Messages {
-		switch m.Type {
+		switch m.GetType() {
 		case raftpb.MsgStorageAppend:
-			require.NoError(t, s.Append(m.Entries))
-			for _, resp := range m.Responses {
+			require.NoError(t, s.Append(m.GetEntries()))
+			for _, resp := range m.GetResponses() {
 				require.NoError(t, n.Step(ctx, resp))
 			}
 		case raftpb.MsgStorageApply:
-			require.Len(t, m.Entries, 1)
-			require.Len(t, m.Responses, 1)
-			require.NoError(t, n.Step(ctx, m.Responses[0]))
+			require.Len(t, m.GetEntries(), 1)
+			require.Len(t, m.GetResponses(), 1)
+			require.NoError(t, n.Step(ctx, m.GetResponses()[0]))
 		default:
 			t.Fatalf("unexpected: %v", m)
 		}
@@ -905,10 +905,10 @@ func TestCommitPaginationWithAsyncStorageWrites(t *testing.T) {
 	rd = readyWithTimeout(n)
 	require.Len(t, rd.Messages, 1)
 	m = rd.Messages[0]
-	require.Equal(t, raftpb.MsgStorageAppend, m.Type)
-	require.Len(t, m.Entries, 1)
-	require.NoError(t, s.Append(m.Entries))
-	for _, resp := range m.Responses {
+	require.Equal(t, raftpb.MsgStorageAppend, m.GetType())
+	require.Len(t, m.GetEntries(), 1)
+	require.NoError(t, s.Append(m.GetEntries()))
+	for _, resp := range m.GetResponses() {
 		require.NoError(t, n.Step(ctx, resp))
 	}
 
@@ -920,16 +920,16 @@ func TestCommitPaginationWithAsyncStorageWrites(t *testing.T) {
 	require.Len(t, rd.Messages, 2)
 	var applyResps []raftpb.Message
 	for _, m := range rd.Messages {
-		switch m.Type {
+		switch m.GetType() {
 		case raftpb.MsgStorageAppend:
-			require.NoError(t, s.Append(m.Entries))
-			for _, resp := range m.Responses {
+			require.NoError(t, s.Append(m.GetEntries()))
+			for _, resp := range m.GetResponses() {
 				require.NoError(t, n.Step(ctx, resp))
 			}
 		case raftpb.MsgStorageApply:
-			require.Len(t, m.Entries, 1)
-			require.Len(t, m.Responses, 1)
-			applyResps = append(applyResps, m.Responses[0])
+			require.Len(t, m.GetEntries(), 1)
+			require.Len(t, m.GetResponses(), 1)
+			applyResps = append(applyResps, m.GetResponses()[0])
 		default:
 			t.Fatalf("unexpected: %v", m)
 		}
@@ -942,16 +942,16 @@ func TestCommitPaginationWithAsyncStorageWrites(t *testing.T) {
 	rd = readyWithTimeout(n)
 	require.Len(t, rd.Messages, 2)
 	for _, m := range rd.Messages {
-		switch m.Type {
+		switch m.GetType() {
 		case raftpb.MsgStorageAppend:
-			require.NoError(t, s.Append(m.Entries))
-			for _, resp := range m.Responses {
+			require.NoError(t, s.Append(m.GetEntries()))
+			for _, resp := range m.GetResponses() {
 				require.NoError(t, n.Step(ctx, resp))
 			}
 		case raftpb.MsgStorageApply:
-			require.Len(t, m.Entries, 1)
-			require.Len(t, m.Responses, 1)
-			applyResps = append(applyResps, m.Responses[0])
+			require.Len(t, m.GetEntries(), 1)
+			require.Len(t, m.GetResponses(), 1)
+			applyResps = append(applyResps, m.GetResponses()[0])
 		default:
 			t.Fatalf("unexpected: %v", m)
 		}
@@ -964,7 +964,7 @@ func TestCommitPaginationWithAsyncStorageWrites(t *testing.T) {
 		select {
 		case rd := <-n.Ready():
 			for _, m := range rd.Messages {
-				require.NotEqual(t, raftpb.MsgStorageApply, m.Type, "unexpected message: %v", m)
+				require.NotEqual(t, raftpb.MsgStorageApply, m.GetType(), "unexpected message: %v", m)
 			}
 		case <-time.After(10 * time.Millisecond):
 			drain = false
@@ -979,9 +979,9 @@ func TestCommitPaginationWithAsyncStorageWrites(t *testing.T) {
 	rd = readyWithTimeout(n)
 	require.Len(t, rd.Messages, 1)
 	m = rd.Messages[0]
-	require.Equal(t, raftpb.MsgStorageApply, m.Type)
-	require.Len(t, m.Entries, 1)
-	applyResps = append(applyResps, m.Responses[0])
+	require.Equal(t, raftpb.MsgStorageApply, m.GetType())
+	require.Len(t, m.GetEntries(), 1)
+	applyResps = append(applyResps, m.GetResponses()[0])
 
 	// Acknowledged second and third entry application.
 	for _, resp := range applyResps {

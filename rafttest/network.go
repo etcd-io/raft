@@ -69,12 +69,12 @@ func (rn *raftNetwork) nodeNetwork(id uint64) iface {
 
 func (rn *raftNetwork) send(m raftpb.Message) {
 	rn.mu.Lock()
-	to := rn.recvQueues[m.To]
-	if rn.disconnected[m.To] {
+	to := rn.recvQueues[m.GetTo()]
+	if rn.disconnected[m.GetTo()] {
 		to = nil
 	}
-	drop := rn.dropmap[conn{m.From, m.To}]
-	dl := rn.delaymap[conn{m.From, m.To}]
+	drop := rn.dropmap[conn{m.GetFrom(), m.GetTo()}]
+	dl := rn.delaymap[conn{m.GetFrom(), m.GetTo()}]
 	rn.mu.Unlock()
 
 	if to == nil {

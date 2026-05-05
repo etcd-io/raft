@@ -81,7 +81,7 @@ func (r *raft) takeMessagesAfterAppend() []pb.Message {
 
 func (r *raft) stepOrSend(msgs []pb.Message) error {
 	for _, m := range msgs {
-		if m.To == r.id {
+		if m.GetTo() == r.id {
 			if err := r.Step(m); err != nil {
 				return err
 			}
@@ -190,10 +190,10 @@ func TestProgressFlowControl(t *testing.T) {
 		require.Equal(t, len(expEntries), len(ms))
 
 		for i, m := range ms {
-			assert.Equal(t, pb.MsgApp, m.Type, "#%d", i)
-			assert.Len(t, m.Entries, expEntries[i], "#%d", i)
+			assert.Equal(t, pb.MsgApp, m.GetType(), "#%d", i)
+			assert.Len(t, m.GetEntries(), expEntries[i], "#%d", i)
 		}
-		last := ms[len(ms)-1].Entries
+		last := ms[len(ms)-1].GetEntries()
 		if len(last) == 0 {
 			return index
 		}
@@ -604,14 +604,14 @@ func TestLogReplication(t *testing.T) {
 				}
 			}
 			var props []pb.Message
-			for _, m := range tt.msgs {
-				if m.Type == pb.MsgProp {
-					props = append(props, m)
-				}
+		for _, m := range tt.msgs {
+			if m.GetType() == pb.MsgProp {
+				props = append(props, m)
 			}
-			for k, m := range props {
-				assert.Equal(t, m.Entries[0].GetData(), ents[k].GetData(), "#%d.%d", i, j)
-			}
+		}
+		for k, m := range props {
+			assert.Equal(t, m.GetEntries()[0].GetData(), ents[k].GetData(), "#%d.%d", i, j)
+		}
 		}
 	}
 }
@@ -2117,7 +2117,7 @@ func TestReadOnlyDuplicateRequest(t *testing.T) {
 
 	// net hook that delays (but doesn't duplicate) only heartbeat responses
 	delayHeartbeatResps := func(m pb.Message) bool {
-		if m.Type == pb.MsgHeartbeatResp {
+		if m.GetType() == pb.MsgHeartbeatResp {
 			delayedMsgs = append(delayedMsgs, m)
 			return false
 		}
@@ -2274,16 +2274,16 @@ func TestBcastBeat(t *testing.T) {
 		3: min(sm.raftLog.committed, sm.trk.Progress[3].Match),
 	}
 	for i, m := range msgs {
-		require.Equal(t, pb.MsgHeartbeat, m.Type, "#%d", i)
-		require.Zero(t, m.Index, "#%d", i)
-		require.Zero(t, m.LogTerm, "#%d", i)
+		require.Equal(t, pb.MsgHeartbeat, m.GetType(), "#%d", i)
+		require.Zero(t, m.GetIndex(), "#%d", i)
+		require.Zero(t, m.GetLogTerm(), "#%d", i)
 
-		commit, ok := wantCommitMap[m.To]
+		commit, ok := wantCommitMap[m.GetTo()]
 		require.True(t, ok, "#%d", i)
-		require.Equal(t, commit, m.Commit, "#%d", i)
-		delete(wantCommitMap, m.To)
+		require.Equal(t, commit, m.GetCommit(), "#%d", i)
+		delete(wantCommitMap, m.GetTo())
 
-		require.Empty(t, m.Entries, "#%d", i)
+		require.Empty(t, m.GetEntries(), "#%d", i)
 	}
 }
 
@@ -2317,7 +2317,7 @@ func TestRecvMsgBeat(t *testing.T) {
 		msgs := sm.readMessages()
 		assert.Len(t, msgs, tt.wMsg, "#%d", i)
 		for _, m := range msgs {
-			assert.Equal(t, pb.MsgHeartbeat, m.Type, "#%d", i)
+			assert.Equal(t, pb.MsgHeartbeat, m.GetType(), "#%d", i)
 		}
 	}
 }
@@ -2659,7 +2659,7 @@ func TestProvideSnap(t *testing.T) {
 	msgs := sm.readMessages()
 	require.Len(t, msgs, 1)
 	m := msgs[0]
-	assert.Equal(t, m.Type, pb.MsgSnap)
+	assert.Equal(t, m.GetType(), pb.MsgSnap)
 }
 
 func TestIgnoreProvidingSnap(t *testing.T) {
@@ -3127,7 +3127,7 @@ func TestLeaderTransferAfterSnapshot(t *testing.T) {
 	filtered := pb.Message{}
 	// Snapshot needs to be applied before sending MsgAppResp
 	nt.msgHook = func(m pb.Message) bool {
-		if m.Type != pb.MsgAppResp || m.From != 3 || m.Reject {
+		if m.GetType() != pb.MsgAppResp || m.GetFrom() != 3 || m.GetReject() {
 			return true
 		}
 		filtered = m
@@ -3953,16 +3953,16 @@ func TestLogReplicationWithReorderedMessage(t *testing.T) {
 	r2.Step(req2)
 	resp2 := expectOneMessage(t, r2)
 	// r2 rejects req2
-	require.True(t, resp2.Reject)
-	require.Zero(t, resp2.RejectHint)
-	require.Equal(t, uint64(2), resp2.Index)
+	require.True(t, resp2.GetReject())
+	require.Zero(t, resp2.GetRejectHint())
+	require.Equal(t, uint64(2), resp2.GetIndex())
 
 	// r2 handles the first MsgApp and responses to r1.
 	// And r1 updates match index accordingly.
 	r2.Step(req1)
 	m := expectOneMessage(t, r2)
-	require.False(t, m.Reject)
-	require.Equal(t, uint64(2), m.Index)
+	require.False(t, m.GetReject())
+	require.Equal(t, uint64(2), m.GetIndex())
 	r1.Step(m)
 	m = expectOneMessage(t, r1)
 	require.Equal(t, uint64(2), r1.trk.Progress[2].Match)
@@ -3975,7 +3975,7 @@ func TestLogReplicationWithReorderedMessage(t *testing.T) {
 	r1.Step(resp2)
 	m = expectOneMessage(t, r1)
 	// r1 shall re-send MsgApp from match index even if resp2's reject hint is less than matching index.
-	require.Equal(t, r1.trk.Progress[2].Match, m.Index)
+	require.Equal(t, r1.trk.Progress[2].Match, m.GetIndex())
 }
 
 func expectOneMessage(t *testing.T, r *raft) pb.Message {
@@ -4069,7 +4069,7 @@ func preVoteConfig(c *Config) {
 func (nw *network) send(msgs ...pb.Message) {
 	for len(msgs) > 0 {
 		m := msgs[0]
-		p := nw.peers[m.To]
+		p := nw.peers[m.GetTo()]
 		if nw.t != nil {
 			nw.t.Log(DescribeMessage(m, nil))
 		}
@@ -4110,15 +4110,15 @@ func (nw *network) recover() {
 func (nw *network) filter(msgs []pb.Message) []pb.Message {
 	var mm []pb.Message
 	for _, m := range msgs {
-		if nw.ignorem[m.Type] {
+		if nw.ignorem[m.GetType()] {
 			continue
 		}
-		switch m.Type {
+		switch m.GetType() {
 		case pb.MsgHup:
 			// hups never go over the network, so don't drop them but panic
 			panic("unexpected msgHup")
 		default:
-			perc := nw.dropm[connem{m.From, m.To}]
+			perc := nw.dropm[connem{m.GetFrom(), m.GetTo()}]
 			if n := rand.Float64(); n < perc {
 				continue
 			}

@@ -413,9 +413,9 @@ func TestLeaderCommitEntry(t *testing.T) {
 	msgs := r.readMessages()
 	sort.Sort(messageSlice(msgs))
 	for i, m := range msgs {
-		assert.Equal(t, uint64(i+2), m.To)
-		assert.Equal(t, pb.MsgApp, m.Type)
-		assert.Equal(t, li+1, m.Commit)
+		assert.Equal(t, uint64(i+2), m.GetTo())
+		assert.Equal(t, pb.MsgApp, m.GetType())
+		assert.Equal(t, li+1, m.GetCommit())
 	}
 }
 
@@ -448,7 +448,7 @@ func TestLeaderAcknowledgeCommit(t *testing.T) {
 		r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Data: []byte("some data")}}})
 		r.advanceMessagesAfterAppend()
 		for _, m := range r.msgs {
-			if tt.nonLeaderAcceptors[m.To] {
+			if tt.nonLeaderAcceptors[m.GetTo()] {
 				r.Step(acceptAndReply(m))
 			}
 		}
@@ -691,12 +691,12 @@ func TestVoteRequest(t *testing.T) {
 		sort.Sort(messageSlice(msgs))
 		require.Len(t, msgs, 2, "#%d", j)
 		for i, m := range msgs {
-			assert.Equal(t, pb.MsgVote, m.Type, "#%d.%d", j, i)
-			assert.Equal(t, uint64(i+2), m.To, "#%d.%d", j, i)
-			assert.Equal(t, tt.wterm, m.Term, "#%d.%d", j, i)
+			assert.Equal(t, pb.MsgVote, m.GetType(), "#%d.%d", j, i)
+			assert.Equal(t, uint64(i+2), m.GetTo(), "#%d.%d", j, i)
+			assert.Equal(t, tt.wterm, m.GetTerm(), "#%d.%d", j, i)
 
-			assert.Equal(t, tt.ents[len(tt.ents)-1].GetIndex(), m.Index, "#%d.%d", j, i)
-			assert.Equal(t, tt.ents[len(tt.ents)-1].GetTerm(), m.LogTerm, "#%d.%d", j, i)
+			assert.Equal(t, tt.ents[len(tt.ents)-1].GetIndex(), m.GetIndex(), "#%d.%d", j, i)
+			assert.Equal(t, tt.ents[len(tt.ents)-1].GetTerm(), m.GetLogTerm(), "#%d.%d", j, i)
 		}
 	}
 }
@@ -736,8 +736,8 @@ func TestVoter(t *testing.T) {
 		msgs := r.readMessages()
 		require.Len(t, msgs, 1, "#%d", i)
 		m := msgs[0]
-		assert.Equal(t, pb.MsgVoteResp, m.Type, "#%d", i)
-		assert.Equal(t, tt.wreject, m.Reject, "#%d", i)
+		assert.Equal(t, pb.MsgVoteResp, m.GetType(), "#%d", i)
+		assert.Equal(t, tt.wreject, m.GetReject(), "#%d", i)
 	}
 }
 
@@ -788,7 +788,7 @@ func commitNoopEntry(r *raft, s *MemoryStorage) {
 	// simulate the response of MsgApp
 	msgs := r.readMessages()
 	for _, m := range msgs {
-		if m.Type != pb.MsgApp || len(m.Entries) != 1 || m.Entries[0].GetData() != nil {
+		if m.GetType() != pb.MsgApp || len(m.GetEntries()) != 1 || m.GetEntries()[0].GetData() != nil {
 			panic("not a message to append noop entry")
 		}
 		r.Step(acceptAndReply(m))
@@ -801,7 +801,7 @@ func commitNoopEntry(r *raft, s *MemoryStorage) {
 }
 
 func acceptAndReply(m pb.Message) pb.Message {
-	if m.Type != pb.MsgApp {
+	if m.GetType() != pb.MsgApp {
 		panic("type should be MsgApp")
 	}
 	return pb.Message{
@@ -809,6 +809,6 @@ func acceptAndReply(m pb.Message) pb.Message {
 		To:    m.From,
 		Term:  m.Term,
 		Type:  pb.MsgAppResp,
-		Index: m.Index + uint64(len(m.Entries)),
+		Index: m.GetIndex() + uint64(len(m.GetEntries())),
 	}
 }

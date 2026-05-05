@@ -1015,17 +1015,17 @@ func benchmarkRawNodeImpl(b *testing.B, peers ...uint64) {
 			}
 			s.Append(rd.Entries)
 			for _, m := range rd.Messages {
-				if m.Type == pb.MsgVote {
+				if m.GetType() == pb.MsgVote {
 					resp := pb.Message{To: m.From, From: m.To, Term: m.Term, Type: pb.MsgVoteResp}
 					if debug {
 						b.Log(DescribeMessage(resp, nil))
 					}
 					rn.Step(resp)
 				}
-				if m.Type == pb.MsgApp {
-					idx := m.Index
-					if n := len(m.Entries); n > 0 {
-						idx = m.Entries[n-1].GetIndex()
+				if m.GetType() == pb.MsgApp {
+					idx := m.GetIndex()
+					if n := len(m.GetEntries()); n > 0 {
+						idx = m.GetEntries()[n-1].GetIndex()
 					}
 					resp := pb.Message{To: m.From, From: m.To, Type: pb.MsgAppResp, Term: m.Term, Index: idx}
 					if debug {

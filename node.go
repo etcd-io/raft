@@ -392,7 +392,7 @@ func (n *node) run() {
 				close(pm.result)
 			}
 		case m := <-n.recvc:
-			if IsResponseMsg(m.Type) && !IsLocalMsgTarget(m.From) && r.trk.Progress[m.From] == nil {
+			if IsResponseMsg(m.GetType()) && !IsLocalMsgTarget(m.GetFrom()) && r.trk.Progress[m.GetFrom()] == nil {
 				// Filter out response message from unknown From.
 				break
 			}
@@ -472,7 +472,7 @@ func (n *node) Propose(ctx context.Context, data []byte) error {
 
 func (n *node) Step(ctx context.Context, m pb.Message) error {
 	// Ignore unexpected local messages receiving over network.
-	if IsLocalMsg(m.Type) && !IsLocalMsgTarget(m.From) {
+	if IsLocalMsg(m.GetType()) && !IsLocalMsgTarget(m.GetFrom()) {
 		// TODO: return an error?
 		return nil
 	}
@@ -506,7 +506,7 @@ func (n *node) stepWait(ctx context.Context, m pb.Message) error {
 // Step advances the state machine using msgs. The ctx.Err() will be returned,
 // if any.
 func (n *node) stepWithWaitOption(ctx context.Context, m pb.Message, wait bool) error {
-	if m.Type != pb.MsgProp {
+	if m.GetType() != pb.MsgProp {
 		select {
 		case n.recvc <- m:
 			return nil

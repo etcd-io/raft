@@ -117,10 +117,10 @@ func (rn *RawNode) ApplyConfChange(cc pb.ConfChangeI) *pb.ConfState {
 // Step advances the state machine using the given message.
 func (rn *RawNode) Step(m pb.Message) error {
 	// Ignore unexpected local messages receiving over network.
-	if IsLocalMsg(m.Type) && !IsLocalMsgTarget(m.From) {
+	if IsLocalMsg(m.GetType()) && !IsLocalMsgTarget(m.GetFrom()) {
 		return ErrStepLocalMsg
 	}
-	if IsResponseMsg(m.Type) && !IsLocalMsgTarget(m.From) && rn.raft.trk.Progress[m.From] == nil {
+	if IsResponseMsg(m.GetType()) && !IsLocalMsgTarget(m.GetFrom()) && rn.raft.trk.Progress[m.GetFrom()] == nil {
 		return ErrStepPeerNotFound
 	}
 	return rn.raft.Step(m)
@@ -179,7 +179,7 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 		// mandates that Messages cannot be sent until after Entries
 		// are written to stable storage.
 		for _, m := range r.msgsAfterAppend {
-			if m.To != r.id {
+			if m.GetTo() != r.id {
 				rd.Messages = append(rd.Messages, m)
 			}
 		}
@@ -256,7 +256,7 @@ func newStorageAppendMsg(r *raft, rd Ready) pb.Message {
 	// entries are removed from the unstable log.
 	m.Responses = r.msgsAfterAppend
 	if needStorageAppendRespMsg(r, rd) {
-		m.Responses = append(m.Responses, newStorageAppendRespMsg(r, rd))
+		m.Responses = append(m.GetResponses(), newStorageAppendRespMsg(r, rd))
 	}
 	return m
 }
@@ -417,7 +417,7 @@ func (rn *RawNode) acceptReady(rd Ready) {
 			rn.raft.logger.Panicf("two accepted Ready structs without call to Advance")
 		}
 		for _, m := range rn.raft.msgsAfterAppend {
-			if m.To == rn.raft.id {
+			if m.GetTo() == rn.raft.id {
 				rn.stepsOnAdvance = append(rn.stepsOnAdvance, m)
 			}
 		}
