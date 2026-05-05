@@ -25,10 +25,10 @@ import (
 
 var (
 	testingSnap = pb.Snapshot{
-		Metadata: pb.SnapshotMetadata{
-			Index:     11, // magic number
-			Term:      11, // magic number
-			ConfState: pb.ConfState{Voters: []uint64{1, 2}},
+		Metadata: &pb.SnapshotMetadata{
+			Index:     new(uint64(11)), // magic number
+			Term:      new(uint64(11)), // magic number
+			ConfState: &pb.ConfState{Voters: []uint64{1, 2}},
 		},
 	}
 )

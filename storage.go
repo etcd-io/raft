@@ -18,6 +18,8 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/gogo/protobuf/proto"
+
 	pb "go.etcd.io/raft/v3/raftpb"
 )
 
@@ -103,7 +105,7 @@ type MemoryStorage struct {
 
 	hardState pb.HardState
 	snapshot  pb.Snapshot
-	// ents[i] has raft log position i+snapshot.Metadata.Index
+	// ents[i] has raft log position i+ms.snapshot.GetMetadata().GetIndex()
 	ents []pb.Entry
 
 	callStats inMemStorageCallStats
@@ -111,16 +113,19 @@ type MemoryStorage struct {
 
 // NewMemoryStorage creates an empty MemoryStorage.
 func NewMemoryStorage() *MemoryStorage {
-	return &MemoryStorage{
+	ms := &MemoryStorage{
 		// When starting from scratch populate the list with a dummy entry at term zero.
 		ents: make([]pb.Entry, 1),
 	}
+	pb.EnsureSnapshot(&ms.snapshot)
+	return ms
 }
 
 // InitialState implements the Storage interface.
 func (ms *MemoryStorage) InitialState() (pb.HardState, pb.ConfState, error) {
 	ms.callStats.initialState++
-	return ms.hardState, ms.snapshot.Metadata.ConfState, nil
+	cs := ms.snapshot.GetMetadata().GetConfState()
+	return ms.hardState, *cs, nil
 }
 
 // SetHardState saves the current HardState.
@@ -199,6 +204,7 @@ func (ms *MemoryStorage) Snapshot() (pb.Snapshot, error) {
 	ms.Lock()
 	defer ms.Unlock()
 	ms.callStats.snapshot++
+	pb.EnsureSnapshot(&ms.snapshot)
 	return ms.snapshot, nil
 }
 
@@ -209,8 +215,8 @@ func (ms *MemoryStorage) ApplySnapshot(snap pb.Snapshot) error {
 	defer ms.Unlock()
 
 	//handle check for old snapshot being applied
-	msIndex := ms.snapshot.Metadata.Index
-	snapIndex := snap.Metadata.Index
+	msIndex := ms.snapshot.GetMetadata().GetIndex()
+	snapIndex := snap.GetMetadata().GetIndex()
 	// During bootstrap, applications (e.g., etcd) may initialize only the
 	// ConfState in the snapshot. In this case, both the snapshot index and
 	// term are 0.
@@ -219,7 +225,7 @@ func (ms *MemoryStorage) ApplySnapshot(snap pb.Snapshot) error {
 	}
 
 	ms.snapshot = snap
-	ms.ents = []pb.Entry{{Term: new(snap.Metadata.Term), Index: new(snap.Metadata.Index)}}
+	ms.ents = []pb.Entry{{Term: new(snap.GetMetadata().GetTerm()), Index: new(snap.GetMetadata().GetIndex())}}
 	return nil
 }
 
@@ -230,7 +236,7 @@ func (ms *MemoryStorage) ApplySnapshot(snap pb.Snapshot) error {
 func (ms *MemoryStorage) CreateSnapshot(i uint64, cs *pb.ConfState, data []byte) (pb.Snapshot, error) {
 	ms.Lock()
 	defer ms.Unlock()
-	if i <= ms.snapshot.Metadata.Index {
+	if i <= ms.snapshot.GetMetadata().GetIndex() {
 		return pb.Snapshot{}, ErrSnapOutOfDate
 	}
 
@@ -239,10 +245,12 @@ func (ms *MemoryStorage) CreateSnapshot(i uint64, cs *pb.ConfState, data []byte)
 		getLogger().Panicf("snapshot %d is out of bound lastindex(%d)", i, ms.lastIndex())
 	}
 
-	ms.snapshot.Metadata.Index = i
-	ms.snapshot.Metadata.Term = ms.ents[i-offset].GetTerm()
+	pb.EnsureSnapshot(&ms.snapshot)
+	ms.snapshot.Metadata.Index = new(i)
+	ms.snapshot.Metadata.Term = new(ms.ents[i-offset].GetTerm())
 	if cs != nil {
-		ms.snapshot.Metadata.ConfState = *cs
+		// TODO: use the official protobuf clone after we switch to protoc-gen-go
+		ms.snapshot.Metadata.ConfState = proto.Clone(cs).(*pb.ConfState)
 	}
 	ms.snapshot.Data = data
 	return ms.snapshot, nil
