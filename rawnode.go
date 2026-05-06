@@ -253,9 +253,10 @@ func newStorageAppendMsg(r *raft, rd Ready) pb.Message {
 	// be contained in msgsAfterAppend). This ordering allows the MsgAppResp
 	// handling to use a fast-path in r.raftLog.term() before the newly appended
 	// entries are removed from the unstable log.
-	m.Responses = r.msgsAfterAppend
+	m.Responses = pb.MessageSliceToPointers(r.msgsAfterAppend)
 	if needStorageAppendRespMsg(r, rd) {
-		m.Responses = append(m.GetResponses(), newStorageAppendRespMsg(r, rd))
+		resp := newStorageAppendRespMsg(r, rd)
+		m.Responses = append(m.GetResponses(), &resp)
 	}
 	return m
 }
@@ -379,9 +380,7 @@ func newStorageApplyMsg(r *raft, rd Ready) pb.Message {
 		From:    new(r.id),
 		Term:    new(uint64(0)), // committed entries don't apply under a specific term
 		Entries: pb.EntrySliceToPointers(ents),
-		Responses: []pb.Message{
-			newStorageApplyRespMsg(r, ents),
-		},
+		Responses: pb.MessageSliceToPointers([]pb.Message{newStorageApplyRespMsg(r, ents)}),
 	}
 }
 

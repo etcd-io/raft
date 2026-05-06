@@ -62,9 +62,9 @@ func (env *InteractionEnv) ProcessApplyThread(idx int) error {
 
 	env.Output.WriteString("Responses:\n")
 	for _, m := range resps {
-		env.Output.WriteString(raft.DescribeMessage(m, defaultEntryFormatter) + "\n")
+		env.Output.WriteString(raft.DescribeMessage(*m, defaultEntryFormatter) + "\n")
 	}
-	env.Messages = append(env.Messages, resps...)
+	env.Messages = append(env.Messages, raftpb.MessageSliceFromPointers(resps)...)
 	return nil
 }
 

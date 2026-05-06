@@ -179,9 +179,9 @@ func describeMessageWithIndent(indent string, m pb.Message, f EntryFormatter) st
 	}
 	if len(m.GetResponses()) > 0 {
 		fmt.Fprintf(&buf, " Responses:[")
-		for _, m := range m.GetResponses() {
+		for _, r := range m.GetResponses() {
 			buf.WriteString("\n")
-			buf.WriteString(describeMessageWithIndent(indent+"  ", m, f))
+			buf.WriteString(describeMessageWithIndent(indent+"  ", *r, f))
 		}
 		fmt.Fprintf(&buf, "\n%s]", indent)
 	}

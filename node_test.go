@@ -56,7 +56,7 @@ func TestNodeStep(t *testing.T) {
 			recvc: make(chan raftpb.Message, 1),
 		}
 		msgt := raftpb.MessageType(i)
-		n.Step(t.Context(), raftpb.Message{Type: msgt})
+		n.Step(t.Context(), raftpb.Message{Type: msgt.Enum()})
 		// Proposal goes to proc chan. Others go to recvc chan.
 		if msgt == raftpb.MsgProp {
 			select {
@@ -104,7 +104,7 @@ func TestNodeStepUnblock(t *testing.T) {
 	for i, tt := range tests {
 		errc := make(chan error, 1)
 		go func() {
-			err := n.Step(ctx, raftpb.Message{Type: raftpb.MsgProp})
+			err := n.Step(ctx, raftpb.Message{Type: raftpb.MsgProp.Enum()})
 			errc <- err
 		}()
 		tt.unblock()
@@ -867,7 +867,7 @@ func TestCommitPaginationWithAsyncStorageWrites(t *testing.T) {
 	require.Equal(t, raftpb.MsgStorageAppend, m.GetType())
 	require.NoError(t, s.Append(raftpb.EntrySliceFromPointers(m.GetEntries())))
 	for _, resp := range m.GetResponses() {
-		require.NoError(t, n.Step(ctx, resp))
+		require.NoError(t, n.Step(ctx, *resp))
 	}
 	// Append empty entry.
 	rd = readyWithTimeout(n)
@@ -876,7 +876,7 @@ func TestCommitPaginationWithAsyncStorageWrites(t *testing.T) {
 	require.Equal(t, raftpb.MsgStorageAppend, m.GetType())
 	require.NoError(t, s.Append(raftpb.EntrySliceFromPointers(m.GetEntries())))
 	for _, resp := range m.GetResponses() {
-		require.NoError(t, n.Step(ctx, resp))
+		require.NoError(t, n.Step(ctx, *resp))
 	}
 	// Apply empty entry.
 	rd = readyWithTimeout(n)
@@ -886,12 +886,12 @@ func TestCommitPaginationWithAsyncStorageWrites(t *testing.T) {
 		case raftpb.MsgStorageAppend:
 			require.NoError(t, s.Append(raftpb.EntrySliceFromPointers(m.GetEntries())))
 			for _, resp := range m.GetResponses() {
-				require.NoError(t, n.Step(ctx, resp))
+				require.NoError(t, n.Step(ctx, *resp))
 			}
 		case raftpb.MsgStorageApply:
 			require.Len(t, m.GetEntries(), 1)
 			require.Len(t, m.GetResponses(), 1)
-			require.NoError(t, n.Step(ctx, m.GetResponses()[0]))
+			require.NoError(t, n.Step(ctx, *m.GetResponses()[0]))
 		default:
 			t.Fatalf("unexpected: %v", m)
 		}
@@ -909,7 +909,7 @@ func TestCommitPaginationWithAsyncStorageWrites(t *testing.T) {
 	require.Len(t, m.GetEntries(), 1)
 	require.NoError(t, s.Append(raftpb.EntrySliceFromPointers(m.GetEntries())))
 	for _, resp := range m.GetResponses() {
-		require.NoError(t, n.Step(ctx, resp))
+		require.NoError(t, n.Step(ctx, *resp))
 	}
 
 	// Propose second entry.
@@ -924,12 +924,12 @@ func TestCommitPaginationWithAsyncStorageWrites(t *testing.T) {
 		case raftpb.MsgStorageAppend:
 			require.NoError(t, s.Append(raftpb.EntrySliceFromPointers(m.GetEntries())))
 			for _, resp := range m.GetResponses() {
-				require.NoError(t, n.Step(ctx, resp))
+				require.NoError(t, n.Step(ctx, *resp))
 			}
 		case raftpb.MsgStorageApply:
 			require.Len(t, m.GetEntries(), 1)
 			require.Len(t, m.GetResponses(), 1)
-			applyResps = append(applyResps, m.GetResponses()[0])
+			applyResps = append(applyResps, *m.GetResponses()[0])
 		default:
 			t.Fatalf("unexpected: %v", m)
 		}
@@ -946,12 +946,12 @@ func TestCommitPaginationWithAsyncStorageWrites(t *testing.T) {
 		case raftpb.MsgStorageAppend:
 			require.NoError(t, s.Append(raftpb.EntrySliceFromPointers(m.GetEntries())))
 			for _, resp := range m.GetResponses() {
-				require.NoError(t, n.Step(ctx, resp))
+				require.NoError(t, n.Step(ctx, *resp))
 			}
 		case raftpb.MsgStorageApply:
 			require.Len(t, m.GetEntries(), 1)
 			require.Len(t, m.GetResponses(), 1)
-			applyResps = append(applyResps, m.GetResponses()[0])
+			applyResps = append(applyResps, *m.GetResponses()[0])
 		default:
 			t.Fatalf("unexpected: %v", m)
 		}
@@ -981,7 +981,7 @@ func TestCommitPaginationWithAsyncStorageWrites(t *testing.T) {
 	m = rd.Messages[0]
 	require.Equal(t, raftpb.MsgStorageApply, m.GetType())
 	require.Len(t, m.GetEntries(), 1)
-	applyResps = append(applyResps, m.GetResponses()[0])
+	applyResps = append(applyResps, *m.GetResponses()[0])
 
 	// Acknowledged second and third entry application.
 	for _, resp := range applyResps {
