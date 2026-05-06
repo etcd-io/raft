@@ -94,7 +94,7 @@ func (env *InteractionEnv) DeliverMsgs(typ raftpb.MessageType, rs ...Recipient) 
 				// we haven't used msg.To yet.
 				continue
 			}
-			toIdx := int(msg.To - 1)
+			toIdx := int(msg.GetTo() - 1)
 			if err := env.Nodes[toIdx].Step(msg); err != nil {
 				fmt.Fprintln(env.Output, err)
 			}

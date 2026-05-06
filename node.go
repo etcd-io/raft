@@ -385,14 +385,14 @@ func (n *node) run() {
 		// Currently it is dropped in Step silently.
 		case pm := <-propc:
 			m := pm.m
-			m.From = r.id
+			m.From = new(r.id)
 			err := r.Step(m)
 			if pm.result != nil {
 				pm.result <- err
 				close(pm.result)
 			}
 		case m := <-n.recvc:
-			if IsResponseMsg(m.Type) && !IsLocalMsgTarget(m.From) && r.trk.Progress[m.From] == nil {
+			if IsResponseMsg(m.GetType()) && !IsLocalMsgTarget(m.GetFrom()) && r.trk.Progress[m.GetFrom()] == nil {
 				// Filter out response message from unknown From.
 				break
 			}
@@ -464,15 +464,17 @@ func (n *node) Tick() {
 	}
 }
 
-func (n *node) Campaign(ctx context.Context) error { return n.step(ctx, pb.Message{Type: pb.MsgHup}) }
+func (n *node) Campaign(ctx context.Context) error {
+	return n.step(ctx, pb.Message{Type: pb.MsgHup.Enum()})
+}
 
 func (n *node) Propose(ctx context.Context, data []byte) error {
-	return n.stepWait(ctx, pb.Message{Type: pb.MsgProp, Entries: []pb.Entry{{Data: data}}})
+	return n.stepWait(ctx, pb.Message{Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: data}})})
 }
 
 func (n *node) Step(ctx context.Context, m pb.Message) error {
 	// Ignore unexpected local messages receiving over network.
-	if IsLocalMsg(m.Type) && !IsLocalMsgTarget(m.From) {
+	if IsLocalMsg(m.GetType()) && !IsLocalMsgTarget(m.GetFrom()) {
 		// TODO: return an error?
 		return nil
 	}
@@ -484,7 +486,7 @@ func confChangeToMsg(c pb.ConfChangeI) (pb.Message, error) {
 	if err != nil {
 		return pb.Message{}, err
 	}
-	return pb.Message{Type: pb.MsgProp, Entries: []pb.Entry{{Type: typ.Enum(), Data: data}}}, nil
+	return pb.Message{Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Type: typ.Enum(), Data: data}})}, nil
 }
 
 func (n *node) ProposeConfChange(ctx context.Context, cc pb.ConfChangeI) error {
@@ -506,7 +508,7 @@ func (n *node) stepWait(ctx context.Context, m pb.Message) error {
 // Step advances the state machine using msgs. The ctx.Err() will be returned,
 // if any.
 func (n *node) stepWithWaitOption(ctx context.Context, m pb.Message, wait bool) error {
-	if m.Type != pb.MsgProp {
+	if m.GetType() != pb.MsgProp {
 		select {
 		case n.recvc <- m:
 			return nil
@@ -578,7 +580,7 @@ func (n *node) Status() Status {
 
 func (n *node) ReportUnreachable(id uint64) {
 	select {
-	case n.recvc <- pb.Message{Type: pb.MsgUnreachable, From: id}:
+	case n.recvc <- pb.Message{Type: pb.MsgUnreachable.Enum(), From: new(id)}:
 	case <-n.done:
 	}
 }
@@ -587,7 +589,7 @@ func (n *node) ReportSnapshot(id uint64, status SnapshotStatus) {
 	rej := status == SnapshotFailure
 
 	select {
-	case n.recvc <- pb.Message{Type: pb.MsgSnapStatus, From: id, Reject: rej}:
+	case n.recvc <- pb.Message{Type: pb.MsgSnapStatus.Enum(), From: new(id), Reject: new(rej)}:
 	case <-n.done:
 	}
 }
@@ -595,16 +597,16 @@ func (n *node) ReportSnapshot(id uint64, status SnapshotStatus) {
 func (n *node) TransferLeadership(ctx context.Context, lead, transferee uint64) {
 	select {
 	// manually set 'from' and 'to', so that leader can voluntarily transfers its leadership
-	case n.recvc <- pb.Message{Type: pb.MsgTransferLeader, From: transferee, To: lead}:
+	case n.recvc <- pb.Message{Type: pb.MsgTransferLeader.Enum(), From: new(transferee), To: new(lead)}:
 	case <-n.done:
 	case <-ctx.Done():
 	}
 }
 
 func (n *node) ForgetLeader(ctx context.Context) error {
-	return n.step(ctx, pb.Message{Type: pb.MsgForgetLeader})
+	return n.step(ctx, pb.Message{Type: pb.MsgForgetLeader.Enum()})
 }
 
 func (n *node) ReadIndex(ctx context.Context, rctx []byte) error {
-	return n.step(ctx, pb.Message{Type: pb.MsgReadIndex, Entries: []pb.Entry{{Data: rctx}}})
+	return n.step(ctx, pb.Message{Type: pb.MsgReadIndex.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: rctx}})})
 }

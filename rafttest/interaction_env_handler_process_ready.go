@@ -58,17 +58,17 @@ func (env *InteractionEnv) ProcessReady(idx int) error {
 	}
 
 	for _, m := range rd.Messages {
-		if raft.IsLocalMsgTarget(m.To) {
+		if raft.IsLocalMsgTarget(m.GetTo()) {
 			if !n.Config.AsyncStorageWrites {
 				panic("unexpected local msg target")
 			}
-			switch m.Type {
+			switch m.GetType() {
 			case raftpb.MsgStorageAppend:
 				n.AppendWork = append(n.AppendWork, m)
 			case raftpb.MsgStorageApply:
 				n.ApplyWork = append(n.ApplyWork, m)
 			default:
-				panic(fmt.Sprintf("unexpected message type %s", m.Type))
+				panic(fmt.Sprintf("unexpected message type %s", m.GetType()))
 			}
 		} else {
 			env.Messages = append(env.Messages, m)
