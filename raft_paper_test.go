@@ -117,8 +117,8 @@ func TestLeaderBcastBeat(t *testing.T) {
 	msgs := r.readMessages()
 	sort.Sort(messageSlice(msgs))
 	assert.Equal(t, []pb.Message{
-		{From: new(uint64(1)), To: new(uint64(2)), Term: new(uint64(1)), Type: pb.MsgHeartbeat.Enum()},
-		{From: new(uint64(1)), To: new(uint64(3)), Term: new(uint64(1)), Type: pb.MsgHeartbeat.Enum()},
+		{From: new(uint64(1)), To: new(uint64(2)), Term: new(uint64(1)), Type: pb.MsgHeartbeat.Enum(), Commit: new(uint64(0))},
+		{From: new(uint64(1)), To: new(uint64(3)), Term: new(uint64(1)), Type: pb.MsgHeartbeat.Enum(), Commit: new(uint64(0))},
 	}, msgs)
 }
 
@@ -162,8 +162,8 @@ func testNonleaderStartElection(t *testing.T, state StateType) {
 	msgs := r.readMessages()
 	sort.Sort(messageSlice(msgs))
 	assert.Equal(t, []pb.Message{
-		{From: new(uint64(1)), To: new(uint64(2)), Term: new(uint64(2)), Type: pb.MsgVote.Enum()},
-		{From: new(uint64(1)), To: new(uint64(3)), Term: new(uint64(2)), Type: pb.MsgVote.Enum()},
+		{From: new(uint64(1)), To: new(uint64(2)), Term: new(uint64(2)), Type: pb.MsgVote.Enum(), Index: new(uint64(0)), LogTerm: new(uint64(0))},
+		{From: new(uint64(1)), To: new(uint64(3)), Term: new(uint64(2)), Type: pb.MsgVote.Enum(), Index: new(uint64(0)), LogTerm: new(uint64(0))},
 	}, msgs)
 }
 
@@ -234,9 +234,11 @@ func TestFollowerVote(t *testing.T) {
 
 		r.Step(pb.Message{From: new(tt.nvote), To: new(uint64(1)), Term: new(uint64(1)), Type: pb.MsgVote.Enum()})
 
-		assert.Equal(t, []pb.Message{
-			{From: new(uint64(1)), To: new(tt.nvote), Term: new(uint64(1)), Type: pb.MsgVoteResp.Enum(), Reject: new(tt.wreject)},
-		}, r.msgsAfterAppend, "#%d", i)
+		expected := pb.Message{From: new(uint64(1)), To: new(tt.nvote), Term: new(uint64(1)), Type: pb.MessageType_MsgVoteResp.Enum()}
+		if tt.wreject {
+			expected.Reject = new(true)
+		}
+		assert.Equal(t, []pb.Message{expected}, r.msgsAfterAppend, "#%d", i)
 	}
 }
 
@@ -258,7 +260,7 @@ func TestCandidateFallback(t *testing.T) {
 		r.Step(tt)
 
 		assert.Equal(t, StateFollower, r.state, "#%d", i)
-		assert.Equal(t, tt.Term, r.Term, "#%d", i)
+		assert.Equal(t, tt.GetTerm(), r.Term, "#%d", i)
 	}
 }
 
@@ -378,8 +380,8 @@ func TestLeaderStartReplication(t *testing.T) {
 	sort.Sort(messageSlice(msgs))
 	wents := []pb.Entry{{Index: new(li + 1), Term: new(uint64(1)), Data: []byte("some data")}}
 	assert.Equal(t, []pb.Message{
-		{From: new(uint64(1)), To: new(uint64(2)), Term: new(uint64(1)), Type: pb.MsgApp.Enum(), Index: new(li), LogTerm: new(uint64(1)), Entries: wents, Commit: new(li)},
-		{From: new(uint64(1)), To: new(uint64(3)), Term: new(uint64(1)), Type: pb.MsgApp.Enum(), Index: new(li), LogTerm: new(uint64(1)), Entries: wents, Commit: new(li)},
+		{From: new(uint64(1)), To: new(uint64(2)), Term: new(uint64(1)), Type: pb.MsgApp.Enum(), Index: new(li), LogTerm: new(uint64(1)), Entries: pb.EntrySliceToPointers(wents), Commit: new(li)},
+		{From: new(uint64(1)), To: new(uint64(3)), Term: new(uint64(1)), Type: pb.MsgApp.Enum(), Index: new(li), LogTerm: new(uint64(1)), Entries: pb.EntrySliceToPointers(wents), Commit: new(li)},
 	}, msgs)
 	assert.Equal(t, []pb.Entry{
 		{Index: new(li + 1), Term: new(uint64(1)), Data: []byte("some data")},
@@ -572,9 +574,13 @@ func TestFollowerCheckMsgApp(t *testing.T) {
 
 		r.Step(pb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(tt.term), Index: new(tt.index)})
 
-		assert.Equal(t, []pb.Message{
-			{From: new(uint64(1)), To: new(uint64(2)), Type: pb.MsgAppResp.Enum(), Term: new(uint64(2)), Index: new(tt.windex), Reject: new(tt.wreject), RejectHint: new(tt.wrejectHint), LogTerm: new(tt.wlogterm)},
-		}, r.readMessages(), "#%d", i)
+		expected := pb.Message{From: new(uint64(1)), To: new(uint64(2)), Type: new(pb.MessageType_MsgAppResp), Term: new(uint64(2)), Index: new(tt.windex)}
+		if tt.wreject {
+			expected.Reject = new(true)
+			expected.RejectHint = new(tt.wrejectHint)
+			expected.LogTerm = new(tt.wlogterm)
+		}
+		assert.Equal(t, []pb.Message{expected}, r.readMessages(), "#%d", i)
 	}
 }
 

@@ -159,8 +159,8 @@ func TestNodePropose(t *testing.T) {
 	n.Stop()
 
 	require.Len(t, msgs, 1)
-	assert.Equal(t, raftpb.MsgProp, msgs[0].Type)
-	assert.Equal(t, []byte("somedata"), msgs[0].Entries[0].GetData())
+	assert.Equal(t, raftpb.MsgProp, msgs[0].GetType())
+	assert.Equal(t, []byte("somedata"), msgs[0].GetEntries()[0].GetData())
 }
 
 // TestDisableProposalForwarding ensures that proposals are not forwarded to
@@ -272,8 +272,8 @@ func TestNodeProposeConfig(t *testing.T) {
 	n.Stop()
 
 	require.Len(t, msgs, 1)
-	assert.Equal(t, raftpb.MsgProp, msgs[0].Type)
-	assert.Equal(t, ccdata, msgs[0].Entries[0].GetData())
+	assert.Equal(t, raftpb.MsgProp, msgs[0].GetType())
+	assert.Equal(t, ccdata, msgs[0].GetEntries()[0].GetData())
 }
 
 // TestNodeProposeAddDuplicateNode ensures that two proposes to add the same node should

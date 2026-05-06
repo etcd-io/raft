@@ -39,7 +39,7 @@ func TestMsgAppFlowControlFull(t *testing.T) {
 		r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})})
 		ms := r.readMessages()
 		require.Len(t, ms, 1)
-		require.Equal(t, pb.MsgApp, ms[0].Type)
+		require.Equal(t, pb.MsgApp, ms[0].GetType())
 	}
 
 	// ensure 1
@@ -82,7 +82,7 @@ func TestMsgAppFlowControlMoveForward(t *testing.T) {
 		r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})})
 		ms := r.readMessages()
 		require.Len(t, ms, 1)
-		require.Equal(t, pb.MsgApp, ms[0].Type)
+		require.Equal(t, pb.MsgApp, ms[0].GetType())
 
 		// ensure 1
 		require.True(t, pr2.IsPaused())
@@ -119,8 +119,8 @@ func TestMsgAppFlowControlRecvHeartbeat(t *testing.T) {
 			r.Step(pb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: pb.MsgHeartbeatResp.Enum()})
 			ms := r.readMessages()
 			require.Len(t, ms, 1)
-			require.Equal(t, pb.MsgApp, ms[0].Type)
-			require.Empty(t, ms[0].Entries)
+			require.Equal(t, pb.MsgApp, ms[0].GetType())
+			require.Empty(t, ms[0].GetEntries())
 		}
 
 		// No more appends are sent if there are no heartbeats.

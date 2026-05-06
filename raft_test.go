@@ -177,12 +177,12 @@ func TestProgressFlowControl(t *testing.T) {
 	// election, and the first proposal (only one proposal gets sent
 	// because we're in probe state).
 	require.Len(t, ms, 1)
-	require.Equal(t, pb.MsgApp, ms[0].Type)
+	require.Equal(t, pb.MsgApp, ms[0].GetType())
 
-	require.Len(t, ms[0].Entries, 2)
+	require.Len(t, ms[0].GetEntries(), 2)
 
-	require.Empty(t, ms[0].Entries[0].GetData())
-	require.Len(t, ms[0].Entries[1].GetData(), 1000)
+	require.Empty(t, ms[0].GetEntries()[0].GetData())
+	require.Len(t, ms[0].GetEntries()[1].GetData(), 1000)
 
 	ackAndVerify := func(index uint64, expEntries ...int) uint64 {
 		r.Step(pb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: pb.MsgAppResp.Enum(), Index: new(index)})
@@ -202,7 +202,7 @@ func TestProgressFlowControl(t *testing.T) {
 
 	// When this append is acked, we change to replicate state and can
 	// send multiple messages at once.
-	index := ackAndVerify(ms[0].Entries[1].GetIndex(), 2, 2, 2)
+	index := ackAndVerify(ms[0].GetEntries()[1].GetIndex(), 2, 2, 2)
 	// Ack all three of those messages together and get another 3 messages. The
 	// third message contains a single large entry, in contrast to 2 before.
 	index = ackAndVerify(index, 2, 1, 1)
@@ -265,7 +265,7 @@ func TestUncommittedEntryLimit(t *testing.T) {
 	for i := range propEnts {
 		propEnts[i] = testEntry
 	}
-	propMsgLarge := pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: propEnts}
+	propMsgLarge := pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers(propEnts)}
 	require.NoError(t, r.Step(propMsgLarge))
 
 	// Send one more proposal to r1. It should be rejected, again.
@@ -401,8 +401,8 @@ func TestLearnerCanVote(t *testing.T) {
 
 	msgs := n2.readMessages()
 	require.Len(t, msgs, 1)
-	require.Equal(t, msgs[0].Type, pb.MsgVoteResp)
-	require.False(t, msgs[0].Reject, "expected learner to not reject vote")
+	require.Equal(t, msgs[0].GetType(), pb.MsgVoteResp)
+	require.False(t, msgs[0].GetReject(), "expected learner to not reject vote")
 }
 
 func TestLeaderCycle(t *testing.T) {
@@ -541,8 +541,8 @@ func testVoteFromAnyState(t *testing.T, vt pb.MessageType) {
 		msgs := r.readMessages()
 		if assert.Len(t, msgs, 1, "%s,%s", vt, st) {
 			resp := msgs[0]
-			assert.Equal(t, voteRespMsgType(vt), resp.Type, "%s,%s", vt, st)
-			assert.False(t, resp.Reject, "%s,%s", vt, st)
+			assert.Equal(t, voteRespMsgType(vt), resp.GetType(), "%s,%s", vt, st)
+			assert.False(t, resp.GetReject(), "%s,%s", vt, st)
 		}
 
 		// If this was a real vote, we reset our state and term.
@@ -569,20 +569,20 @@ func TestLogReplication(t *testing.T) {
 	}{
 		{
 			newNetwork(nil, nil, nil),
-		[]pb.Message{
-			{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})},
+			[]pb.Message{
+				{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})},
+			},
+			2,
 		},
-		2,
-	},
-	{
-		newNetwork(nil, nil, nil),
-		[]pb.Message{
-			{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})},
-			{From: new(uint64(1)), To: new(uint64(2)), Type: pb.MsgHup.Enum()},
-			{From: new(uint64(1)), To: new(uint64(2)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})},
+		{
+			newNetwork(nil, nil, nil),
+			[]pb.Message{
+				{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})},
+				{From: new(uint64(1)), To: new(uint64(2)), Type: pb.MsgHup.Enum()},
+				{From: new(uint64(1)), To: new(uint64(2)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})},
+			},
+			4,
 		},
-		4,
-	},
 	}
 
 	for i, tt := range tests {
@@ -604,14 +604,14 @@ func TestLogReplication(t *testing.T) {
 				}
 			}
 			var props []pb.Message
-		for _, m := range tt.msgs {
-			if m.GetType() == pb.MsgProp {
-				props = append(props, m)
+			for _, m := range tt.msgs {
+				if m.GetType() == pb.MsgProp {
+					props = append(props, m)
+				}
 			}
-		}
-		for k, m := range props {
-			assert.Equal(t, m.GetEntries()[0].GetData(), ents[k].GetData(), "#%d.%d", i, j)
-		}
+			for k, m := range props {
+				assert.Equal(t, m.GetEntries()[0].GetData(), ents[k].GetData(), "#%d.%d", i, j)
+			}
 		}
 	}
 }
@@ -1109,10 +1109,10 @@ func TestHandleMsgApp(t *testing.T) {
 		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(uint64(1)), Index: new(uint64(1)), Commit: new(uint64(4)), Entries: pb.EntrySliceToPointers([]pb.Entry{{Index: new(uint64(2)), Term: new(uint64(2))}})}, 2, 2, false},
 
 		// Ensure 3
-		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(1)), LogTerm: new(uint64(1)), Index: new(uint64(1)), Commit: new(uint64(3))}, 2, 1, false},                                                                     // match entry 1, commit up to last new entry 1
+		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(1)), LogTerm: new(uint64(1)), Index: new(uint64(1)), Commit: new(uint64(3))}, 2, 1, false},                                                                                              // match entry 1, commit up to last new entry 1
 		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(1)), LogTerm: new(uint64(1)), Index: new(uint64(1)), Commit: new(uint64(3)), Entries: pb.EntrySliceToPointers([]pb.Entry{{Index: new(uint64(2)), Term: new(uint64(2))}})}, 2, 2, false}, // match entry 1, commit up to last new entry 2
-		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(uint64(2)), Index: new(uint64(2)), Commit: new(uint64(3))}, 2, 2, false},                                                                     // match entry 2, commit up to last new entry 2
-		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(uint64(2)), Index: new(uint64(2)), Commit: new(uint64(4))}, 2, 2, false},                                                                     // commit up to log.last()
+		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(uint64(2)), Index: new(uint64(2)), Commit: new(uint64(3))}, 2, 2, false},                                                                                              // match entry 2, commit up to last new entry 2
+		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(uint64(2)), Index: new(uint64(2)), Commit: new(uint64(4))}, 2, 2, false},                                                                                              // commit up to log.last()
 	}
 
 	for i, tt := range tests {
@@ -1126,7 +1126,7 @@ func TestHandleMsgApp(t *testing.T) {
 		assert.Equal(t, tt.wCommit, sm.raftLog.committed, "#%d", i)
 		m := sm.readMessages()
 		require.Len(t, m, 1, "#%d", i)
-		assert.Equal(t, tt.wReject, m[0].Reject, "#%d", i)
+		assert.Equal(t, tt.wReject, m[0].GetReject(), "#%d", i)
 	}
 }
 
@@ -1151,7 +1151,7 @@ func TestHandleHeartbeat(t *testing.T) {
 		assert.Equal(t, tt.wCommit, sm.raftLog.committed, "#%d", i)
 		m := sm.readMessages()
 		require.Len(t, m, 1, "#%d", i)
-		assert.Equal(t, pb.MsgHeartbeatResp, m[0].Type, "#%d", i)
+		assert.Equal(t, pb.MsgHeartbeatResp, m[0].GetType(), "#%d", i)
 	}
 }
 
@@ -1174,7 +1174,7 @@ func TestHandleHeartbeatResp(t *testing.T) {
 	sm.Step(pb.Message{From: new(uint64(2)), Type: pb.MsgHeartbeatResp.Enum()})
 	msgs = sm.readMessages()
 	require.Len(t, msgs, 1)
-	assert.Equal(t, pb.MsgApp, msgs[0].Type)
+	assert.Equal(t, pb.MsgApp, msgs[0].GetType())
 
 	// Once we have an MsgAppResp, heartbeats no longer send MsgApp.
 	sm.Step(pb.Message{
@@ -1206,7 +1206,7 @@ func TestRaftFreesReadOnlyMem(t *testing.T) {
 	sm.Step(pb.Message{From: new(uint64(2)), Type: pb.MsgReadIndex.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: reqCtx}})})
 	msgs := sm.readMessages()
 	require.Len(t, msgs, 1)
-	require.Equal(t, pb.MsgHeartbeat, msgs[0].Type)
+	require.Equal(t, pb.MsgHeartbeat, msgs[0].GetType())
 	require.Len(t, sm.readOnly.unconfirmedReads, 1)
 
 	// heartbeat responses from majority of followers (1 in this case)
@@ -1250,10 +1250,10 @@ func TestMsgAppRespWaitReset(t *testing.T) {
 	// Node 2 left the wait state due to its MsgAppResp, but node 3 is still waiting.
 	msgs := sm.readMessages()
 	require.Len(t, msgs, 1)
-	assert.Equal(t, pb.MsgApp, msgs[0].Type)
-	assert.Equal(t, uint64(2), msgs[0].To)
-	assert.Len(t, msgs[0].Entries, 1)
-	assert.Equal(t, uint64(2), msgs[0].Entries[0].GetIndex())
+	assert.Equal(t, pb.MsgApp, msgs[0].GetType())
+	assert.Equal(t, uint64(2), msgs[0].GetTo())
+	assert.Len(t, msgs[0].GetEntries(), 1)
+	assert.Equal(t, uint64(2), msgs[0].GetEntries()[0].GetIndex())
 
 	// Now Node 3 acks the first entry. This releases the wait and entry 2 is sent.
 	sm.Step(pb.Message{
@@ -1265,8 +1265,8 @@ func TestMsgAppRespWaitReset(t *testing.T) {
 	require.Len(t, msgs, 1)
 	assert.Equal(t, pb.MsgApp, msgs[0].GetType())
 	assert.Equal(t, uint64(3), msgs[0].GetTo())
-	assert.Len(t, msgs[0].Entries, 1)
-	assert.Equal(t, uint64(2), msgs[0].Entries[0].GetIndex())
+	assert.Len(t, msgs[0].GetEntries(), 1)
+	assert.Equal(t, uint64(2), msgs[0].GetEntries()[0].GetIndex())
 }
 
 func TestRecvMsgVote(t *testing.T) {
@@ -1340,8 +1340,8 @@ func testRecvMsgVote(t *testing.T, msgType pb.MessageType) {
 
 		msgs := sm.readMessages()
 		require.Len(t, msgs, 1, "#%d", i)
-		assert.Equal(t, voteRespMsgType(msgType), msgs[0].Type, "#%d", i)
-		assert.Equal(t, tt.wreject, msgs[0].Reject, "#%d", i)
+		assert.Equal(t, voteRespMsgType(msgType), msgs[0].GetType(), "#%d", i)
+		assert.Equal(t, tt.wreject, msgs[0].GetReject(), "#%d", i)
 	}
 }
 
@@ -2210,16 +2210,16 @@ func TestLeaderAppResp(t *testing.T) {
 			sm.becomeCandidate()
 			sm.becomeLeader()
 			sm.readMessages()
-		require.NoError(t, sm.Step(
-			pb.Message{
-				From:       new(uint64(2)),
-				Type:       pb.MsgAppResp.Enum(),
-				Index:      new(tt.index),
-				Term:       new(sm.Term),
-				Reject:     new(tt.reject),
-				RejectHint: new(tt.index),
-			},
-		))
+			require.NoError(t, sm.Step(
+				pb.Message{
+					From:       new(uint64(2)),
+					Type:       pb.MsgAppResp.Enum(),
+					Index:      new(tt.index),
+					Term:       new(sm.Term),
+					Reject:     new(tt.reject),
+					RejectHint: new(tt.index),
+				},
+			))
 
 			p := sm.trk.Progress[2]
 			require.Equal(t, tt.wmatch, p.Match)
@@ -2229,8 +2229,8 @@ func TestLeaderAppResp(t *testing.T) {
 
 			require.Len(t, msgs, tt.wmsgNum)
 			for _, msg := range msgs {
-				require.Equal(t, tt.windex, msg.Index, "%v", DescribeMessage(msg, nil))
-				require.Equal(t, tt.wcommitted, msg.Commit, "%v", DescribeMessage(msg, nil))
+				require.Equal(t, tt.windex, msg.GetIndex(), "%v", DescribeMessage(msg, nil))
+				require.Equal(t, tt.wcommitted, msg.GetCommit(), "%v", DescribeMessage(msg, nil))
 			}
 		})
 	}
@@ -2369,7 +2369,7 @@ func TestSendAppendForProgressProbe(t *testing.T) {
 			r.sendAppend(2)
 			msg := r.readMessages()
 			assert.Len(t, msg, 1)
-			assert.Zero(t, msg[0].Index)
+			assert.Zero(t, msg[0].GetIndex())
 		}
 
 		assert.True(t, r.trk.Progress[2].MsgAppFlowPaused)
@@ -2395,7 +2395,7 @@ func TestSendAppendForProgressProbe(t *testing.T) {
 	r.Step(pb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: pb.MsgHeartbeatResp.Enum()})
 	msg := r.readMessages()
 	assert.Len(t, msg, 1)
-	assert.Zero(t, msg[0].Index)
+	assert.Zero(t, msg[0].GetIndex())
 	assert.True(t, r.trk.Progress[2].MsgAppFlowPaused)
 }
 
@@ -3678,9 +3678,9 @@ func testConfChangeCheckBeforeCampaign(t *testing.T, v2 bool) {
 	}
 	require.NoError(t, err)
 	nt.send(pb.Message{
-		From: new(uint64(1)),
-		To:   new(uint64(1)),
-		Type: pb.MsgProp.Enum(),
+		From:    new(uint64(1)),
+		To:      new(uint64(1)),
+		Type:    pb.MsgProp.Enum(),
 		Entries: pb.EntrySliceToPointers([]pb.Entry{{Type: ty.Enum(), Data: ccData}}),
 	})
 
@@ -3874,25 +3874,25 @@ func TestFastLogRejection(t *testing.T) {
 			require.NoError(t, n2.Step(pb.Message{From: new(uint64(1)), To: new(uint64(2)), Type: pb.MsgHeartbeat.Enum()}))
 			msgs := n2.readMessages()
 			require.Len(t, msgs, 1, "can't read 1 message from peer 2")
-			require.Equal(t, pb.MsgHeartbeatResp, msgs[0].Type)
+			require.Equal(t, pb.MsgHeartbeatResp, msgs[0].GetType())
 
 			require.NoError(t, n1.Step(msgs[0]))
 			msgs = n1.readMessages()
 			require.Len(t, msgs, 1, "can't read 1 message from peer 1")
-			require.Equal(t, pb.MsgApp, msgs[0].Type)
+			require.Equal(t, pb.MsgApp, msgs[0].GetType())
 
 			require.NoError(t, n2.Step(msgs[0]), "peer 2 step append fail")
 			msgs = n2.readMessages()
 			require.Len(t, msgs, 1, "can't read 1 message from peer 2")
-			require.Equal(t, pb.MsgAppResp, msgs[0].Type)
-			require.True(t, msgs[0].Reject, "expected rejected append response from peer 2")
-			require.Equal(t, test.rejectHintTerm, msgs[0].LogTerm, "hint log term mismatch")
-			require.Equal(t, test.rejectHintIndex, msgs[0].RejectHint, "hint log index mismatch")
+			require.Equal(t, pb.MsgAppResp, msgs[0].GetType())
+			require.True(t, msgs[0].GetReject(), "expected rejected append response from peer 2")
+			require.Equal(t, test.rejectHintTerm, msgs[0].GetLogTerm(), "hint log term mismatch")
+			require.Equal(t, test.rejectHintIndex, msgs[0].GetRejectHint(), "hint log index mismatch")
 
 			require.NoError(t, n1.Step(msgs[0]), "peer 1 step append fail")
 			msgs = n1.readMessages()
-			require.Equal(t, test.nextAppendTerm, msgs[0].LogTerm)
-			require.Equal(t, test.nextAppendIndex, msgs[0].Index)
+			require.Equal(t, test.nextAppendTerm, msgs[0].GetLogTerm())
+			require.Equal(t, test.nextAppendIndex, msgs[0].GetIndex())
 		})
 	}
 }

@@ -375,11 +375,11 @@ func needStorageApplyRespMsg(rd Ready) bool { return needStorageApplyMsg(rd) }
 func newStorageApplyMsg(r *raft, rd Ready) pb.Message {
 	ents := rd.CommittedEntries
 	return pb.Message{
-		Type:    pb.MsgStorageApply.Enum(),
-		To:      new(LocalApplyThread),
-		From:    new(r.id),
-		Term:    new(uint64(0)), // committed entries don't apply under a specific term
-		Entries: pb.EntrySliceToPointers(ents),
+		Type:      pb.MsgStorageApply.Enum(),
+		To:        new(LocalApplyThread),
+		From:      new(r.id),
+		Term:      new(uint64(0)), // committed entries don't apply under a specific term
+		Entries:   pb.EntrySliceToPointers(ents),
 		Responses: pb.MessageSliceToPointers([]pb.Message{newStorageApplyRespMsg(r, ents)}),
 	}
 }

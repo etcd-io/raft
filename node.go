@@ -384,8 +384,8 @@ func (n *node) run() {
 		// described in raft dissertation)
 		// Currently it is dropped in Step silently.
 		case pm := <-propc:
-		m := pm.m
-		m.From = new(r.id)
+			m := pm.m
+			m.From = new(r.id)
 			err := r.Step(m)
 			if pm.result != nil {
 				pm.result <- err
