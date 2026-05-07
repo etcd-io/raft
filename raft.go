@@ -1077,6 +1077,10 @@ func (r *raft) poll(id uint64, t pb.MessageType, v bool) (granted int, rejected 
 	return r.trk.TallyVotes()
 }
 
+// Step advances the state machine using the given message.
+//
+// Callers must treat m as immutable after passing it to Step. Mutating it
+// concurrently can lead to unexpected behavior.
 func (r *raft) Step(m pb.Message) error {
 	traceReceiveMessage(r, &m)
 
