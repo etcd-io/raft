@@ -206,7 +206,7 @@ will look something like this:
 	    n.Tick()
 	  case rd := <-s.Node.Ready():
 	    for _, m := range rd.Messages {
-	      switch m.To {
+	      switch m.GetTo() {
 	      case raft.LocalAppendThread:
 	        toAppend <- m
 	      case raft.LocalApplyThread:
@@ -229,8 +229,8 @@ application to the local state machine (apply). Those will look something like:
 	  for {
 	    select {
 	    case m := <-toAppend:
-	      saveToStorage(m.State, m.Entries, m.Snapshot)
-	      send(m.Responses)
+	      saveToStorage(m.State, m.GetEntries(), m.GetSnapshot())
+	      send(m.GetResponses())
 	    case <-s.done:
 	      return
 	    }
@@ -250,7 +250,7 @@ application to the local state machine (apply). Those will look something like:
 	          s.Node.ApplyConfChange(cc)
 	        }
 	      }
-	      send(m.Responses)
+	      send(m.GetResponses())
 	    case <-s.done:
 	      return
 	    }

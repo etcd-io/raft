@@ -93,7 +93,7 @@ func TestRawNodeStep(t *testing.T) {
 			rawNode, err := NewRawNode(newTestConfig(1, 10, 1, s))
 			require.NoError(t, err, "#%d", i)
 			msgt := pb.MessageType(i)
-			err = rawNode.Step(pb.Message{Type: msgt})
+			err = rawNode.Step(pb.Message{Type: msgt.Enum()})
 			// LocalMsg should be ignored.
 			if IsLocalMsg(msgt) {
 				assert.Equal(t, ErrStepLocalMsg, err, "#%d", i)
@@ -377,7 +377,7 @@ func TestRawNodeJointAutoLeave(t *testing.T) {
 			}
 			if cc != nil {
 				// Force it step down.
-				rawNode.Step(pb.Message{Type: pb.MsgHeartbeatResp, From: 1, Term: rawNode.raft.Term + 1})
+				rawNode.Step(pb.Message{Type: pb.MsgHeartbeatResp.Enum(), From: new(uint64(1)), Term: new(rawNode.raft.Term + 1)})
 				cs = rawNode.ApplyConfChange(cc)
 			}
 		}
@@ -548,8 +548,8 @@ func TestRawNodeReadIndex(t *testing.T) {
 	}
 	// ensure that MsgReadIndex message is sent to the underlying raft
 	require.Len(t, msgs, 1)
-	assert.Equal(t, pb.MsgReadIndex, msgs[0].Type)
-	assert.Equal(t, wrequestCtx, msgs[0].Entries[0].GetData())
+	assert.Equal(t, pb.MsgReadIndex, msgs[0].GetType())
+	assert.Equal(t, wrequestCtx, msgs[0].GetEntries()[0].GetData())
 }
 
 // TestBlockProposal from node_test.go has no equivalent in rawNode because there is
@@ -794,11 +794,11 @@ func TestRawNodeCommitPaginationAfterRestart(t *testing.T) {
 		highestApplied = rd.CommittedEntries[n-1].GetIndex()
 		rawNode.Advance(rd)
 		rawNode.Step(pb.Message{
-			Type:   pb.MsgHeartbeat,
-			To:     1,
-			From:   2, // illegal, but we get away with it
-			Term:   1,
-			Commit: 11,
+			Type:   pb.MsgHeartbeat.Enum(),
+			To:     new(uint64(1)),
+			From:   new(uint64(2)), // illegal, but we get away with it
+			Term:   new(uint64(1)),
+			Commit: new(uint64(11)),
 		})
 	}
 }
@@ -1015,19 +1015,19 @@ func benchmarkRawNodeImpl(b *testing.B, peers ...uint64) {
 			}
 			s.Append(rd.Entries)
 			for _, m := range rd.Messages {
-				if m.Type == pb.MsgVote {
-					resp := pb.Message{To: m.From, From: m.To, Term: m.Term, Type: pb.MsgVoteResp}
+				if m.GetType() == pb.MsgVote {
+					resp := pb.Message{To: m.From, From: m.To, Term: m.Term, Type: pb.MsgVoteResp.Enum()}
 					if debug {
 						b.Log(DescribeMessage(resp, nil))
 					}
 					rn.Step(resp)
 				}
-				if m.Type == pb.MsgApp {
-					idx := m.Index
-					if n := len(m.Entries); n > 0 {
-						idx = m.Entries[n-1].GetIndex()
+				if m.GetType() == pb.MsgApp {
+					idx := m.GetIndex()
+					if n := len(m.GetEntries()); n > 0 {
+						idx = m.GetEntries()[n-1].GetIndex()
 					}
-					resp := pb.Message{To: m.From, From: m.To, Type: pb.MsgAppResp, Term: m.Term, Index: idx}
+					resp := pb.Message{To: m.From, From: m.To, Type: pb.MsgAppResp.Enum(), Term: m.Term, Index: new(idx)}
 					if debug {
 						b.Log(DescribeMessage(resp, nil))
 					}

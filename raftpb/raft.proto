@@ -64,10 +64,10 @@ enum MessageType {
 }
 
 message Message {
-	optional MessageType type        = 1  [(gogoproto.nullable) = false];
-	optional uint64      to          = 2  [(gogoproto.nullable) = false];
-	optional uint64      from        = 3  [(gogoproto.nullable) = false];
-	optional uint64      term        = 4  [(gogoproto.nullable) = false];
+	optional MessageType type        = 1;
+	optional uint64      to          = 2;
+	optional uint64      from        = 3;
+	optional uint64      term        = 4;
 	// logTerm is generally used for appending Raft logs to followers. For example,
 	// (type=MsgApp,index=100,logTerm=5) means the leader appends entries starting
 	// at index=101, and the term of the entry at index 100 is 5.
@@ -78,28 +78,28 @@ message Message {
 	// 100 was 5. This doesn't always mean that the corresponding MsgStorageAppend
 	// message was the one that carried these entries, just that those entries were
 	// stable at the time of processing the corresponding MsgStorageAppend.
-	optional uint64      logTerm     = 5  [(gogoproto.nullable) = false];
-	optional uint64      index       = 6  [(gogoproto.nullable) = false];
-	repeated Entry       entries     = 7  [(gogoproto.nullable) = false];
-	optional uint64      commit      = 8  [(gogoproto.nullable) = false];
+	optional uint64      logTerm     = 5;
+	optional uint64      index       = 6;
+	repeated Entry       entries     = 7;
+	optional uint64      commit      = 8;
 	// (type=MsgStorageAppend,vote=5,term=10) means the local node is voting for
 	// peer 5 in term 10. For MsgStorageAppends, the term, vote, and commit fields
 	// will either all be set (to facilitate the construction of a HardState) if
 	// any of the fields have changed or will all be unset if none of the fields
 	// have changed.
-	optional uint64      vote        = 13 [(gogoproto.nullable) = false];
+	optional uint64      vote        = 13;
 	// snapshot is non-nil and non-empty for MsgSnap messages and nil for all other
 	// message types. However, peer nodes running older binary versions may send a
 	// non-nil, empty value for the snapshot field of non-MsgSnap messages. Code
 	// should be prepared to handle such messages.
-	optional Snapshot    snapshot    = 9  [(gogoproto.nullable) = true];
-	optional bool        reject      = 10 [(gogoproto.nullable) = false];
-	optional uint64      rejectHint  = 11 [(gogoproto.nullable) = false];
-	optional bytes       context     = 12 [(gogoproto.nullable) = true];
+	optional Snapshot    snapshot    = 9;
+	optional bool        reject      = 10;
+	optional uint64      rejectHint  = 11;
+	optional bytes       context     = 12;
 	// responses are populated by a raft node to instruct storage threads on how
 	// to respond and who to respond to when the work associated with a message
 	// is complete. Populated for MsgStorageAppend and MsgStorageApply messages.
-	repeated Message     responses   = 14 [(gogoproto.nullable) = false];
+	repeated Message     responses   = 14;
 }
 
 message HardState {

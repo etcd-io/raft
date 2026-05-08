@@ -117,7 +117,7 @@ func (env *InteractionEnv) Stabilize(idxs ...int) error {
 func splitMsgs(msgs []raftpb.Message, to uint64, typ raftpb.MessageType, drop bool) (toMsgs []raftpb.Message, rmdr []raftpb.Message) {
 	// NB: this method does not reorder messages.
 	for _, msg := range msgs {
-		if msg.To == to && !(drop && isLocalMsg(msg)) && (typ < 0 || msg.Type == typ) {
+		if msg.GetTo() == to && !(drop && isLocalMsg(msg)) && (typ < 0 || msg.GetType() == typ) {
 			toMsgs = append(toMsgs, msg)
 		} else {
 			rmdr = append(rmdr, msg)
@@ -128,5 +128,5 @@ func splitMsgs(msgs []raftpb.Message, to uint64, typ raftpb.MessageType, drop bo
 
 // Don't drop local messages, which require reliable delivery.
 func isLocalMsg(msg raftpb.Message) bool {
-	return msg.From == msg.To || raft.IsLocalMsgTarget(msg.From) || raft.IsLocalMsgTarget(msg.To)
+	return msg.GetFrom() == msg.GetTo() || raft.IsLocalMsgTarget(msg.GetFrom()) || raft.IsLocalMsgTarget(msg.GetTo())
 }
