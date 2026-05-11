@@ -79,7 +79,7 @@ func TestRawNodeStep(t *testing.T) {
 	for i, msgn := range pb.MessageType_name {
 		t.Run(msgn, func(t *testing.T) {
 			s := NewMemoryStorage()
-			s.SetHardState(pb.HardState{Term: 1, Commit: 1})
+			s.SetHardState(pb.HardState{Term: new(uint64(1)), Commit: new(uint64(1))})
 			s.Append([]pb.Entry{{Term: new(uint64(1)), Index: new(uint64(1))}})
 			require.NoError(t, s.ApplySnapshot(pb.Snapshot{Metadata: &pb.SnapshotMetadata{
 				ConfState: &pb.ConfState{
@@ -571,7 +571,7 @@ func TestRawNodeStart(t *testing.T) {
 	}
 	want := Ready{
 		SoftState:        &SoftState{Lead: 1, RaftState: StateLeader},
-		HardState:        pb.HardState{Term: 1, Commit: 3, Vote: 1},
+		HardState:        pb.HardState{Term: new(uint64(1)), Commit: new(uint64(3)), Vote: new(uint64(1))},
 		Entries:          nil, // emitted & checked in intermediate Ready cycle
 		CommittedEntries: entries,
 		MustSync:         false, // since we're only applying, not appending
@@ -660,12 +660,12 @@ func TestRawNodeRestart(t *testing.T) {
 		{Term: new(uint64(1)), Index: new(uint64(1))},
 		{Term: new(uint64(1)), Index: new(uint64(2)), Data: []byte("foo")},
 	}
-	st := pb.HardState{Term: 1, Commit: 1}
+	st := pb.HardState{Term: new(uint64(1)), Commit: new(uint64(1))}
 
 	want := Ready{
 		HardState: emptyState,
 		// commit up to commit index in st
-		CommittedEntries: entries[:st.Commit],
+		CommittedEntries: entries[:st.GetCommit()],
 		MustSync:         false,
 	}
 
@@ -691,7 +691,7 @@ func TestRawNodeRestartFromSnapshot(t *testing.T) {
 	entries := []pb.Entry{
 		{Term: new(uint64(1)), Index: new(uint64(3)), Data: []byte("foo")},
 	}
-	st := pb.HardState{Term: 1, Commit: 3}
+	st := pb.HardState{Term: new(uint64(1)), Commit: new(uint64(3))}
 
 	want := Ready{
 		HardState: emptyState,
@@ -757,9 +757,9 @@ func TestRawNodeCommitPaginationAfterRestart(t *testing.T) {
 		MemoryStorage: newTestMemoryStorage(withPeers(1)),
 	}
 	persistedHardState := pb.HardState{
-		Term:   1,
-		Vote:   1,
-		Commit: 10,
+		Term:   new(uint64(1)),
+		Vote:   new(uint64(1)),
+		Commit: new(uint64(10)),
 	}
 
 	s.hardState = persistedHardState

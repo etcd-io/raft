@@ -80,11 +80,11 @@ func voteRespMsgType(msgt pb.MessageType) pb.MessageType {
 
 func DescribeHardState(hs pb.HardState) string {
 	var buf strings.Builder
-	fmt.Fprintf(&buf, "Term:%d", hs.Term)
-	if hs.Vote != 0 {
-		fmt.Fprintf(&buf, " Vote:%d", hs.Vote)
+	fmt.Fprintf(&buf, "Term:%d", hs.GetTerm())
+	if hs.GetVote() != 0 {
+		fmt.Fprintf(&buf, " Vote:%d", hs.GetVote())
 	}
-	fmt.Fprintf(&buf, " Commit:%d", hs.Commit)
+	fmt.Fprintf(&buf, " Commit:%d", hs.GetCommit())
 	return buf.String()
 }
 

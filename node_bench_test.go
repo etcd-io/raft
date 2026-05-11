@@ -44,7 +44,7 @@ func BenchmarkOneNode(b *testing.B) {
 		// a reasonable disk sync latency
 		time.Sleep(1 * time.Millisecond)
 		n.Advance()
-		if rd.HardState.Commit == uint64(b.N+1) {
+		if rd.HardState.GetCommit() == uint64(b.N+1) {
 			return
 		}
 	}

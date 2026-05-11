@@ -195,7 +195,7 @@ func MustSync(st, prevst pb.HardState, entsnum int) bool {
 	// currentTerm
 	// votedFor
 	// log entries[]
-	return entsnum != 0 || st.Vote != prevst.Vote || st.Term != prevst.Term
+	return entsnum != 0 || st.GetVote() != prevst.GetVote() || st.GetTerm() != prevst.GetTerm()
 }
 
 func needStorageAppendMsg(r *raft, rd Ready) bool {
@@ -236,9 +236,9 @@ func newStorageAppendMsg(r *raft, rd Ready) pb.Message {
 		// If the Ready does not include a HardState update, make sure to not
 		// assign a value to any of the fields so that a HardState reconstructed
 		// from them will be empty (return true from raft.IsEmptyHardState).
-		m.Term = new(rd.Term)
-		m.Vote = new(rd.Vote)
-		m.Commit = new(rd.Commit)
+		m.Term = new(rd.GetTerm())
+		m.Vote = new(rd.GetVote())
+		m.Commit = new(rd.GetCommit())
 	}
 	if !IsEmptySnap(rd.Snapshot) {
 		snap := rd.Snapshot
