@@ -40,7 +40,7 @@ func BenchmarkProposal3Nodes(b *testing.B) {
 	}
 
 	for _, n := range nodes {
-		if n.state.Commit != uint64(b.N+4) {
+		if n.state.GetCommit() != uint64(b.N+4) {
 			continue
 		}
 	}

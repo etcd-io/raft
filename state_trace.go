@@ -125,9 +125,9 @@ type TracingConfChange struct {
 func makeTracingState(r *raft) TracingState {
 	hs := r.hardState()
 	return TracingState{
-		Term:   hs.Term,
-		Vote:   strconv.FormatUint(hs.Vote, 10),
-		Commit: hs.Commit,
+		Term:   hs.GetTerm(),
+		Vote:   strconv.FormatUint(hs.GetVote(), 10),
+		Commit: hs.GetCommit(),
 	}
 }
 

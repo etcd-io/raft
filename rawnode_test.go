@@ -665,7 +665,7 @@ func TestRawNodeRestart(t *testing.T) {
 	want := Ready{
 		HardState: emptyState,
 		// commit up to commit index in st
-		CommittedEntries: entries[:st.Commit],
+		CommittedEntries: entries[:st.GetCommit()],
 		MustSync:         false,
 	}
 

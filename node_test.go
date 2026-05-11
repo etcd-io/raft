@@ -573,7 +573,7 @@ func TestNodeRestart(t *testing.T) {
 		// No HardState is emitted because there was no change.
 		HardState: raftpb.HardState{},
 		// commit up to index commit index in st
-		CommittedEntries: entries[:st.Commit],
+		CommittedEntries: entries[:st.GetCommit()],
 		// MustSync is false because no HardState or new entries are provided.
 		MustSync: false,
 	}
@@ -1053,8 +1053,8 @@ func TestNodeCommitPaginationAfterRestart(t *testing.T) {
 	defer n.Stop()
 
 	rd := readyWithTimeout(&n)
-	assert.False(t, !IsEmptyHardState(rd.HardState) && rd.HardState.Commit < persistedHardState.Commit,
+	assert.False(t, !IsEmptyHardState(rd.HardState) && rd.HardState.GetCommit() < persistedHardState.GetCommit(),
 		"HardState regressed: Commit %d -> %d\nCommitting:\n%+v",
-		persistedHardState.Commit, rd.HardState.Commit,
+		persistedHardState.GetCommit(), rd.HardState.GetCommit(),
 		DescribeEntries(rd.CommittedEntries, func(data []byte) string { return fmt.Sprintf("%q", data) }))
 }

@@ -2027,12 +2027,12 @@ func (r *raft) switchToConfig(cfg tracker.Config, trk tracker.ProgressMap) pb.Co
 }
 
 func (r *raft) loadState(state pb.HardState) {
-	if state.Commit < r.raftLog.committed || state.Commit > r.raftLog.lastIndex() {
-		r.logger.Panicf("%x state.commit %d is out of range [%d, %d]", r.id, state.Commit, r.raftLog.committed, r.raftLog.lastIndex())
+	if state.GetCommit() < r.raftLog.committed || state.GetCommit() > r.raftLog.lastIndex() {
+		r.logger.Panicf("%x state.commit %d is out of range [%d, %d]", r.id, state.GetCommit(), r.raftLog.committed, r.raftLog.lastIndex())
 	}
-	r.raftLog.committed = state.Commit
-	r.Term = state.Term
-	r.Vote = state.Vote
+	r.raftLog.committed = state.GetCommit()
+	r.Term = state.GetTerm()
+	r.Vote = state.GetVote()
 }
 
 // pastElectionTimeout returns true if r.electionElapsed is greater
