@@ -485,7 +485,7 @@ func TestNodeStart(t *testing.T) {
 	require.NoError(t, err)
 	wants := []Ready{
 		{
-			HardState: raftpb.HardState{Term: 1, Commit: 1, Vote: 0},
+			HardState: raftpb.HardState{Term: new(uint64(1)), Commit: new(uint64(1)), Vote: new(uint64(0))},
 			Entries: []raftpb.Entry{
 				{Type: raftpb.EntryConfChange.Enum(), Term: new(uint64(1)), Index: new(uint64(1)), Data: ccdata},
 			},
@@ -495,13 +495,13 @@ func TestNodeStart(t *testing.T) {
 			MustSync: true,
 		},
 		{
-			HardState:        raftpb.HardState{Term: 2, Commit: 2, Vote: 1},
+			HardState:        raftpb.HardState{Term: new(uint64(2)), Commit: new(uint64(2)), Vote: new(uint64(1))},
 			Entries:          []raftpb.Entry{{Term: new(uint64(2)), Index: new(uint64(3)), Data: []byte("foo")}},
 			CommittedEntries: []raftpb.Entry{{Term: new(uint64(2)), Index: new(uint64(2)), Data: nil}},
 			MustSync:         true,
 		},
 		{
-			HardState:        raftpb.HardState{Term: 2, Commit: 3, Vote: 1},
+			HardState:        raftpb.HardState{Term: new(uint64(2)), Commit: new(uint64(3)), Vote: new(uint64(1))},
 			Entries:          nil,
 			CommittedEntries: []raftpb.Entry{{Term: new(uint64(2)), Index: new(uint64(3)), Data: []byte("foo")}},
 			MustSync:         false,
@@ -567,7 +567,7 @@ func TestNodeRestart(t *testing.T) {
 		{Term: new(uint64(1)), Index: new(uint64(1))},
 		{Term: new(uint64(1)), Index: new(uint64(2)), Data: []byte("foo")},
 	}
-	st := raftpb.HardState{Term: 1, Commit: 1}
+	st := raftpb.HardState{Term: new(uint64(1)), Commit: new(uint64(1))}
 
 	want := Ready{
 		// No HardState is emitted because there was no change.
@@ -612,7 +612,7 @@ func TestNodeRestartFromSnapshot(t *testing.T) {
 	entries := []raftpb.Entry{
 		{Term: new(uint64(1)), Index: new(uint64(3)), Data: []byte("foo")},
 	}
-	st := raftpb.HardState{Term: 1, Commit: 3}
+	st := raftpb.HardState{Term: new(uint64(1)), Commit: new(uint64(3))}
 
 	want := Ready{
 		// No HardState is emitted because nothing changed relative to what is
@@ -704,9 +704,9 @@ func TestIsHardStateEqual(t *testing.T) {
 		we bool
 	}{
 		{emptyState, true},
-		{raftpb.HardState{Vote: 1}, false},
-		{raftpb.HardState{Commit: 1}, false},
-		{raftpb.HardState{Term: 1}, false},
+		{raftpb.HardState{Vote: new(uint64(1))}, false},
+		{raftpb.HardState{Commit: new(uint64(1))}, false},
+		{raftpb.HardState{Term: new(uint64(1))}, false},
 	}
 
 	for i, tt := range tests {
@@ -1019,9 +1019,9 @@ func TestNodeCommitPaginationAfterRestart(t *testing.T) {
 		MemoryStorage: newTestMemoryStorage(withPeers(1)),
 	}
 	persistedHardState := raftpb.HardState{
-		Term:   1,
-		Vote:   1,
-		Commit: 10,
+		Term:   new(uint64(1)),
+		Vote:   new(uint64(1)),
+		Commit: new(uint64(10)),
 	}
 
 	s.hardState = persistedHardState

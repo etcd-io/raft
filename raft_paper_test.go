@@ -82,7 +82,7 @@ func TestRejectStaleTermMessage(t *testing.T) {
 	}
 	r := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1, 2, 3)))
 	r.step = fakeStep
-	r.loadState(pb.HardState{Term: 2})
+	r.loadState(pb.HardState{Term: new(uint64(2))})
 
 	r.Step(pb.Message{Type: pb.MsgApp.Enum(), Term: new(r.Term - 1)})
 
@@ -230,7 +230,7 @@ func TestFollowerVote(t *testing.T) {
 	}
 	for i, tt := range tests {
 		r := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1, 2, 3)))
-		r.loadState(pb.HardState{Term: 1, Vote: tt.vote})
+		r.loadState(pb.HardState{Term: new(uint64(1)), Vote: new(tt.vote)})
 
 		r.Step(pb.Message{From: new(tt.nvote), To: new(uint64(1)), Term: new(uint64(1)), Type: pb.MsgVote.Enum()})
 
@@ -475,7 +475,7 @@ func TestLeaderCommitPrecedingEntries(t *testing.T) {
 		storage := newTestMemoryStorage(withPeers(1, 2, 3))
 		storage.Append(tt)
 		r := newTestRaft(1, 10, 1, storage)
-		r.loadState(pb.HardState{Term: 2})
+		r.loadState(pb.HardState{Term: new(uint64(2))})
 		r.becomeCandidate()
 		r.becomeLeader()
 		r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("some data")}})})
@@ -569,7 +569,7 @@ func TestFollowerCheckMsgApp(t *testing.T) {
 		storage := newTestMemoryStorage(withPeers(1, 2, 3))
 		storage.Append(ents)
 		r := newTestRaft(1, 10, 1, storage)
-		r.loadState(pb.HardState{Commit: 1})
+		r.loadState(pb.HardState{Commit: new(uint64(1))})
 		r.becomeFollower(2, 2)
 
 		r.Step(pb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(tt.term), Index: new(tt.index)})
@@ -651,11 +651,11 @@ func TestLeaderSyncFollowerLog(t *testing.T) {
 		leadStorage := newTestMemoryStorage(withPeers(1, 2, 3))
 		leadStorage.Append(ents)
 		lead := newTestRaft(1, 10, 1, leadStorage)
-		lead.loadState(pb.HardState{Commit: lead.raftLog.lastIndex(), Term: term})
+		lead.loadState(pb.HardState{Commit: new(lead.raftLog.lastIndex()), Term: new(term)})
 		followerStorage := newTestMemoryStorage(withPeers(1, 2, 3))
 		followerStorage.Append(tt)
 		follower := newTestRaft(2, 10, 1, followerStorage)
-		follower.loadState(pb.HardState{Term: term - 1})
+		follower.loadState(pb.HardState{Term: new(term - 1)})
 		// It is necessary to have a three-node cluster.
 		// The second may have more up-to-date log than the first one, so the
 		// first node needs the vote from the third node to become the leader.
@@ -766,7 +766,7 @@ func TestLeaderOnlyCommitsLogFromCurrentTerm(t *testing.T) {
 		storage := newTestMemoryStorage(withPeers(1, 2))
 		storage.Append(ents)
 		r := newTestRaft(1, 10, 1, storage)
-		r.loadState(pb.HardState{Term: 2})
+		r.loadState(pb.HardState{Term: new(uint64(2))})
 		// become leader at term 3
 		r.becomeCandidate()
 		r.becomeLeader()
