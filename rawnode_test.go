@@ -309,7 +309,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 			// it manually.
 			rd := rawNode.Ready()
 			var context []byte
-			if !tc.exp.AutoLeave {
+			if !tc.exp.GetAutoLeave() {
 				require.Empty(t, rd.Entries)
 				rawNode.Advance(rd)
 				if tc.exp2 == nil {
