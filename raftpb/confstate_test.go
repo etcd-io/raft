@@ -52,7 +52,8 @@ func TestConfState_Equivalent(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run("", func(t *testing.T) {
-			require.Equal(t, tc.ok, tc.cs.Equivalent(tc.cs2) == nil)
+			cs, cs2 := EnsureConfState(&tc.cs), EnsureConfState(&tc.cs2)
+			require.Equal(t, tc.ok, cs.Equivalent(*cs2) == nil)
 		})
 	}
 }

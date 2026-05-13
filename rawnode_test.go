@@ -159,7 +159,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 			},
 			pb.ConfState{
 				Voters: []uint64{1}, VotersOutgoing: []uint64{1}, Learners: []uint64{2},
-				AutoLeave: true,
+				AutoLeave: new(true),
 			},
 			&pb.ConfState{Voters: []uint64{1}, Learners: []uint64{2}},
 		},
@@ -177,7 +177,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 				VotersOutgoing: []uint64{1},
 				Learners:       []uint64{3},
 				LearnersNext:   []uint64{1},
-				AutoLeave:      true,
+				AutoLeave:      new(true),
 			},
 			&pb.ConfState{Voters: []uint64{2}, Learners: []uint64{1, 3}},
 		},
@@ -213,7 +213,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 				VotersOutgoing: []uint64{1},
 				Learners:       []uint64{3},
 				LearnersNext:   []uint64{1},
-				AutoLeave:      true,
+				AutoLeave:      new(true),
 			},
 			&pb.ConfState{Voters: []uint64{2}, Learners: []uint64{1, 3}},
 		},
@@ -350,7 +350,7 @@ func TestRawNodeJointAutoLeave(t *testing.T) {
 	}
 	expCs := pb.ConfState{
 		Voters: []uint64{1}, VotersOutgoing: []uint64{1}, Learners: []uint64{2},
-		AutoLeave: true,
+		AutoLeave: new(true),
 	}
 	exp2Cs := pb.ConfState{Voters: []uint64{1}, Learners: []uint64{2}, AutoLeave: new(false)}
 
