@@ -127,6 +127,7 @@ func TestRestore(t *testing.T) {
 		{Voters: ids(1, 2, 3), Learners: ids(4, 5, 6)},
 		{Voters: ids(1, 2, 3), Learners: ids(5), VotersOutgoing: ids(1, 2, 4, 6), LearnersNext: ids(4)},
 	} {
+		pb.EnsureConfState(&cs)
 		if !f(cs) {
 			t.FailNow() // f() already logged a nice t.Error()
 		}

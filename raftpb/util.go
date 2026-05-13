@@ -14,6 +14,19 @@
 
 package raftpb
 
+// EnsureConfState ensures that cs and all of its pointer fields are non-nil.
+// If cs is nil, a new ConfState is allocated. Any nil pointer field is set to
+// point to its zero value. Returns the resulting cs.
+func EnsureConfState(cs *ConfState) *ConfState {
+	if cs == nil {
+		cs = new(ConfState)
+	}
+	if cs.AutoLeave == nil {
+		cs.AutoLeave = new(false)
+	}
+	return cs
+}
+
 // EnsureSnapshotMetadata ensures that m and all of its pointer fields are
 // non-nil. If m is nil, a new SnapshotMetadata is allocated. Any nil pointer
 // field is set to point to its zero value. Returns the resulting m.
@@ -21,9 +34,7 @@ func EnsureSnapshotMetadata(m *SnapshotMetadata) *SnapshotMetadata {
 	if m == nil {
 		m = new(SnapshotMetadata)
 	}
-	if m.ConfState == nil {
-		m.ConfState = new(ConfState)
-	}
+	m.ConfState = EnsureConfState(m.ConfState)
 	if m.Index == nil {
 		m.Index = new(uint64)
 	}

@@ -1872,6 +1872,7 @@ func (r *raft) restore(s pb.Snapshot) bool {
 	// code here and there assumes that r.id is in the progress tracker.
 	found := false
 	cs := s.GetMetadata().GetConfState()
+	cs = pb.EnsureConfState(cs)
 
 	for _, set := range [][]uint64{
 		cs.Voters,
