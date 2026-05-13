@@ -79,7 +79,7 @@ func (rndConfChange) Generate(rand *rand.Rand, _ int) reflect.Value {
 		}
 	}
 
-	cs.AutoLeave = len(cs.VotersOutgoing) > 0 && rand.Intn(2) == 1
+	cs.AutoLeave = new(len(cs.VotersOutgoing) > 0 && rand.Intn(2) == 1)
 	return reflect.ValueOf(rndConfChange(cs))
 }
 

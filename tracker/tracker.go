@@ -151,7 +151,7 @@ func (p *ProgressTracker) ConfState() pb.ConfState {
 		VotersOutgoing: p.Voters[1].Slice(),
 		Learners:       quorum.MajorityConfig(p.Learners).Slice(),
 		LearnersNext:   quorum.MajorityConfig(p.LearnersNext).Slice(),
-		AutoLeave:      p.AutoLeave,
+		AutoLeave:      new(p.AutoLeave),
 	}
 }
 
