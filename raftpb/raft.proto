@@ -142,7 +142,7 @@ message ConfState {
 	repeated uint64 learners_next     = 4;
 	// If set, the config is joint and Raft will automatically transition into
 	// the final config (i.e. remove the outgoing config) when this is safe.
-	optional bool   auto_leave        = 5 [(gogoproto.nullable) = false];
+	optional bool   auto_leave        = 5;
 }
 
 enum ConfChangeType {
