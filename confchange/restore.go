@@ -147,7 +147,7 @@ func Restore(chg Changer, cs pb.ConfState) (tracker.Config, tracker.ProgressMap,
 		// would be removing 2,3,4 and then adding in 1,2,3 while transitioning
 		// into a joint state.
 		ops = append(ops, func(chg Changer) (tracker.Config, tracker.ProgressMap, error) {
-			return chg.EnterJoint(cs.AutoLeave, incoming...)
+			return chg.EnterJoint(cs.GetAutoLeave(), incoming...)
 		})
 	}
 

@@ -125,6 +125,7 @@ func NewMemoryStorage() *MemoryStorage {
 func (ms *MemoryStorage) InitialState() (pb.HardState, pb.ConfState, error) {
 	ms.callStats.initialState++
 	cs := ms.snapshot.GetMetadata().GetConfState()
+	cs = pb.EnsureConfState(cs)
 	return ms.hardState, *cs, nil
 }
 

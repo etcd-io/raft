@@ -159,7 +159,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 			},
 			pb.ConfState{
 				Voters: []uint64{1}, VotersOutgoing: []uint64{1}, Learners: []uint64{2},
-				AutoLeave: true,
+				AutoLeave: new(true),
 			},
 			&pb.ConfState{Voters: []uint64{1}, Learners: []uint64{2}},
 		},
@@ -177,7 +177,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 				VotersOutgoing: []uint64{1},
 				Learners:       []uint64{3},
 				LearnersNext:   []uint64{1},
-				AutoLeave:      true,
+				AutoLeave:      new(true),
 			},
 			&pb.ConfState{Voters: []uint64{2}, Learners: []uint64{1, 3}},
 		},
@@ -213,7 +213,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 				VotersOutgoing: []uint64{1},
 				Learners:       []uint64{3},
 				LearnersNext:   []uint64{1},
-				AutoLeave:      true,
+				AutoLeave:      new(true),
 			},
 			&pb.ConfState{Voters: []uint64{2}, Learners: []uint64{1, 3}},
 		},
@@ -221,6 +221,8 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run("", func(t *testing.T) {
+			pb.EnsureConfState(&tc.exp)
+			pb.EnsureConfState(tc.exp2)
 			s := newTestMemoryStorage(withPeers(1))
 			rawNode, err := NewRawNode(newTestConfig(1, 10, 1, s))
 			require.NoError(t, err)
@@ -309,7 +311,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 			// it manually.
 			rd := rawNode.Ready()
 			var context []byte
-			if !tc.exp.AutoLeave {
+			if !tc.exp.GetAutoLeave() {
 				require.Empty(t, rd.Entries)
 				rawNode.Advance(rd)
 				if tc.exp2 == nil {
@@ -348,9 +350,9 @@ func TestRawNodeJointAutoLeave(t *testing.T) {
 	}
 	expCs := pb.ConfState{
 		Voters: []uint64{1}, VotersOutgoing: []uint64{1}, Learners: []uint64{2},
-		AutoLeave: true,
+		AutoLeave: new(true),
 	}
-	exp2Cs := pb.ConfState{Voters: []uint64{1}, Learners: []uint64{2}}
+	exp2Cs := pb.ConfState{Voters: []uint64{1}, Learners: []uint64{2}, AutoLeave: new(false)}
 
 	s := newTestMemoryStorage(withPeers(1))
 	rawNode, err := NewRawNode(newTestConfig(1, 10, 1, s))
