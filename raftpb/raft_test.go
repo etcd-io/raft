@@ -50,7 +50,7 @@ func TestProtoMemorySizes(t *testing.T) {
 	assert.Equal(t, if64Bit(104, 52), unsafe.Sizeof(cs), "ConfState size check")
 
 	var cc ConfChange
-	assert.Equal(t, if64Bit(48, 32), unsafe.Sizeof(cc), "ConfChange size check")
+	assert.Equal(t, if64Bit(48, 24), unsafe.Sizeof(cc), "ConfChange size check")
 
 	var ccs ConfChangeSingle
 	assert.Equal(t, if64Bit(16, 12), unsafe.Sizeof(ccs), "ConfChangeSingle size check")
