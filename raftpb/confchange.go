@@ -56,8 +56,8 @@ func MarshalConfChange(c ConfChangeI) (EntryType, []byte, error) {
 func (c ConfChange) AsV2() ConfChangeV2 {
 	return ConfChangeV2{
 		Changes: []ConfChangeSingle{{
-			Type:   c.Type,
-			NodeId: c.NodeId,
+			Type:   c.GetType(),
+			NodeId: c.GetNodeId(),
 		}},
 		Context: c.Context,
 	}

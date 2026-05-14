@@ -743,7 +743,7 @@ func TestNodeProposeAddLearnerNode(t *testing.T) {
 					var cc raftpb.ConfChange
 					cc.Unmarshal(ent.GetData())
 					state := n.ApplyConfChange(cc)
-					assert.True(t, len(state.Learners) > 0 && state.Learners[0] == cc.NodeId && cc.NodeId == 2,
+					assert.True(t, len(state.Learners) > 0 && state.Learners[0] == cc.GetNodeId() && cc.GetNodeId() == 2,
 						"apply conf change should return new added learner: %v", state.String())
 					assert.Len(t, state.Voters, 1,
 						"add learner should not change the nodes: %v", state.String())
