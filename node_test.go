@@ -265,7 +265,7 @@ func TestNodeProposeConfig(t *testing.T) {
 		}
 		n.Advance()
 	}
-	cc := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode, NodeId: 1}
+	cc := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode.Enum(), NodeId: new(uint64(1))}
 	ccdata, err := cc.Marshal()
 	require.NoError(t, err)
 	n.ProposeConfChange(t.Context(), cc)
@@ -325,7 +325,7 @@ func TestNodeProposeAddDuplicateNode(t *testing.T) {
 		}
 	}()
 
-	cc1 := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode, NodeId: 1}
+	cc1 := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode.Enum(), NodeId: new(uint64(1))}
 	ccdata1, _ := cc1.Marshal()
 	n.ProposeConfChange(ctx, cc1)
 	<-applyConfChan
@@ -335,7 +335,7 @@ func TestNodeProposeAddDuplicateNode(t *testing.T) {
 	<-applyConfChan
 
 	// the new node join should be ok
-	cc2 := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode, NodeId: 2}
+	cc2 := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode.Enum(), NodeId: new(uint64(2))}
 	ccdata2, _ := cc2.Marshal()
 	n.ProposeConfChange(ctx, cc2)
 	<-applyConfChan
@@ -480,7 +480,7 @@ func TestNodeStop(t *testing.T) {
 // start with correct configuration change entries, and can accept and commit
 // proposals.
 func TestNodeStart(t *testing.T) {
-	cc := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode, NodeId: 1}
+	cc := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode.Enum(), NodeId: new(uint64(1))}
 	ccdata, err := cc.Marshal()
 	require.NoError(t, err)
 	wants := []Ready{
@@ -755,7 +755,7 @@ func TestNodeProposeAddLearnerNode(t *testing.T) {
 			}
 		}
 	}()
-	cc := raftpb.ConfChange{Type: raftpb.ConfChangeAddLearnerNode, NodeId: 2}
+	cc := raftpb.ConfChange{Type: raftpb.ConfChangeAddLearnerNode.Enum(), NodeId: new(uint64(2))}
 	n.ProposeConfChange(t.Context(), cc)
 	<-applyConfChan
 	close(stop)
