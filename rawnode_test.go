@@ -124,7 +124,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		// Proposing the same as a V2 change works just the same, without entering
 		// a joint config.
 		{
-			pb.ConfChangeV2{Changes: []pb.ConfChangeSingle{
+			pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
 				{Type: pb.ConfChangeAddNode, NodeId: 2},
 			},
 			},
@@ -133,7 +133,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		},
 		// Ditto if we add it as a learner instead.
 		{
-			pb.ConfChangeV2{Changes: []pb.ConfChangeSingle{
+			pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
 				{Type: pb.ConfChangeAddLearnerNode, NodeId: 2},
 			},
 			},
@@ -142,7 +142,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		},
 		// We can ask explicitly for joint consensus if we want it.
 		{
-			pb.ConfChangeV2{Changes: []pb.ConfChangeSingle{
+			pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
 				{Type: pb.ConfChangeAddLearnerNode, NodeId: 2},
 			},
 				Transition: pb.ConfChangeTransitionJointExplicit,
@@ -152,7 +152,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		},
 		// Ditto, but with implicit transition (the harness checks this).
 		{
-			pb.ConfChangeV2{Changes: []pb.ConfChangeSingle{
+			pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
 				{Type: pb.ConfChangeAddLearnerNode, NodeId: 2},
 			},
 				Transition: pb.ConfChangeTransitionJointImplicit,
@@ -166,7 +166,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		// Add a new node and demote n1. This exercises the interesting case in
 		// which we really need joint config changes and also need LearnersNext.
 		{
-			pb.ConfChangeV2{Changes: []pb.ConfChangeSingle{
+			pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
 				{NodeId: 2, Type: pb.ConfChangeAddNode},
 				{NodeId: 1, Type: pb.ConfChangeAddLearnerNode},
 				{NodeId: 3, Type: pb.ConfChangeAddLearnerNode},
@@ -183,7 +183,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		},
 		// Ditto explicit.
 		{
-			pb.ConfChangeV2{Changes: []pb.ConfChangeSingle{
+			pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
 				{NodeId: 2, Type: pb.ConfChangeAddNode},
 				{NodeId: 1, Type: pb.ConfChangeAddLearnerNode},
 				{NodeId: 3, Type: pb.ConfChangeAddLearnerNode},
@@ -201,7 +201,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		// Ditto implicit.
 		{
 			pb.ConfChangeV2{
-				Changes: []pb.ConfChangeSingle{
+				Changes: []*pb.ConfChangeSingle{
 					{NodeId: 2, Type: pb.ConfChangeAddNode},
 					{NodeId: 1, Type: pb.ConfChangeAddLearnerNode},
 					{NodeId: 3, Type: pb.ConfChangeAddLearnerNode},
@@ -343,7 +343,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 // TestRawNodeJointAutoLeave tests the configuration change auto leave even leader
 // lost leadership.
 func TestRawNodeJointAutoLeave(t *testing.T) {
-	testCc := pb.ConfChangeV2{Changes: []pb.ConfChangeSingle{
+	testCc := pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
 		{Type: pb.ConfChangeAddLearnerNode, NodeId: 2},
 	},
 		Transition: pb.ConfChangeTransitionJointImplicit,

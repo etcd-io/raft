@@ -49,7 +49,7 @@ func TestConfChangeDataDriven(t *testing.T) {
 			defer func() {
 				c.LastIndex++
 			}()
-			var ccs []pb.ConfChangeSingle
+			var ccs []*pb.ConfChangeSingle
 			toks := strings.Split(strings.TrimSpace(d.Input), " ")
 			if toks[0] == "" {
 				toks = nil
@@ -76,7 +76,7 @@ func TestConfChangeDataDriven(t *testing.T) {
 					return err.Error()
 				}
 				cc.NodeId = id
-				ccs = append(ccs, cc)
+				ccs = append(ccs, &cc)
 			}
 
 			var cfg tracker.Config

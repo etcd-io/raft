@@ -48,7 +48,7 @@ type Changer struct {
 // (Section 4.3) corresponds to `C_{new,old}`.
 //
 // [1]: https://github.com/ongardie/dissertation/blob/master/online-trim.pdf
-func (c Changer) EnterJoint(autoLeave bool, ccs ...pb.ConfChangeSingle) (tracker.Config, tracker.ProgressMap, error) {
+func (c Changer) EnterJoint(autoLeave bool, ccs ...*pb.ConfChangeSingle) (tracker.Config, tracker.ProgressMap, error) {
 	cfg, trk, err := c.checkAndCopy()
 	if err != nil {
 		return c.err(err)
@@ -125,7 +125,7 @@ func (c Changer) LeaveJoint() (tracker.Config, tracker.ProgressMap, error) {
 // will return an error if that is not the case, if the resulting quorum is
 // zero, or if the configuration is in a joint state (i.e. if there is an
 // outgoing configuration).
-func (c Changer) Simple(ccs ...pb.ConfChangeSingle) (tracker.Config, tracker.ProgressMap, error) {
+func (c Changer) Simple(ccs ...*pb.ConfChangeSingle) (tracker.Config, tracker.ProgressMap, error) {
 	cfg, trk, err := c.checkAndCopy()
 	if err != nil {
 		return c.err(err)
@@ -147,7 +147,7 @@ func (c Changer) Simple(ccs ...pb.ConfChangeSingle) (tracker.Config, tracker.Pro
 // apply a change to the configuration. By convention, changes to voters are
 // always made to the incoming majority config Voters[0]. Voters[1] is either
 // empty or preserves the outgoing majority configuration while in a joint state.
-func (c Changer) apply(cfg *tracker.Config, trk tracker.ProgressMap, ccs ...pb.ConfChangeSingle) error {
+func (c Changer) apply(cfg *tracker.Config, trk tracker.ProgressMap, ccs ...*pb.ConfChangeSingle) error {
 	for _, cc := range ccs {
 		if cc.GetNodeId() == 0 {
 			// etcd replaces the NodeId with zero if it decides (downstream of
@@ -407,7 +407,7 @@ func outgoingPtr(voters *quorum.JointConfig) *quorum.MajorityConfig { return &vo
 
 // Describe prints the type and NodeId of the configuration changes as a
 // space-delimited string.
-func Describe(ccs ...pb.ConfChangeSingle) string {
+func Describe(ccs ...*pb.ConfChangeSingle) string {
 	var buf strings.Builder
 	for _, cc := range ccs {
 		if buf.Len() > 0 {

@@ -55,7 +55,7 @@ func MarshalConfChange(c ConfChangeI) (EntryType, []byte, error) {
 // AsV2 returns a V2 configuration change carrying out the same operation.
 func (c ConfChange) AsV2() ConfChangeV2 {
 	return ConfChangeV2{
-		Changes: []ConfChangeSingle{{
+		Changes: []*ConfChangeSingle{{
 			Type:   c.GetType(),
 			NodeId: c.GetNodeId(),
 		}},
@@ -118,8 +118,8 @@ func (c ConfChangeV2) LeaveJoint() bool {
 // - ln: make n a learner,
 // - rn: remove n, and
 // - un: update n.
-func ConfChangesFromString(s string) ([]ConfChangeSingle, error) {
-	var ccs []ConfChangeSingle
+func ConfChangesFromString(s string) ([]*ConfChangeSingle, error) {
+	var ccs []*ConfChangeSingle
 	toks := strings.Split(strings.TrimSpace(s), " ")
 	if toks[0] == "" {
 		toks = nil
@@ -146,13 +146,13 @@ func ConfChangesFromString(s string) ([]ConfChangeSingle, error) {
 			return nil, err
 		}
 		cc.NodeId = id
-		ccs = append(ccs, cc)
+		ccs = append(ccs, &cc)
 	}
 	return ccs, nil
 }
 
 // ConfChangesToString is the inverse to ConfChangesFromString.
-func ConfChangesToString(ccs []ConfChangeSingle) string {
+func ConfChangesToString(ccs []*ConfChangeSingle) string {
 	var buf strings.Builder
 	for i, cc := range ccs {
 		if i > 0 {
