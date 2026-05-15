@@ -61,13 +61,13 @@ func TestConfChangeDataDriven(t *testing.T) {
 				var cc pb.ConfChangeSingle
 				switch tok[0] {
 				case 'v':
-					cc.Type = pb.ConfChangeAddNode
+					cc.Type = pb.ConfChangeAddNode.Enum()
 				case 'l':
-					cc.Type = pb.ConfChangeAddLearnerNode
+					cc.Type = pb.ConfChangeAddLearnerNode.Enum()
 				case 'r':
-					cc.Type = pb.ConfChangeRemoveNode
+					cc.Type = pb.ConfChangeRemoveNode.Enum()
 				case 'u':
-					cc.Type = pb.ConfChangeUpdateNode
+					cc.Type = pb.ConfChangeUpdateNode.Enum()
 				default:
 					return fmt.Sprintf("unknown input: %s", tok)
 				}
@@ -75,7 +75,7 @@ func TestConfChangeDataDriven(t *testing.T) {
 				if err != nil {
 					return err.Error()
 				}
-				cc.NodeId = id
+				cc.NodeId = new(id)
 				ccs = append(ccs, &cc)
 			}
 
