@@ -3260,14 +3260,14 @@ func TestLeaderTransferDemoteNode(t *testing.T) {
 	require.Equal(t, uint64(3), lead.leadTransferee)
 
 	lead.applyConfChange(pb.ConfChangeV2{
-		Changes: []pb.ConfChangeSingle{
+		Changes: []*pb.ConfChangeSingle{
 			{
-				Type:   pb.ConfChangeRemoveNode,
-				NodeId: 3,
+				Type:   pb.ConfChangeRemoveNode.Enum(),
+				NodeId: new(uint64(3)),
 			},
 			{
-				Type:   pb.ConfChangeAddLearnerNode,
-				NodeId: 3,
+				Type:   pb.ConfChangeAddLearnerNode.Enum(),
+				NodeId: new(uint64(3)),
 			},
 		},
 	})

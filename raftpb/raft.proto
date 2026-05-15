@@ -166,8 +166,8 @@ message ConfChange {
 // ConfChangeSingle is an individual configuration change operation. Multiple
 // such operations can be carried out atomically via a ConfChangeV2.
 message ConfChangeSingle {
-	optional ConfChangeType  type    = 1 [(gogoproto.nullable) = false];
-	optional uint64          node_id = 2 [(gogoproto.nullable) = false];
+	optional ConfChangeType  type    = 1;
+	optional uint64          node_id = 2;
 }
 
 // ConfChangeV2 messages initiate configuration changes. They support both the
@@ -203,7 +203,7 @@ message ConfChangeSingle {
 //
 // [1]: https://github.com/ongardie/dissertation/blob/master/online-trim.pdf
 message ConfChangeV2 {
-	optional ConfChangeTransition transition = 1 [(gogoproto.nullable) = false];
-	repeated ConfChangeSingle     changes =    2 [(gogoproto.nullable) = false];
+	optional ConfChangeTransition transition = 1;
+	repeated ConfChangeSingle     changes =    2;
 	optional bytes                context =    3;
 }
