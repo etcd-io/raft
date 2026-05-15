@@ -102,7 +102,7 @@ stabilize 1 2
 propose-conf-change 1
 v3 v4 v5
 ----
-INFO 1 ignoring conf change {ConfChangeTransitionAuto [{ConfChangeAddNode 3} {ConfChangeAddNode 4} {ConfChangeAddNode 5}] []} at config voters=(1 2)&&(1): must transition out of joint config first
+INFO 1 ignoring conf change {ConfChangeTransitionAuto [type:ConfChangeAddNode node_id:3  type:ConfChangeAddNode node_id:4  type:ConfChangeAddNode node_id:5 ] []} at config voters=(1 2)&&(1): must transition out of joint config first
 
 # Propose a transition out of the joint config. We'll see this at index 6 below.
 propose-conf-change 1

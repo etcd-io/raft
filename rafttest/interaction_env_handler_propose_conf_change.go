@@ -27,7 +27,7 @@ import (
 func (env *InteractionEnv) handleProposeConfChange(t *testing.T, d datadriven.TestData) error {
 	idx := firstAsNodeIdx(t, d)
 	var v1 bool
-	transition := raftpb.ConfChangeTransitionAuto.Enum()
+	transition := raftpb.ConfChangeTransitionAuto
 	for _, arg := range d.CmdArgs[1:] {
 		for _, val := range arg.Vals {
 			switch arg.Key {
@@ -40,11 +40,11 @@ func (env *InteractionEnv) handleProposeConfChange(t *testing.T, d datadriven.Te
 			case "transition":
 				switch val {
 				case "auto":
-					transition = raftpb.ConfChangeTransitionAuto.Enum()
+					transition = raftpb.ConfChangeTransitionAuto
 				case "implicit":
-					transition = raftpb.ConfChangeTransitionJointImplicit.Enum()
+					transition = raftpb.ConfChangeTransitionJointImplicit
 				case "explicit":
-					transition = raftpb.ConfChangeTransitionJointExplicit.Enum()
+					transition = raftpb.ConfChangeTransitionJointExplicit
 				default:
 					return fmt.Errorf("unknown transition %s", val)
 				}
@@ -70,7 +70,7 @@ func (env *InteractionEnv) handleProposeConfChange(t *testing.T, d datadriven.Te
 		}
 	} else {
 		c = raftpb.ConfChangeV2{
-			Transition: transition,
+			Transition: transition.Enum(),
 			Changes:    ccs,
 		}
 	}

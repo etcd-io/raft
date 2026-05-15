@@ -18,8 +18,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
-	"github.com/gogo/protobuf/proto"
 )
 
 // ConfChangeI abstracts over ConfChangeV2 and (legacy) ConfChange to allow
@@ -107,9 +105,8 @@ func (c ConfChangeV2) EnterJoint() (autoLeave bool, ok bool) {
 // This is the case if the ConfChangeV2 is zero, with the possible exception of
 // the Context field.
 func (c ConfChangeV2) LeaveJoint() bool {
-	// NB: c is already a copy.
-	c.Context = nil
-	return proto.Equal(&c, &ConfChangeV2{})
+	return c.GetTransition() == ConfChangeTransition_ConfChangeTransitionAuto &&
+		len(c.GetChanges()) == 0
 }
 
 // ConfChangesFromString parses a Space-delimited sequence of operations into a
