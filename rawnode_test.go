@@ -117,7 +117,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 	}{
 		// V1 config change.
 		{
-			pb.ConfChange{Type: pb.ConfChangeAddNode, NodeId: 2},
+			pb.ConfChange{Type: pb.ConfChangeAddNode.Enum(), NodeId: new(uint64(2))},
 			pb.ConfState{Voters: []uint64{1, 2}},
 			nil,
 		},
@@ -482,7 +482,7 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 		rawNode.Advance(rd)
 	}
 
-	cc1 := pb.ConfChange{Type: pb.ConfChangeAddNode, NodeId: 1}
+	cc1 := pb.ConfChange{Type: pb.ConfChangeAddNode.Enum(), NodeId: new(uint64(1))}
 	ccdata1, err := cc1.Marshal()
 	require.NoError(t, err)
 	proposeConfChangeAndApply(cc1)
@@ -491,7 +491,7 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 	proposeConfChangeAndApply(cc1)
 
 	// the new node join should be ok
-	cc2 := pb.ConfChange{Type: pb.ConfChangeAddNode, NodeId: 2}
+	cc2 := pb.ConfChange{Type: pb.ConfChangeAddNode.Enum(), NodeId: new(uint64(2))}
 	ccdata2, err := cc2.Marshal()
 	require.NoError(t, err)
 	proposeConfChangeAndApply(cc2)

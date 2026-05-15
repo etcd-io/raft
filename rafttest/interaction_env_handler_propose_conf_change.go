@@ -65,8 +65,8 @@ func (env *InteractionEnv) handleProposeConfChange(t *testing.T, d datadriven.Te
 			return fmt.Errorf("v1 conf change can only have one operation and no transition")
 		}
 		c = raftpb.ConfChange{
-			Type:   ccs[0].Type,
-			NodeId: ccs[0].NodeId,
+			Type:   ccs[0].Type.Enum(),
+			NodeId: new(ccs[0].NodeId),
 		}
 	} else {
 		c = raftpb.ConfChangeV2{
