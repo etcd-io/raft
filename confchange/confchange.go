@@ -149,22 +149,22 @@ func (c Changer) Simple(ccs ...pb.ConfChangeSingle) (tracker.Config, tracker.Pro
 // empty or preserves the outgoing majority configuration while in a joint state.
 func (c Changer) apply(cfg *tracker.Config, trk tracker.ProgressMap, ccs ...pb.ConfChangeSingle) error {
 	for _, cc := range ccs {
-		if cc.NodeId == 0 {
+		if cc.GetNodeId() == 0 {
 			// etcd replaces the NodeId with zero if it decides (downstream of
 			// raft) to not apply a change, so we have to have explicit code
 			// here to ignore these.
 			continue
 		}
-		switch cc.Type {
+		switch cc.GetType() {
 		case pb.ConfChangeAddNode:
-			c.makeVoter(cfg, trk, cc.NodeId)
+			c.makeVoter(cfg, trk, cc.GetNodeId())
 		case pb.ConfChangeAddLearnerNode:
-			c.makeLearner(cfg, trk, cc.NodeId)
+			c.makeLearner(cfg, trk, cc.GetNodeId())
 		case pb.ConfChangeRemoveNode:
-			c.remove(cfg, trk, cc.NodeId)
+			c.remove(cfg, trk, cc.GetNodeId())
 		case pb.ConfChangeUpdateNode:
 		default:
-			return fmt.Errorf("unexpected conf type %d", cc.Type)
+			return fmt.Errorf("unexpected conf type %d", cc.GetType())
 		}
 	}
 	if len(incoming(cfg.Voters)) == 0 {
@@ -413,7 +413,7 @@ func Describe(ccs ...pb.ConfChangeSingle) string {
 		if buf.Len() > 0 {
 			buf.WriteByte(' ')
 		}
-		fmt.Fprintf(&buf, "%s(%d)", cc.Type, cc.NodeId)
+		fmt.Fprintf(&buf, "%s(%d)", cc.GetType(), cc.GetNodeId())
 	}
 	return buf.String()
 }

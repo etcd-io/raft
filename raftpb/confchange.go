@@ -86,10 +86,10 @@ func (c ConfChangeV2) EnterJoint() (autoLeave bool, ok bool) {
 	// base config (i.e. two voters are turned into learners in the process of
 	// applying the conf change). In practice, these distinctions should not
 	// matter, so we keep it simple and use Joint Consensus liberally.
-	if c.Transition != ConfChangeTransitionAuto || len(c.Changes) > 1 {
+	if c.GetTransition() != ConfChangeTransitionAuto || len(c.Changes) > 1 {
 		// Use Joint Consensus.
 		var autoLeave bool
-		switch c.Transition {
+		switch c.GetTransition() {
 		case ConfChangeTransitionAuto:
 			autoLeave = true
 		case ConfChangeTransitionJointImplicit:
@@ -158,7 +158,7 @@ func ConfChangesToString(ccs []ConfChangeSingle) string {
 		if i > 0 {
 			buf.WriteByte(' ')
 		}
-		switch cc.Type {
+		switch cc.GetType() {
 		case ConfChangeAddNode:
 			buf.WriteByte('v')
 		case ConfChangeAddLearnerNode:
@@ -170,7 +170,7 @@ func ConfChangesToString(ccs []ConfChangeSingle) string {
 		default:
 			buf.WriteString("unknown")
 		}
-		fmt.Fprintf(&buf, "%d", cc.NodeId)
+		fmt.Fprintf(&buf, "%d", cc.GetNodeId())
 	}
 	return buf.String()
 }
