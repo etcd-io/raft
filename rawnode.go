@@ -91,7 +91,7 @@ func (rn *RawNode) Propose(data []byte) error {
 	return rn.raft.Step(pb.Message{
 		Type:    pb.MsgProp.Enum(),
 		From:    new(rn.raft.id),
-		Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: data}}),
+		Entries: []*pb.Entry{{Data: data}},
 	})
 }
 
@@ -226,7 +226,7 @@ func newStorageAppendMsg(r *raft, rd Ready) pb.Message {
 		Type:    pb.MsgStorageAppend.Enum(),
 		To:      new(LocalAppendThread),
 		From:    new(r.id),
-		Entries: pb.EntrySliceToPointers(rd.Entries),
+		Entries: rd.Entries,
 	}
 	if !IsEmptyHardState(rd.HardState) {
 		// If the Ready includes a HardState update, assign each of its fields
@@ -379,7 +379,7 @@ func newStorageApplyMsg(r *raft, rd Ready) pb.Message {
 		To:        new(LocalApplyThread),
 		From:      new(r.id),
 		Term:      new(uint64(0)), // committed entries don't apply under a specific term
-		Entries:   pb.EntrySliceToPointers(ents),
+		Entries:   ents,
 		Responses: pb.MessageSliceToPointers([]pb.Message{newStorageApplyRespMsg(r, ents)}),
 	}
 }
@@ -387,13 +387,13 @@ func newStorageApplyMsg(r *raft, rd Ready) pb.Message {
 // newStorageApplyRespMsg creates the message that should be returned to node
 // after the committed entries in the current Ready (along with those in all
 // prior Ready structs) have been applied to the local state machine.
-func newStorageApplyRespMsg(r *raft, ents []pb.Entry) pb.Message {
+func newStorageApplyRespMsg(r *raft, ents []*pb.Entry) pb.Message {
 	return pb.Message{
 		Type:    pb.MsgStorageApplyResp.Enum(),
 		To:      new(r.id),
 		From:    new(LocalApplyThread),
 		Term:    new(uint64(0)), // committed entries don't apply under a specific term
-		Entries: pb.EntrySliceToPointers(ents),
+		Entries: ents,
 	}
 }
 
@@ -556,5 +556,5 @@ func (rn *RawNode) ForgetLeader() error {
 // index, any linearizable read requests issued before the read request can be
 // processed safely. The read state will have the same rctx attached.
 func (rn *RawNode) ReadIndex(rctx []byte) {
-	_ = rn.raft.Step(pb.Message{Type: pb.MsgReadIndex.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: rctx}})})
+	_ = rn.raft.Step(pb.Message{Type: pb.MsgReadIndex.Enum(), Entries: []*pb.Entry{{Data: rctx}}})
 }

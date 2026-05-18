@@ -48,7 +48,7 @@ func (rn *RawNode) Bootstrap(peers []Peer) error {
 	// TODO(tbg): remove StartNode and give the application the right tools to
 	// bootstrap the initial membership in a cleaner way.
 	rn.raft.becomeFollower(1, None)
-	ents := make([]pb.Entry, len(peers))
+	ents := make([]*pb.Entry, len(peers))
 	for i, peer := range peers {
 		cc := pb.ConfChange{Type: pb.ConfChangeAddNode.Enum(), NodeId: new(peer.ID), Context: peer.Context}
 		data, err := cc.Marshal()
@@ -56,7 +56,7 @@ func (rn *RawNode) Bootstrap(peers []Peer) error {
 			return err
 		}
 
-		ents[i] = pb.Entry{Type: pb.EntryConfChange.Enum(), Term: new(uint64(1)), Index: new(uint64(i + 1)), Data: data}
+		ents[i] = &pb.Entry{Type: pb.EntryConfChange.Enum(), Term: new(uint64(1)), Index: new(uint64(i + 1)), Data: data}
 	}
 	rn.raft.raftLog.append(ents...)
 

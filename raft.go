@@ -25,6 +25,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/gogo/protobuf/proto"
+
 	"go.etcd.io/raft/v3/confchange"
 	"go.etcd.io/raft/v3/quorum"
 	pb "go.etcd.io/raft/v3/raftpb"
@@ -627,7 +629,7 @@ func (r *raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 		return r.maybeSendSnapshot(to, pr)
 	}
 
-	var ents []pb.Entry
+	var ents []*pb.Entry
 	// In a throttled StateReplicate only send empty MsgApp, to ensure progress.
 	// Otherwise, if we had a full Inflights and all inflight messages were in
 	// fact dropped, replication to that follower would stall. Instead, an empty
@@ -651,7 +653,7 @@ func (r *raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 		Type:    pb.MsgApp.Enum(),
 		Index:   new(prevIndex),
 		LogTerm: new(prevTerm),
-		Entries: pb.EntrySliceToPointers(ents),
+		Entries: ents,
 		Commit:  new(r.raftLog.committed),
 	})
 	pr.SentEntries(len(ents), uint64(payloadsSize(ents)))
@@ -807,14 +809,18 @@ func (r *raft) reset(term uint64) {
 	r.readOnly = newReadOnly(r.readOnly.option)
 }
 
-func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
+func (r *raft) appendEntry(es ...*pb.Entry) (accepted bool) {
 	li := r.raftLog.lastIndex()
+	cloned := make([]*pb.Entry, len(es))
 	for i := range es {
-		es[i].Term = new(r.Term)
-		es[i].Index = new(li + 1 + uint64(i))
+		// TODO: Replace with proto.Clone from protoc-gen-go after migration completes.
+		// TODO: Consider whether cloning/copying is necessary at all, and aim to eliminate it if possible.
+		cloned[i] = proto.Clone(es[i]).(*pb.Entry)
+		cloned[i].Term = new(r.Term)
+		cloned[i].Index = new(li + 1 + uint64(i))
 	}
 	// Track the size of this uncommitted proposal.
-	if !r.increaseUncommittedSize(es) {
+	if !r.increaseUncommittedSize(cloned) {
 		r.logger.Warningf(
 			"%x appending new entries to log would exceed uncommitted entry size limit; dropping proposal",
 			r.id,
@@ -823,10 +829,10 @@ func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
 		return false
 	}
 
-	traceReplicate(r, es...)
+	traceReplicate(r, cloned...)
 
 	// use latest "last" index after truncate/append
-	li = r.raftLog.append(es...)
+	li = r.raftLog.append(cloned...)
 	// The leader needs to self-ack the entries just appended once they have
 	// been durably persisted (since it doesn't send an MsgApp to itself). This
 	// response message will be added to msgsAfterAppend and delivered back to
@@ -953,7 +959,7 @@ func (r *raft) becomeLeader() {
 	r.pendingConfIndex = r.raftLog.lastIndex()
 
 	traceBecomeLeader(r)
-	emptyEnt := pb.Entry{Data: nil}
+	emptyEnt := &pb.Entry{Data: nil}
 	if !r.appendEntry(emptyEnt) {
 		// This won't happen because we just called reset() above.
 		r.logger.Panic("empty entry was dropped")
@@ -1001,7 +1007,7 @@ func (r *raft) hasUnappliedConfChanges() bool {
 	// TODO(pavelkalinnikov): find a way to budget memory/bandwidth for this scan
 	// outside the raft package.
 	pageSize := r.raftLog.maxApplyingEntsSize
-	if err := r.raftLog.scan(lo, hi, pageSize, func(ents []pb.Entry) error {
+	if err := r.raftLog.scan(lo, hi, pageSize, func(ents []*pb.Entry) error {
 		for i := range ents {
 			if ents[i].GetType() == pb.EntryConfChange || ents[i].GetType() == pb.EntryConfChangeV2 {
 				found = true
@@ -1196,8 +1202,8 @@ func (r *raft) Step(m pb.Message) error {
 	case pb.MsgStorageApplyResp:
 		if len(m.GetEntries()) > 0 {
 			index := m.GetEntries()[len(m.GetEntries())-1].GetIndex()
-			r.appliedTo(index, entsSize(pb.EntrySliceFromPointers(m.GetEntries())))
-			r.reduceUncommittedSize(payloadsSize(pb.EntrySliceFromPointers(m.GetEntries())))
+			r.appliedTo(index, entsSize(m.GetEntries()))
+			r.reduceUncommittedSize(payloadsSize(m.GetEntries()))
 		}
 
 	case pb.MsgVote, pb.MsgPreVote:
@@ -1337,7 +1343,7 @@ func stepLeader(r *raft, m pb.Message) error {
 			}
 		}
 
-		if !r.appendEntry(pb.EntrySliceFromPointers(m.GetEntries())...) {
+		if !r.appendEntry(m.GetEntries()...) {
 			return ErrProposalDropped
 		}
 		r.bcastAppend()
@@ -1775,7 +1781,7 @@ func logSliceFromMsgApp(m *pb.Message) logSlice {
 	return logSlice{
 		term:    m.GetTerm(),
 		prev:    entryID{term: m.GetLogTerm(), index: m.GetIndex()},
-		entries: pb.EntrySliceFromPointers(m.GetEntries()),
+		entries: m.GetEntries(),
 	}
 }
 
@@ -2088,7 +2094,7 @@ func (r *raft) responseToReadIndexReq(req pb.Message, readIndex uint64) pb.Messa
 //
 // Empty payloads are never refused. This is used both for appending an empty
 // entry at a new leader's term, as well as leaving a joint configuration.
-func (r *raft) increaseUncommittedSize(ents []pb.Entry) bool {
+func (r *raft) increaseUncommittedSize(ents []*pb.Entry) bool {
 	s := payloadsSize(ents)
 	if r.uncommittedSize > 0 && s > 0 && r.uncommittedSize+s > r.maxUncommittedSize {
 		// If the uncommitted tail of the Raft log is empty, allow any size

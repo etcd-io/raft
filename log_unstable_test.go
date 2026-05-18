@@ -25,7 +25,7 @@ import (
 
 func TestUnstableMaybeFirstIndex(t *testing.T) {
 	tests := []struct {
-		entries []pb.Entry
+		entries []*pb.Entry
 		offset  uint64
 		snap    *pb.Snapshot
 
@@ -38,7 +38,7 @@ func TestUnstableMaybeFirstIndex(t *testing.T) {
 			false, 0,
 		},
 		{
-			[]pb.Entry{}, 0, nil,
+			[]*pb.Entry{}, 0, nil,
 			false, 0,
 		},
 		// has snapshot
@@ -47,7 +47,7 @@ func TestUnstableMaybeFirstIndex(t *testing.T) {
 			true, 5,
 		},
 		{
-			[]pb.Entry{}, 5, &pb.Snapshot{Metadata: &pb.SnapshotMetadata{Index: new(uint64(4)), Term: new(uint64(1))}},
+			[]*pb.Entry{}, 5, &pb.Snapshot{Metadata: &pb.SnapshotMetadata{Index: new(uint64(4)), Term: new(uint64(1))}},
 			true, 5,
 		},
 	}
@@ -69,7 +69,7 @@ func TestUnstableMaybeFirstIndex(t *testing.T) {
 
 func TestMaybeLastIndex(t *testing.T) {
 	tests := []struct {
-		entries []pb.Entry
+		entries []*pb.Entry
 		offset  uint64
 		snap    *pb.Snapshot
 
@@ -87,12 +87,12 @@ func TestMaybeLastIndex(t *testing.T) {
 		},
 		// last in snapshot
 		{
-			[]pb.Entry{}, 5, &pb.Snapshot{Metadata: &pb.SnapshotMetadata{Index: new(uint64(4)), Term: new(uint64(1))}},
+			[]*pb.Entry{}, 5, &pb.Snapshot{Metadata: &pb.SnapshotMetadata{Index: new(uint64(4)), Term: new(uint64(1))}},
 			true, 4,
 		},
 		// empty unstable
 		{
-			[]pb.Entry{}, 0, nil,
+			[]*pb.Entry{}, 0, nil,
 			false, 0,
 		},
 	}
@@ -114,7 +114,7 @@ func TestMaybeLastIndex(t *testing.T) {
 
 func TestUnstableMaybeTerm(t *testing.T) {
 	tests := []struct {
-		entries []pb.Entry
+		entries []*pb.Entry
 		offset  uint64
 		snap    *pb.Snapshot
 		index   uint64
@@ -160,17 +160,17 @@ func TestUnstableMaybeTerm(t *testing.T) {
 			false, 0,
 		},
 		{
-			[]pb.Entry{}, 5, &pb.Snapshot{Metadata: &pb.SnapshotMetadata{Index: new(uint64(4)), Term: new(uint64(1))}},
+			[]*pb.Entry{}, 5, &pb.Snapshot{Metadata: &pb.SnapshotMetadata{Index: new(uint64(4)), Term: new(uint64(1))}},
 			5,
 			false, 0,
 		},
 		{
-			[]pb.Entry{}, 5, &pb.Snapshot{Metadata: &pb.SnapshotMetadata{Index: new(uint64(4)), Term: new(uint64(1))}},
+			[]*pb.Entry{}, 5, &pb.Snapshot{Metadata: &pb.SnapshotMetadata{Index: new(uint64(4)), Term: new(uint64(1))}},
 			4,
 			true, 1,
 		},
 		{
-			[]pb.Entry{}, 0, nil,
+			[]*pb.Entry{}, 0, nil,
 			5,
 			false, 0,
 		},
@@ -212,11 +212,11 @@ func TestUnstableRestore(t *testing.T) {
 
 func TestUnstableNextEntries(t *testing.T) {
 	tests := []struct {
-		entries          []pb.Entry
+		entries          []*pb.Entry
 		offset           uint64
 		offsetInProgress uint64
 
-		wentries []pb.Entry
+		wentries []*pb.Entry
 	}{
 		// nothing in progress
 		{
@@ -288,7 +288,7 @@ func TestUnstableNextSnapshot(t *testing.T) {
 
 func TestUnstableAcceptInProgress(t *testing.T) {
 	tests := []struct {
-		entries            []pb.Entry
+		entries            []*pb.Entry
 		snapshot           *pb.Snapshot
 		offsetInProgress   uint64
 		snapshotInProgress bool
@@ -297,7 +297,7 @@ func TestUnstableAcceptInProgress(t *testing.T) {
 		wsnapshotInProgress bool
 	}{
 		{
-			[]pb.Entry{}, nil,
+			[]*pb.Entry{}, nil,
 			5,     // no entries
 			false, // snapshot not already in progress
 			5, false,
@@ -328,7 +328,7 @@ func TestUnstableAcceptInProgress(t *testing.T) {
 		},
 		// with snapshot
 		{
-			[]pb.Entry{}, &pb.Snapshot{Metadata: &pb.SnapshotMetadata{Index: new(uint64(4)), Term: new(uint64(1))}},
+			[]*pb.Entry{}, &pb.Snapshot{Metadata: &pb.SnapshotMetadata{Index: new(uint64(4)), Term: new(uint64(1))}},
 			5,     // no entries
 			false, // snapshot not already in progress
 			5, true,
@@ -358,7 +358,7 @@ func TestUnstableAcceptInProgress(t *testing.T) {
 			7, true,
 		},
 		{
-			[]pb.Entry{}, &pb.Snapshot{Metadata: &pb.SnapshotMetadata{Index: new(uint64(4)), Term: new(uint64(1))}},
+			[]*pb.Entry{}, &pb.Snapshot{Metadata: &pb.SnapshotMetadata{Index: new(uint64(4)), Term: new(uint64(1))}},
 			5,    // entries not in progress
 			true, // snapshot already in progress
 			5, true,
@@ -406,7 +406,7 @@ func TestUnstableAcceptInProgress(t *testing.T) {
 
 func TestUnstableStableTo(t *testing.T) {
 	tests := []struct {
-		entries          []pb.Entry
+		entries          []*pb.Entry
 		offset           uint64
 		offsetInProgress uint64
 		snap             *pb.Snapshot
@@ -417,7 +417,7 @@ func TestUnstableStableTo(t *testing.T) {
 		wlen              int
 	}{
 		{
-			[]pb.Entry{}, 0, 0, nil,
+			[]*pb.Entry{}, 0, 0, nil,
 			5, 1,
 			0, 0, 0,
 		},
@@ -503,15 +503,15 @@ func TestUnstableStableTo(t *testing.T) {
 
 func TestUnstableTruncateAndAppend(t *testing.T) {
 	tests := []struct {
-		entries          []pb.Entry
+		entries          []*pb.Entry
 		offset           uint64
 		offsetInProgress uint64
 		snap             *pb.Snapshot
-		toappend         []pb.Entry
+		toappend         []*pb.Entry
 
 		woffset           uint64
 		woffsetInProgress uint64
-		wentries          []pb.Entry
+		wentries          []*pb.Entry
 	}{
 		// append to the end
 		{
