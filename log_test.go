@@ -729,9 +729,8 @@ func TestCompaction(t *testing.T) {
 func TestLogRestore(t *testing.T) {
 	index := uint64(1000)
 	term := uint64(1000)
-	snap := pb.SnapshotMetadata{Index: new(index), Term: new(term)}
 	storage := NewMemoryStorage()
-	storage.ApplySnapshot(pb.Snapshot{Metadata: &snap})
+	storage.ApplySnapshot(pb.Snapshot{Metadata: &pb.SnapshotMetadata{Index: new(index), Term: new(term)}})
 	raftLog := newLog(storage, raftLogger)
 
 	require.Zero(t, len(raftLog.allEntries()))
