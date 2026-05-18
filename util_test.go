@@ -31,7 +31,7 @@ var testFormatter EntryFormatter = func(data []byte) string {
 }
 
 func TestDescribeEntry(t *testing.T) {
-	entry := pb.Entry{
+	entry := &pb.Entry{
 		Term:  new(uint64(1)),
 		Index: new(uint64(2)),
 		Type:  pb.EntryNormal.Enum(),
@@ -42,13 +42,13 @@ func TestDescribeEntry(t *testing.T) {
 }
 
 func TestLimitSize(t *testing.T) {
-	ents := []pb.Entry{{Index: new(uint64(4)), Term: new(uint64(4))}, {Index: new(uint64(5)), Term: new(uint64(5))}, {Index: new(uint64(6)), Term: new(uint64(6))}}
-	prefix := func(size int) []pb.Entry {
-		return append([]pb.Entry{}, ents[:size]...) // protect the original slice
+	ents := []*pb.Entry{{Index: new(uint64(4)), Term: new(uint64(4))}, {Index: new(uint64(5)), Term: new(uint64(5))}, {Index: new(uint64(6)), Term: new(uint64(6))}}
+	prefix := func(size int) []*pb.Entry {
+		return append([]*pb.Entry{}, ents[:size]...) // protect the original slice
 	}
 	for _, tt := range []struct {
 		maxSize uint64
-		want    []pb.Entry
+		want    []*pb.Entry
 	}{
 		{math.MaxUint64, prefix(len(ents))}, // all entries are returned
 		// Even if maxSize is zero, the first entry should be returned.
@@ -146,6 +146,6 @@ func TestIsResponseMsg(t *testing.T) {
 // This property is important because new leaders append an empty entry to their log,
 // and we don't want this to count towards the uncommitted log quota.
 func TestPayloadSizeOfEmptyEntry(t *testing.T) {
-	e := pb.Entry{Data: nil}
+	e := &pb.Entry{Data: nil}
 	require.Equal(t, 0, int(payloadSize(e)))
 }

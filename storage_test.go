@@ -61,7 +61,7 @@ func TestStorageEntries(t *testing.T) {
 		lo, hi, maxsize uint64
 
 		werr     error
-		wentries []pb.Entry
+		wentries []*pb.Entry
 	}{
 		{2, 6, math.MaxUint64, ErrCompacted, nil},
 		{3, 4, math.MaxUint64, ErrCompacted, nil},
@@ -172,10 +172,10 @@ func TestStorageCreateSnapshot(t *testing.T) {
 func TestStorageAppend(t *testing.T) {
 	ents := index(3).terms(3, 4, 5)
 	tests := []struct {
-		entries []pb.Entry
+		entries []*pb.Entry
 
 		werr     error
-		wentries []pb.Entry
+		wentries []*pb.Entry
 	}{
 		{
 			index(1).terms(1, 2),

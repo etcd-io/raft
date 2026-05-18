@@ -77,7 +77,7 @@ type Ready struct {
 	// If async storage writes are enabled, this field does not need to be acted
 	// on immediately. It will be reflected in a MsgStorageAppend message in the
 	// Messages slice.
-	Entries []pb.Entry
+	Entries []*pb.Entry
 
 	// Snapshot specifies the snapshot to be saved to stable storage.
 	//
@@ -93,7 +93,7 @@ type Ready struct {
 	// If async storage writes are enabled, this field does not need to be acted
 	// on immediately. It will be reflected in a MsgStorageApply message in the
 	// Messages slice.
-	CommittedEntries []pb.Entry
+	CommittedEntries []*pb.Entry
 
 	// Messages specifies outbound messages.
 	//
@@ -469,7 +469,7 @@ func (n *node) Campaign(ctx context.Context) error {
 }
 
 func (n *node) Propose(ctx context.Context, data []byte) error {
-	return n.stepWait(ctx, pb.Message{Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: data}})})
+	return n.stepWait(ctx, pb.Message{Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: data}}})
 }
 
 func (n *node) Step(ctx context.Context, m pb.Message) error {
@@ -486,7 +486,7 @@ func confChangeToMsg(c pb.ConfChangeI) (pb.Message, error) {
 	if err != nil {
 		return pb.Message{}, err
 	}
-	return pb.Message{Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Type: typ.Enum(), Data: data}})}, nil
+	return pb.Message{Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Type: typ.Enum(), Data: data}}}, nil
 }
 
 func (n *node) ProposeConfChange(ctx context.Context, cc pb.ConfChangeI) error {
@@ -608,5 +608,5 @@ func (n *node) ForgetLeader(ctx context.Context) error {
 }
 
 func (n *node) ReadIndex(ctx context.Context, rctx []byte) error {
-	return n.step(ctx, pb.Message{Type: pb.MsgReadIndex.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: rctx}})})
+	return n.step(ctx, pb.Message{Type: pb.MsgReadIndex.Enum(), Entries: []*pb.Entry{{Data: rctx}}})
 }

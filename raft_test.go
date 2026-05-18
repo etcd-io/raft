@@ -30,7 +30,7 @@ import (
 )
 
 // nextEnts returns the appliable entries and updates the applied index.
-func nextEnts(r *raft, s *MemoryStorage) (ents []pb.Entry) {
+func nextEnts(r *raft, s *MemoryStorage) (ents []*pb.Entry) {
 	// Append unstable entries.
 	s.Append(r.raftLog.nextUnstableEnts())
 	r.raftLog.stableTo(r.raftLog.lastEntryID())
@@ -44,7 +44,7 @@ func nextEnts(r *raft, s *MemoryStorage) (ents []pb.Entry) {
 	return ents
 }
 
-func mustAppendEntry(r *raft, ents ...pb.Entry) {
+func mustAppendEntry(r *raft, ents ...*pb.Entry) {
 	if !r.appendEntry(ents...) {
 		panic("entry unexpectedly dropped")
 	}
@@ -100,7 +100,7 @@ func TestProgressLeader(t *testing.T) {
 	r.trk.Progress[2].BecomeReplicate()
 
 	// Send proposals to r1. The first 5 entries should be queued in the unstable log.
-	propMsg := pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("foo")}})}
+	propMsg := pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("foo")}}}
 	for i := 0; i < 5; i++ {
 		require.NoError(t, r.Step(propMsg), "#%d", i)
 	}
@@ -140,9 +140,9 @@ func TestProgressPaused(t *testing.T) {
 	r := newTestRaft(1, 5, 1, newTestMemoryStorage(withPeers(1, 2)))
 	r.becomeCandidate()
 	r.becomeLeader()
-	r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})})
-	r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})})
-	r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})})
+	r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
+	r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
+	r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
 
 	ms := r.readMessages()
 	assert.Len(t, ms, 1)
@@ -169,7 +169,7 @@ func TestProgressFlowControl(t *testing.T) {
 		if i >= 10 && i < 16 { // Temporarily send large messages.
 			blob = large
 		}
-		r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: blob}})})
+		r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: blob}}})
 	}
 
 	ms := r.readMessages()
@@ -222,10 +222,10 @@ func TestUncommittedEntryLimit(t *testing.T) {
 	// expect them, or because the final tally ends up nonzero. (At the time of
 	// writing, the former).
 	const maxEntries = 1024
-	testEntry := pb.Entry{Data: []byte("testdata")}
+	testEntry := &pb.Entry{Data: []byte("testdata")}
 	maxEntrySize := maxEntries * payloadSize(testEntry)
 
-	require.Zero(t, payloadSize(pb.Entry{Data: nil}))
+	require.Zero(t, payloadSize(&pb.Entry{Data: nil}))
 
 	cfg := newTestConfig(1, 5, 1, newTestMemoryStorage(withPeers(1, 2, 3)))
 	cfg.MaxUncommittedEntriesSize = uint64(maxEntrySize)
@@ -242,8 +242,8 @@ func TestUncommittedEntryLimit(t *testing.T) {
 	r.uncommittedSize = 0
 
 	// Send proposals to r1. The first 5 entries should be appended to the log.
-	propMsg := pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{testEntry})}
-	propEnts := make([]pb.Entry, maxEntries)
+	propMsg := pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{testEntry}}
+	propEnts := make([]*pb.Entry, maxEntries)
 	for i := 0; i < maxEntries; i++ {
 		require.NoError(t, r.Step(propMsg), "#%d", i)
 		propEnts[i] = testEntry
@@ -261,11 +261,11 @@ func TestUncommittedEntryLimit(t *testing.T) {
 
 	// Send a single large proposal to r1. Should be accepted even though it
 	// pushes us above the limit because we were beneath it before the proposal.
-	propEnts = make([]pb.Entry, 2*maxEntries)
+	propEnts = make([]*pb.Entry, 2*maxEntries)
 	for i := range propEnts {
 		propEnts[i] = testEntry
 	}
-	propMsgLarge := pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers(propEnts)}
+	propMsgLarge := pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: propEnts}
 	require.NoError(t, r.Step(propMsgLarge))
 
 	// Send one more proposal to r1. It should be rejected, again.
@@ -274,7 +274,7 @@ func TestUncommittedEntryLimit(t *testing.T) {
 	// But we can always append an entry with no Data. This is used both for the
 	// leader's first empty entry and for auto-transitioning out of joint config
 	// states.
-	require.NoError(t, r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{}})}))
+	require.NoError(t, r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{}}}))
 
 	// Read messages and reduce the uncommitted size as if we had committed
 	// these entries.
@@ -570,16 +570,16 @@ func TestLogReplication(t *testing.T) {
 		{
 			newNetwork(nil, nil, nil),
 			[]pb.Message{
-				{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})},
+				{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}},
 			},
 			2,
 		},
 		{
 			newNetwork(nil, nil, nil),
 			[]pb.Message{
-				{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})},
+				{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}},
 				{From: new(uint64(1)), To: new(uint64(2)), Type: pb.MsgHup.Enum()},
-				{From: new(uint64(1)), To: new(uint64(2)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})},
+				{From: new(uint64(1)), To: new(uint64(2)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}},
 			},
 			4,
 		},
@@ -597,7 +597,7 @@ func TestLogReplication(t *testing.T) {
 
 			assert.Equal(t, tt.wcommitted, sm.raftLog.committed, "#%d.%d", i, j)
 
-			var ents []pb.Entry
+			var ents []*pb.Entry
 			for _, e := range nextEnts(sm, tt.network.storage[j]) {
 				if e.GetData() != nil {
 					ents = append(ents, e)
@@ -642,7 +642,7 @@ func TestLearnerLogReplication(t *testing.T) {
 
 	nextCommitted := uint64(2)
 	{
-		nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})})
+		nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
 	}
 
 	assert.Equal(t, nextCommitted, n1.raftLog.committed)
@@ -658,8 +658,8 @@ func TestSingleNodeCommit(t *testing.T) {
 	r := newRaft(cfg)
 	tt := newNetwork(r)
 	tt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgHup.Enum()})
-	tt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("some data")}})})
-	tt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("some data")}})})
+	tt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("some data")}}})
+	tt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("some data")}}})
 
 	sm := tt.peers[1].(*raft)
 	assert.Equal(t, uint64(3), sm.raftLog.committed)
@@ -677,8 +677,8 @@ func TestCannotCommitWithoutNewTermEntry(t *testing.T) {
 	tt.cut(1, 4)
 	tt.cut(1, 5)
 
-	tt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("some data")}})})
-	tt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("some data")}})})
+	tt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("some data")}}})
+	tt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("some data")}}})
 
 	sm := tt.peers[1].(*raft)
 	assert.Equal(t, uint64(1), sm.raftLog.committed)
@@ -699,7 +699,7 @@ func TestCannotCommitWithoutNewTermEntry(t *testing.T) {
 	// send heartbeat; reset wait
 	tt.send(pb.Message{From: new(uint64(2)), To: new(uint64(2)), Type: pb.MsgBeat.Enum()})
 	// append an entry at current term
-	tt.send(pb.Message{From: new(uint64(2)), To: new(uint64(2)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("some data")}})})
+	tt.send(pb.Message{From: new(uint64(2)), To: new(uint64(2)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("some data")}}})
 	// expect the committed to be advanced
 	assert.Equal(t, uint64(5), sm.raftLog.committed)
 }
@@ -715,8 +715,8 @@ func TestCommitWithoutNewTermEntry(t *testing.T) {
 	tt.cut(1, 4)
 	tt.cut(1, 5)
 
-	tt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("some data")}})})
-	tt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("some data")}})})
+	tt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("some data")}}})
+	tt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("some data")}}})
 
 	sm := tt.peers[1].(*raft)
 	assert.Equal(t, uint64(1), sm.raftLog.committed)
@@ -844,7 +844,7 @@ func TestCandidateConcede(t *testing.T) {
 
 	data := []byte("force follower")
 	// send a proposal to 3 to flush out a MsgApp to 1
-	tt.send(pb.Message{From: new(uint64(3)), To: new(uint64(3)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: data}})})
+	tt.send(pb.Message{From: new(uint64(3)), To: new(uint64(3)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: data}}})
 	// send heartbeat; flush out commit
 	tt.send(pb.Message{From: new(uint64(3)), To: new(uint64(3)), Type: pb.MsgBeat.Enum()})
 
@@ -853,7 +853,7 @@ func TestCandidateConcede(t *testing.T) {
 	assert.Equal(t, uint64(1), a.Term)
 
 	wantLog := ltoa(newLog(&MemoryStorage{
-		ents: []pb.Entry{{}, {Data: nil, Term: new(uint64(1)), Index: new(uint64(1))}, {Term: new(uint64(1)), Index: new(uint64(2)), Data: data}},
+		ents: []*pb.Entry{{}, {Data: nil, Term: new(uint64(1)), Index: new(uint64(1))}, {Term: new(uint64(1)), Index: new(uint64(2)), Data: data}},
 	}, nil))
 	for i, p := range tt.peers {
 		if sm, ok := p.(*raft); ok {
@@ -888,9 +888,9 @@ func TestOldMessages(t *testing.T) {
 	tt.send(pb.Message{From: new(uint64(2)), To: new(uint64(2)), Type: pb.MsgHup.Enum()})
 	tt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgHup.Enum()})
 	// pretend we're an old leader trying to make progress; this entry is expected to be ignored.
-	tt.send(pb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: pb.MsgApp.Enum(), Term: new(uint64(2)), Entries: pb.EntrySliceToPointers(index(3).terms(2))})
+	tt.send(pb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: pb.MsgApp.Enum(), Term: new(uint64(2)), Entries: index(3).terms(2)})
 	// commit a new entry
-	tt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})})
+	tt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
 
 	ents := index(0).terms(0, 1, 2, 3, 3)
 	ents[4].Data = []byte("somedata")
@@ -938,13 +938,13 @@ func TestProposal(t *testing.T) {
 
 		// promote 1 to become leader
 		send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgHup.Enum()})
-		send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: data}})})
+		send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: data}}})
 		r := tt.network.peers[1].(*raft)
 
 		wantLog := newLog(NewMemoryStorage(), raftLogger)
 		if tt.success {
 			wantLog = newLog(&MemoryStorage{
-				ents: []pb.Entry{{}, {Data: nil, Term: new(uint64(1)), Index: new(uint64(1))}, {Term: new(uint64(1)), Index: new(uint64(2)), Data: data}},
+				ents: []*pb.Entry{{}, {Data: nil, Term: new(uint64(1)), Index: new(uint64(1))}, {Term: new(uint64(1)), Index: new(uint64(2)), Data: data}},
 			}, nil)
 		}
 		base := ltoa(wantLog)
@@ -972,10 +972,10 @@ func TestProposalByProxy(t *testing.T) {
 		tt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgHup.Enum()})
 
 		// propose via follower
-		tt.send(pb.Message{From: new(uint64(2)), To: new(uint64(2)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})})
+		tt.send(pb.Message{From: new(uint64(2)), To: new(uint64(2)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
 
 		wantLog := newLog(&MemoryStorage{
-			ents: []pb.Entry{{}, {Data: nil, Term: new(uint64(1)), Index: new(uint64(1))}, {Term: new(uint64(1)), Data: data, Index: new(uint64(2))}},
+			ents: []*pb.Entry{{}, {Data: nil, Term: new(uint64(1)), Index: new(uint64(1))}, {Term: new(uint64(1)), Data: data, Index: new(uint64(2))}},
 		}, nil)
 		base := ltoa(wantLog)
 		for i, p := range tt.peers {
@@ -994,7 +994,7 @@ func TestProposalByProxy(t *testing.T) {
 func TestCommit(t *testing.T) {
 	tests := []struct {
 		matches []uint64
-		logs    []pb.Entry
+		logs    []*pb.Entry
 		smTerm  uint64
 		w       uint64
 	}{
@@ -1103,16 +1103,16 @@ func TestHandleMsgApp(t *testing.T) {
 
 		// Ensure 2
 		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(uint64(1)), Index: new(uint64(1)), Commit: new(uint64(1))}, 2, 1, false},
-		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(uint64(0)), Index: new(uint64(0)), Commit: new(uint64(1)), Entries: pb.EntrySliceToPointers([]pb.Entry{{Index: new(uint64(1)), Term: new(uint64(2))}})}, 1, 1, false},
-		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(uint64(2)), Index: new(uint64(2)), Commit: new(uint64(3)), Entries: pb.EntrySliceToPointers([]pb.Entry{{Index: new(uint64(3)), Term: new(uint64(2))}, {Index: new(uint64(4)), Term: new(uint64(2))}})}, 4, 3, false},
-		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(uint64(2)), Index: new(uint64(2)), Commit: new(uint64(4)), Entries: pb.EntrySliceToPointers([]pb.Entry{{Index: new(uint64(3)), Term: new(uint64(2))}})}, 3, 3, false},
-		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(uint64(1)), Index: new(uint64(1)), Commit: new(uint64(4)), Entries: pb.EntrySliceToPointers([]pb.Entry{{Index: new(uint64(2)), Term: new(uint64(2))}})}, 2, 2, false},
+		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(uint64(0)), Index: new(uint64(0)), Commit: new(uint64(1)), Entries: []*pb.Entry{{Index: new(uint64(1)), Term: new(uint64(2))}}}, 1, 1, false},
+		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(uint64(2)), Index: new(uint64(2)), Commit: new(uint64(3)), Entries: []*pb.Entry{{Index: new(uint64(3)), Term: new(uint64(2))}, {Index: new(uint64(4)), Term: new(uint64(2))}}}, 4, 3, false},
+		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(uint64(2)), Index: new(uint64(2)), Commit: new(uint64(4)), Entries: []*pb.Entry{{Index: new(uint64(3)), Term: new(uint64(2))}}}, 3, 3, false},
+		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(uint64(1)), Index: new(uint64(1)), Commit: new(uint64(4)), Entries: []*pb.Entry{{Index: new(uint64(2)), Term: new(uint64(2))}}}, 2, 2, false},
 
 		// Ensure 3
-		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(1)), LogTerm: new(uint64(1)), Index: new(uint64(1)), Commit: new(uint64(3))}, 2, 1, false},                                                                                              // match entry 1, commit up to last new entry 1
-		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(1)), LogTerm: new(uint64(1)), Index: new(uint64(1)), Commit: new(uint64(3)), Entries: pb.EntrySliceToPointers([]pb.Entry{{Index: new(uint64(2)), Term: new(uint64(2))}})}, 2, 2, false}, // match entry 1, commit up to last new entry 2
-		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(uint64(2)), Index: new(uint64(2)), Commit: new(uint64(3))}, 2, 2, false},                                                                                              // match entry 2, commit up to last new entry 2
-		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(uint64(2)), Index: new(uint64(2)), Commit: new(uint64(4))}, 2, 2, false},                                                                                              // commit up to log.last()
+		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(1)), LogTerm: new(uint64(1)), Index: new(uint64(1)), Commit: new(uint64(3))}, 2, 1, false},                                                                      // match entry 1, commit up to last new entry 1
+		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(1)), LogTerm: new(uint64(1)), Index: new(uint64(1)), Commit: new(uint64(3)), Entries: []*pb.Entry{{Index: new(uint64(2)), Term: new(uint64(2))}}}, 2, 2, false}, // match entry 1, commit up to last new entry 2
+		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(uint64(2)), Index: new(uint64(2)), Commit: new(uint64(3))}, 2, 2, false},                                                                      // match entry 2, commit up to last new entry 2
+		{pb.Message{Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(uint64(2)), Index: new(uint64(2)), Commit: new(uint64(4))}, 2, 2, false},                                                                      // commit up to log.last()
 	}
 
 	for i, tt := range tests {
@@ -1203,7 +1203,7 @@ func TestRaftFreesReadOnlyMem(t *testing.T) {
 
 	// leader starts linearizable read request.
 	// more info: raft dissertation 6.4, step 2.
-	sm.Step(pb.Message{From: new(uint64(2)), Type: pb.MsgReadIndex.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: reqCtx}})})
+	sm.Step(pb.Message{From: new(uint64(2)), Type: pb.MsgReadIndex.Enum(), Entries: []*pb.Entry{{Data: reqCtx}}})
 	msgs := sm.readMessages()
 	require.Len(t, msgs, 1)
 	require.Equal(t, pb.MsgHeartbeat, msgs[0].GetType())
@@ -1243,7 +1243,7 @@ func TestMsgAppRespWaitReset(t *testing.T) {
 	sm.Step(pb.Message{
 		From:    new(uint64(1)),
 		Type:    pb.MsgProp.Enum(),
-		Entries: pb.EntrySliceToPointers([]pb.Entry{{}}),
+		Entries: []*pb.Entry{{}},
 	})
 
 	// The command is broadcast to all nodes not in the wait state.
@@ -1583,7 +1583,7 @@ func TestLeaderMsgAppSelfAckAfterTermChange(t *testing.T) {
 	sm.becomeLeader()
 
 	// n1 proposes a write.
-	sm.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})})
+	sm.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
 	steps := sm.takeMessagesAfterAppend()
 
 	// n1 hears that n2 is the new leader.
@@ -1874,9 +1874,9 @@ func TestDisruptiveFollowerPreVote(t *testing.T) {
 	require.Equal(t, StateFollower, n3.state)
 
 	nt.isolate(3)
-	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})})
-	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})})
-	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})})
+	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
+	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
+	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
 	n1.preVote = true
 	n2.preVote = true
 	n3.preVote = true
@@ -1929,10 +1929,10 @@ func TestReadOnlyOptionSafe(t *testing.T) {
 
 	for i, tt := range tests {
 		for j := 0; j < tt.proposals; j++ {
-			nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{}})})
+			nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{}}})
 		}
 
-		nt.send(pb.Message{From: new(tt.sm.id), To: new(tt.sm.id), Type: pb.MsgReadIndex.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: tt.wctx}})})
+		nt.send(pb.Message{From: new(tt.sm.id), To: new(tt.sm.id), Type: pb.MsgReadIndex.Enum(), Entries: []*pb.Entry{{Data: tt.wctx}}})
 
 		r := tt.sm
 		assert.NotEmpty(t, r.readStates, "#%d", i)
@@ -1972,11 +1972,11 @@ func TestReadOnlyWithLearner(t *testing.T) {
 
 	for i, tt := range tests {
 		for j := 0; j < tt.proposals; j++ {
-			nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{}})})
+			nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{}}})
 			nextEnts(a, s) // append the entries on the leader
 		}
 
-		nt.send(pb.Message{From: new(tt.sm.id), To: new(tt.sm.id), Type: pb.MsgReadIndex.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: tt.wctx}})})
+		nt.send(pb.Message{From: new(tt.sm.id), To: new(tt.sm.id), Type: pb.MsgReadIndex.Enum(), Entries: []*pb.Entry{{Data: tt.wctx}}})
 
 		r := tt.sm
 		require.NotEmpty(t, r.readStates, "#%d", i)
@@ -2024,10 +2024,10 @@ func TestReadOnlyOptionLease(t *testing.T) {
 
 	for i, tt := range tests {
 		for j := 0; j < tt.proposals; j++ {
-			nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{}})})
+			nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{}}})
 		}
 
-		nt.send(pb.Message{From: new(tt.sm.id), To: new(tt.sm.id), Type: pb.MsgReadIndex.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: tt.wctx}})})
+		nt.send(pb.Message{From: new(tt.sm.id), To: new(tt.sm.id), Type: pb.MsgReadIndex.Enum(), Entries: []*pb.Entry{{Data: tt.wctx}}})
 
 		r := tt.sm
 		rs := r.readStates[0]
@@ -2076,7 +2076,7 @@ func TestReadOnlyForNewLeader(t *testing.T) {
 	// Ensure peer a drops read only request.
 	var windex uint64 = 4
 	wctx := []byte("ctx")
-	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgReadIndex.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: wctx}})})
+	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgReadIndex.Enum(), Entries: []*pb.Entry{{Data: wctx}}})
 	require.Empty(t, sm.readStates)
 
 	nt.recover()
@@ -2085,7 +2085,7 @@ func TestReadOnlyForNewLeader(t *testing.T) {
 	for i := 0; i < sm.heartbeatTimeout; i++ {
 		sm.tick()
 	}
-	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{}})})
+	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{}}})
 	require.Equal(t, uint64(4), sm.raftLog.committed)
 	lastLogTerm := sm.raftLog.zeroTermOnOutOfBounds(sm.raftLog.term(sm.raftLog.committed))
 	require.Equal(t, sm.Term, lastLogTerm)
@@ -2097,7 +2097,7 @@ func TestReadOnlyForNewLeader(t *testing.T) {
 	require.Equal(t, wctx, rs.RequestCtx)
 
 	// Ensure peer a accepts read only request after it committed an entry at its term.
-	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgReadIndex.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: wctx}})})
+	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgReadIndex.Enum(), Entries: []*pb.Entry{{Data: wctx}}})
 	require.Len(t, sm.readStates, 2)
 	rs = sm.readStates[1]
 	require.Equal(t, windex, rs.Index)
@@ -2129,7 +2129,7 @@ func TestReadOnlyDuplicateRequest(t *testing.T) {
 
 	// Create readIndexMsgA; its eventual readIndex must be least readIndexMinimumA
 	readIndexMsgA := pb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: pb.MsgReadIndex.Enum(),
-		Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("A")}})}
+		Entries: []*pb.Entry{{Data: []byte("A")}}}
 	readIndexMinimumA := r1.raftLog.committed
 
 	// Explicitly duplicate readIndexMsgA for later; this would be done either by
@@ -2153,12 +2153,12 @@ func TestReadOnlyDuplicateRequest(t *testing.T) {
 	// elect r2 as leader, and commit a new entry
 	net.send(pb.Message{From: new(uint64(2)), To: new(uint64(2)), Type: pb.MsgHup.Enum()})
 	net.send(pb.Message{From: new(uint64(2)), To: new(uint64(2)),
-		Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("someOp")}})})
+		Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("someOp")}}})
 
 	// Try reading from the disconnected and stale leader r1
 	// Create readIndexMsgB; its eventual readIndex must be least readIndexMinimumB
 	readIndexMsgB := pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgReadIndex.Enum(),
-		Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("B")}})}
+		Entries: []*pb.Entry{{Data: []byte("B")}}}
 	readIndexMinimumB := r2.raftLog.committed
 
 	net.send(readIndexMsgB)
@@ -2256,7 +2256,7 @@ func TestBcastBeat(t *testing.T) {
 	sm.becomeCandidate()
 	sm.becomeLeader()
 	for i := 0; i < 10; i++ {
-		mustAppendEntry(sm, pb.Entry{Index: new(uint64(i) + 1)})
+		mustAppendEntry(sm, &pb.Entry{Index: new(uint64(i) + 1)})
 	}
 	sm.advanceMessagesAfterAppend()
 
@@ -2345,7 +2345,7 @@ func TestLeaderIncreaseNext(t *testing.T) {
 		sm.becomeLeader()
 		sm.trk.Progress[2].State = tt.state
 		sm.trk.Progress[2].Next = tt.next
-		sm.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})})
+		sm.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
 
 		p := sm.trk.Progress[2]
 		assert.Equal(t, tt.wnext, p.Next, "#%d", i)
@@ -2365,7 +2365,7 @@ func TestSendAppendForProgressProbe(t *testing.T) {
 			// we expect that raft will only send out one msgAPP on the first
 			// loop. After that, the follower is paused until a heartbeat response is
 			// received.
-			mustAppendEntry(r, pb.Entry{Data: []byte("somedata")})
+			mustAppendEntry(r, &pb.Entry{Data: []byte("somedata")})
 			r.sendAppend(2)
 			msg := r.readMessages()
 			assert.Len(t, msg, 1)
@@ -2374,7 +2374,7 @@ func TestSendAppendForProgressProbe(t *testing.T) {
 
 		assert.True(t, r.trk.Progress[2].MsgAppFlowPaused)
 		for j := 0; j < 10; j++ {
-			mustAppendEntry(r, pb.Entry{Data: []byte("somedata")})
+			mustAppendEntry(r, &pb.Entry{Data: []byte("somedata")})
 			r.sendAppend(2)
 			assert.Empty(t, r.readMessages())
 		}
@@ -2407,7 +2407,7 @@ func TestSendAppendForProgressReplicate(t *testing.T) {
 	r.trk.Progress[2].BecomeReplicate()
 
 	for i := 0; i < 10; i++ {
-		mustAppendEntry(r, pb.Entry{Data: []byte("somedata")})
+		mustAppendEntry(r, &pb.Entry{Data: []byte("somedata")})
 		r.sendAppend(2)
 		msgs := r.readMessages()
 		assert.Len(t, msgs, 1, "#%d", i)
@@ -2422,7 +2422,7 @@ func TestSendAppendForProgressSnapshot(t *testing.T) {
 	r.trk.Progress[2].BecomeSnapshot(10)
 
 	for i := 0; i < 10; i++ {
-		mustAppendEntry(r, pb.Entry{Data: []byte("somedata")})
+		mustAppendEntry(r, &pb.Entry{Data: []byte("somedata")})
 		r.sendAppend(2)
 		msgs := r.readMessages()
 		assert.Empty(t, msgs, "#%d", i)
@@ -2683,7 +2683,7 @@ func TestIgnoreProvidingSnap(t *testing.T) {
 	sm.trk.Progress[2].Next = sm.raftLog.firstIndex() - 1
 	sm.trk.Progress[2].RecentActive = false
 
-	sm.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("somedata")}})})
+	sm.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
 
 	msgs := sm.readMessages()
 	assert.Empty(t, msgs)
@@ -2712,7 +2712,7 @@ func TestSlowNodeRestore(t *testing.T) {
 
 	nt.isolate(3)
 	for j := 0; j <= 100; j++ {
-		nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{}})})
+		nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{}}})
 	}
 	lead := nt.peers[1].(*raft)
 	nextEnts(lead, nt.storage[1])
@@ -2730,12 +2730,12 @@ func TestSlowNodeRestore(t *testing.T) {
 	}
 
 	// trigger a snapshot
-	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{}})})
+	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{}}})
 
 	follower := nt.peers[3].(*raft)
 
 	// trigger a commit
-	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{}})})
+	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{}}})
 	assert.Equal(t, lead.raftLog.committed, follower.raftLog.committed)
 }
 
@@ -2747,7 +2747,7 @@ func TestStepConfig(t *testing.T) {
 	r.becomeCandidate()
 	r.becomeLeader()
 	index := r.raftLog.lastIndex()
-	r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Type: pb.EntryConfChange.Enum()}})})
+	r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Type: pb.EntryConfChange.Enum()}}})
 	assert.Equal(t, index+1, r.raftLog.lastIndex())
 	assert.Equal(t, index+1, r.pendingConfIndex)
 }
@@ -2760,11 +2760,11 @@ func TestStepIgnoreConfig(t *testing.T) {
 	r := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1, 2)))
 	r.becomeCandidate()
 	r.becomeLeader()
-	r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Type: pb.EntryConfChange.Enum()}})})
+	r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Type: pb.EntryConfChange.Enum()}}})
 	index := r.raftLog.lastIndex()
 	pendingConfIndex := r.pendingConfIndex
-	r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Type: pb.EntryConfChange.Enum()}})})
-	wents := []pb.Entry{{Type: pb.EntryNormal.Enum(), Term: new(uint64(1)), Index: new(uint64(3)), Data: nil}}
+	r.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Type: pb.EntryConfChange.Enum()}}})
+	wents := []*pb.Entry{{Type: pb.EntryNormal.Enum(), Term: new(uint64(1)), Index: new(uint64(3)), Data: nil}}
 	ents, err := r.raftLog.entries(index+1, noLimit)
 	require.NoError(t, err)
 	assert.Equal(t, wents, ents)
@@ -2784,7 +2784,7 @@ func TestNewLeaderPendingConfig(t *testing.T) {
 	for i, tt := range tests {
 		r := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1, 2)))
 		if tt.addEntry {
-			mustAppendEntry(r, pb.Entry{Type: pb.EntryNormal.Enum()})
+			mustAppendEntry(r, &pb.Entry{Type: pb.EntryNormal.Enum()})
 		}
 		r.becomeCandidate()
 		r.becomeLeader()
@@ -2969,7 +2969,7 @@ func TestCommitAfterRemoveNode(t *testing.T) {
 	require.NoError(t, err)
 	r.Step(pb.Message{
 		Type:    pb.MsgProp.Enum(),
-		Entries: pb.EntrySliceToPointers([]pb.Entry{{Type: pb.EntryConfChange.Enum(), Data: ccData}}),
+		Entries: []*pb.Entry{{Type: pb.EntryConfChange.Enum(), Data: ccData}},
 	})
 
 	// Stabilize the log and make sure nothing is committed yet.
@@ -2979,7 +2979,7 @@ func TestCommitAfterRemoveNode(t *testing.T) {
 	// While the config change is pending, make another proposal.
 	r.Step(pb.Message{
 		Type:    pb.MsgProp.Enum(),
-		Entries: pb.EntrySliceToPointers([]pb.Entry{{Type: pb.EntryNormal.Enum(), Data: []byte("hello")}}),
+		Entries: []*pb.Entry{{Type: pb.EntryNormal.Enum(), Data: []byte("hello")}},
 	})
 
 	// Node 2 acknowledges the config change, committing it.
@@ -3019,7 +3019,7 @@ func TestLeaderTransferToUpToDateNode(t *testing.T) {
 	checkLeaderTransferState(t, lead, StateFollower, 2)
 
 	// After some log replication, transfer leadership back to 1.
-	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{}})})
+	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{}}})
 
 	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(2)), Type: pb.MsgTransferLeader.Enum()})
 
@@ -3045,7 +3045,7 @@ func TestLeaderTransferToUpToDateNodeFromFollower(t *testing.T) {
 	checkLeaderTransferState(t, lead, StateFollower, 2)
 
 	// After some log replication, transfer leadership back to 1.
-	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{}})})
+	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{}}})
 
 	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgTransferLeader.Enum()})
 
@@ -3080,7 +3080,7 @@ func TestLeaderTransferWithCheckQuorum(t *testing.T) {
 	checkLeaderTransferState(t, lead, StateFollower, 2)
 
 	// After some log replication, transfer leadership back to 1.
-	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{}})})
+	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{}}})
 
 	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(2)), Type: pb.MsgTransferLeader.Enum()})
 
@@ -3093,7 +3093,7 @@ func TestLeaderTransferToSlowFollower(t *testing.T) {
 	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgHup.Enum()})
 
 	nt.isolate(3)
-	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{}})})
+	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{}}})
 
 	nt.recover()
 	lead := nt.peers[1].(*raft)
@@ -3111,7 +3111,7 @@ func TestLeaderTransferAfterSnapshot(t *testing.T) {
 
 	nt.isolate(3)
 
-	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{}})})
+	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{}}})
 	lead := nt.peers[1].(*raft)
 	nextEnts(lead, nt.storage[1])
 	nt.storage[1].CreateSnapshot(lead.raftLog.applied, &pb.ConfState{Voters: lead.trk.VoterNodes()}, nil)
@@ -3206,8 +3206,8 @@ func TestLeaderTransferIgnoreProposal(t *testing.T) {
 	nt.send(pb.Message{From: new(uint64(3)), To: new(uint64(1)), Type: pb.MsgTransferLeader.Enum()})
 	require.Equal(t, uint64(3), lead.leadTransferee)
 
-	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{}})})
-	err := lead.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{}})})
+	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{}}})
+	err := lead.Step(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{}}})
 	require.Equal(t, ErrProposalDropped, err)
 
 	require.Equal(t, uint64(1), lead.trk.Progress[1].Match)
@@ -3574,7 +3574,7 @@ func newPreVoteMigrationCluster(t *testing.T) *network {
 
 	// Cause a network partition to isolate n3.
 	nt.isolate(3)
-	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: pb.EntrySliceToPointers([]pb.Entry{{Data: []byte("some data")}})})
+	nt.send(pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("some data")}}})
 	nt.send(pb.Message{From: new(uint64(3)), To: new(uint64(3)), Type: pb.MsgHup.Enum()})
 	nt.send(pb.Message{From: new(uint64(3)), To: new(uint64(3)), Type: pb.MsgHup.Enum()})
 
@@ -3681,7 +3681,7 @@ func testConfChangeCheckBeforeCampaign(t *testing.T, v2 bool) {
 		From:    new(uint64(1)),
 		To:      new(uint64(1)),
 		Type:    pb.MsgProp.Enum(),
-		Entries: pb.EntrySliceToPointers([]pb.Entry{{Type: ty.Enum(), Data: ccData}}),
+		Entries: []*pb.Entry{{Type: ty.Enum(), Data: ccData}},
 	})
 
 	// Trigger campaign in node 2
@@ -3730,13 +3730,13 @@ func TestConfChangeV2CheckBeforeCampaign(t *testing.T) {
 
 func TestFastLogRejection(t *testing.T) {
 	tests := []struct {
-		leaderLog       []pb.Entry // Logs on the leader
-		followerLog     []pb.Entry // Logs on the follower
-		followerCompact uint64     // Index at which the follower log is compacted.
-		rejectHintTerm  uint64     // Expected term included in rejected MsgAppResp.
-		rejectHintIndex uint64     // Expected index included in rejected MsgAppResp.
-		nextAppendTerm  uint64     // Expected term when leader appends after rejected.
-		nextAppendIndex uint64     // Expected index when leader appends after rejected.
+		leaderLog       []*pb.Entry // Logs on the leader
+		followerLog     []*pb.Entry // Logs on the follower
+		followerCompact uint64      // Index at which the follower log is compacted.
+		rejectHintTerm  uint64      // Expected term included in rejected MsgAppResp.
+		rejectHintIndex uint64      // Expected index included in rejected MsgAppResp.
+		nextAppendTerm  uint64      // Expected term when leader appends after rejected.
+		nextAppendIndex uint64      // Expected index when leader appends after rejected.
 	}{
 		// This case tests that leader can find the conflict index quickly.
 		// Firstly leader appends (type=MsgApp,index=7,logTerm=4, entries=...);
@@ -3900,7 +3900,7 @@ func TestFastLogRejection(t *testing.T) {
 func entsWithConfig(configFunc func(*Config), terms ...uint64) *raft {
 	storage := NewMemoryStorage()
 	for i, term := range terms {
-		storage.Append([]pb.Entry{{Index: new(uint64(i + 1)), Term: new(term)}})
+		storage.Append([]*pb.Entry{{Index: new(uint64(i + 1)), Term: new(term)}})
 	}
 	cfg := newTestConfig(1, 5, 1, storage)
 	if configFunc != nil {
@@ -3936,10 +3936,10 @@ func TestLogReplicationWithReorderedMessage(t *testing.T) {
 	r2 := newTestRaft(2, 10, 1, newTestMemoryStorage(withPeers(1, 2)))
 
 	// r1 sends 2 MsgApp messages to r2.
-	mustAppendEntry(r1, pb.Entry{Data: []byte("somedata")})
+	mustAppendEntry(r1, &pb.Entry{Data: []byte("somedata")})
 	r1.sendAppend(2)
 	req1 := expectOneMessage(t, r1)
-	mustAppendEntry(r1, pb.Entry{Data: []byte("somedata")})
+	mustAppendEntry(r1, &pb.Entry{Data: []byte("somedata")})
 	r1.sendAppend(2)
 	req2 := expectOneMessage(t, r1)
 

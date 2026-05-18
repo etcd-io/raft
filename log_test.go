@@ -26,7 +26,7 @@ import (
 func TestFindConflict(t *testing.T) {
 	previousEnts := index(1).terms(1, 2, 3)
 	tests := []struct {
-		ents      []pb.Entry
+		ents      []*pb.Entry
 		wconflict uint64
 	}{
 		// no conflict, empty ent
@@ -57,7 +57,7 @@ func TestFindConflict(t *testing.T) {
 
 func TestFindConflictByTerm(t *testing.T) {
 	for _, tt := range []struct {
-		ents  []pb.Entry // ents[0] contains the (index, term) of the snapshot
+		ents  []*pb.Entry // ents[0] contains the (index, term) of the snapshot
 		index uint64
 		term  uint64
 		want  uint64
@@ -138,9 +138,9 @@ func TestIsUpToDate(t *testing.T) {
 func TestAppend(t *testing.T) {
 	previousEnts := index(1).terms(1, 2)
 	tests := []struct {
-		ents      []pb.Entry
+		ents      []*pb.Entry
 		windex    uint64
-		wents     []pb.Entry
+		wents     []*pb.Entry
 		wunstable uint64
 	}{
 		{
@@ -205,7 +205,7 @@ func TestLogMaybeAppend(t *testing.T) {
 	tests := []struct {
 		prev      entryID
 		committed uint64
-		ents      []pb.Entry
+		ents      []*pb.Entry
 
 		wlasti  uint64
 		wappend bool
@@ -353,7 +353,7 @@ func TestCompactionSideEffects(t *testing.T) {
 	require.Equal(t, uint64(751), unstableEnts[0].GetIndex())
 
 	prev := raftLog.lastIndex()
-	raftLog.append(pb.Entry{Index: new(raftLog.lastIndex() + 1), Term: new(raftLog.lastIndex() + 1)})
+	raftLog.append(&pb.Entry{Index: new(raftLog.lastIndex() + 1), Term: new(raftLog.lastIndex() + 1)})
 	require.Equal(t, prev+1, raftLog.lastIndex())
 
 	ents, err := raftLog.entries(raftLog.lastIndex(), noLimit)
@@ -426,7 +426,7 @@ func TestNextCommittedEnts(t *testing.T) {
 		allowUnstable bool
 		paused        bool
 		snap          bool
-		wents         []pb.Entry
+		wents         []*pb.Entry
 	}{
 		{applied: 3, applying: 3, allowUnstable: true, wents: ents[:2]},
 		{applied: 3, applying: 4, allowUnstable: true, wents: ents[1:2]},
@@ -574,7 +574,7 @@ func TestNextUnstableEnts(t *testing.T) {
 	previousEnts := index(1).terms(1, 2)
 	tests := []struct {
 		unstable uint64
-		wents    []pb.Entry
+		wents    []*pb.Entry
 	}{
 		{3, nil},
 		{1, previousEnts},
@@ -592,7 +592,7 @@ func TestNextUnstableEnts(t *testing.T) {
 
 			ents := raftLog.nextUnstableEnts()
 			if l := len(ents); l > 0 {
-				raftLog.stableTo(pbEntryID(&ents[l-1]))
+				raftLog.stableTo(pbEntryID(ents[l-1]))
 			}
 			require.Equal(t, tt.wents, ents)
 			require.Equal(t, previousEnts[len(previousEnts)-1].GetIndex()+1, raftLog.unstable.offset)
@@ -654,7 +654,7 @@ func TestStableToWithSnap(t *testing.T) {
 	tests := []struct {
 		stablei uint64
 		stablet uint64
-		newEnts []pb.Entry
+		newEnts []*pb.Entry
 
 		wunstable uint64
 	}{
@@ -877,9 +877,9 @@ func TestSlice(t *testing.T) {
 	num := uint64(100)
 	last := offset + num
 	half := offset + num/2
-	halfe := pb.Entry{Index: new(half), Term: new(half), Type: pb.EntryNormal.Enum()}
+	halfe := &pb.Entry{Index: new(half), Term: new(half), Type: pb.EntryNormal.Enum()}
 
-	entries := func(from, to uint64) []pb.Entry {
+	entries := func(from, to uint64) []*pb.Entry {
 		return index(from).termRange(from, to)
 	}
 
@@ -895,7 +895,7 @@ func TestSlice(t *testing.T) {
 		hi  uint64
 		lim uint64
 
-		w      []pb.Entry
+		w      []*pb.Entry
 		wpanic bool
 	}{
 		// ErrCompacted.
@@ -964,7 +964,7 @@ func TestScan(t *testing.T) {
 	num := uint64(20)
 	last := offset + num
 	half := offset + num/2
-	entries := func(from, to uint64) []pb.Entry {
+	entries := func(from, to uint64) []*pb.Entry {
 		return index(from).termRange(from, to)
 	}
 	entrySize := entsSize(entries(half, half+1))
@@ -980,8 +980,8 @@ func TestScan(t *testing.T) {
 	for _, pageSize := range []entryEncodingSize{0, 1, 10, 100, entrySize, entrySize + 1} {
 		for lo := offset + 1; lo < last; lo++ {
 			for hi := lo; hi <= last; hi++ {
-				var got []pb.Entry
-				require.NoError(t, l.scan(lo, hi, pageSize, func(e []pb.Entry) error {
+				var got []*pb.Entry
+				require.NoError(t, l.scan(lo, hi, pageSize, func(e []*pb.Entry) error {
 					got = append(got, e...)
 					require.True(t, len(e) == 1 || entsSize(e) <= pageSize)
 					return nil
@@ -995,7 +995,7 @@ func TestScan(t *testing.T) {
 
 	// Test that the callback error is propagated to the caller.
 	iters := 0
-	require.ErrorIs(t, errBreak, l.scan(offset+1, half, 0, func([]pb.Entry) error {
+	require.ErrorIs(t, errBreak, l.scan(offset+1, half, 0, func([]*pb.Entry) error {
 		iters++
 		if iters == 2 {
 			return errBreak
@@ -1006,7 +1006,7 @@ func TestScan(t *testing.T) {
 
 	// Test that we max out the limit, and not just always return a single entry.
 	// NB: this test works only because the requested range length is even.
-	require.NoError(t, l.scan(offset+1, offset+11, entrySize*2, func(ents []pb.Entry) error {
+	require.NoError(t, l.scan(offset+1, offset+11, entrySize*2, func(ents []*pb.Entry) error {
 		require.Len(t, ents, 2)
 		require.Equal(t, entrySize*2, entsSize(ents))
 		return nil
@@ -1026,11 +1026,11 @@ type index uint64
 
 // terms generates a slice of entries at indices [index, index+len(terms)), with
 // the given terms of each entry. Terms must be non-decreasing.
-func (i index) terms(terms ...uint64) []pb.Entry {
+func (i index) terms(terms ...uint64) []*pb.Entry {
 	index := uint64(i)
-	entries := make([]pb.Entry, 0, len(terms))
+	entries := make([]*pb.Entry, 0, len(terms))
 	for _, term := range terms {
-		entries = append(entries, pb.Entry{Term: new(term), Index: new(index)})
+		entries = append(entries, &pb.Entry{Term: new(term), Index: new(index)})
 		index++
 	}
 	return entries
@@ -1038,11 +1038,11 @@ func (i index) terms(terms ...uint64) []pb.Entry {
 
 // termRange generates a slice of to-from entries, at consecutive indices
 // starting from i, and consecutive terms in [from, to).
-func (i index) termRange(from, to uint64) []pb.Entry {
+func (i index) termRange(from, to uint64) []*pb.Entry {
 	index := uint64(i)
-	entries := make([]pb.Entry, 0, to-from)
+	entries := make([]*pb.Entry, 0, to-from)
 	for term := from; term < to; term++ {
-		entries = append(entries, pb.Entry{Term: new(term), Index: new(index), Type: pb.EntryNormal.Enum()})
+		entries = append(entries, &pb.Entry{Term: new(term), Index: new(index), Type: pb.EntryNormal.Enum()})
 		index++
 	}
 	return entries

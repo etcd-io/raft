@@ -56,7 +56,7 @@ func (env *InteractionEnv) ProcessApplyThread(idx int) error {
 	m.Responses = nil
 	env.Output.WriteString("Processing:\n")
 	env.Output.WriteString(raft.DescribeMessage(m, defaultEntryFormatter) + "\n")
-	if err := processApply(n, raftpb.EntrySliceFromPointers(m.GetEntries())); err != nil {
+	if err := processApply(n, m.GetEntries()); err != nil {
 		return err
 	}
 
@@ -68,7 +68,7 @@ func (env *InteractionEnv) ProcessApplyThread(idx int) error {
 	return nil
 }
 
-func processApply(n *Node, ents []raftpb.Entry) error {
+func processApply(n *Node, ents []*raftpb.Entry) error {
 	for _, ent := range ents {
 		var update []byte
 		var cs *raftpb.ConfState
