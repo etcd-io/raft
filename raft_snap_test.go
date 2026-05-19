@@ -24,7 +24,7 @@ import (
 )
 
 var (
-	testingSnap = pb.Snapshot{
+	testingSnap = &pb.Snapshot{
 		Metadata: &pb.SnapshotMetadata{
 			Index:     new(uint64(11)), // magic number
 			Term:      new(uint64(11)), // magic number

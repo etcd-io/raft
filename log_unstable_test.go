@@ -200,13 +200,13 @@ func TestUnstableRestore(t *testing.T) {
 		snapshotInProgress: true,
 		logger:             raftLogger,
 	}
-	s := pb.Snapshot{Metadata: &pb.SnapshotMetadata{Index: new(uint64(6)), Term: new(uint64(2))}}
+	s := &pb.Snapshot{Metadata: &pb.SnapshotMetadata{Index: new(uint64(6)), Term: new(uint64(2))}}
 	u.restore(s)
 
 	require.Equal(t, s.GetMetadata().GetIndex()+1, u.offset)
 	require.Equal(t, s.GetMetadata().GetIndex()+1, u.offsetInProgress)
 	require.Zero(t, len(u.entries))
-	require.Equal(t, &s, u.snapshot)
+	require.Equal(t, s, u.snapshot)
 	require.False(t, u.snapshotInProgress)
 }
 

@@ -14,7 +14,11 @@
 
 package raft
 
-import pb "go.etcd.io/raft/v3/raftpb"
+import (
+	"github.com/gogo/protobuf/proto"
+
+	pb "go.etcd.io/raft/v3/raftpb"
+)
 
 // unstable contains "unstable" log entries and snapshot state that has
 // not yet been written to Storage. The type serves two roles. First, it
@@ -107,7 +111,8 @@ func (u *unstable) nextSnapshot() *pb.Snapshot {
 	if u.snapshot == nil || u.snapshotInProgress {
 		return nil
 	}
-	return u.snapshot
+	// TODO: Use the standard proto.Clone after switching to protoc-gen-go
+	return proto.Clone(u.snapshot).(*pb.Snapshot)
 }
 
 // acceptInProgress marks all entries and the snapshot, if any, in the unstable
@@ -185,11 +190,12 @@ func (u *unstable) stableSnapTo(i uint64) {
 	}
 }
 
-func (u *unstable) restore(s pb.Snapshot) {
+func (u *unstable) restore(s *pb.Snapshot) {
 	u.offset = s.GetMetadata().GetIndex() + 1
 	u.offsetInProgress = u.offset
 	u.entries = nil
-	u.snapshot = &s
+	// TODO: use the standard proto.Clone after switching to protoc-gen-go
+	u.snapshot = proto.Clone(s).(*pb.Snapshot)
 	u.snapshotInProgress = false
 }
 

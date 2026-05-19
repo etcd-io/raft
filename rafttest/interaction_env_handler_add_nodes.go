@@ -28,8 +28,7 @@ import (
 
 func (env *InteractionEnv) handleAddNodes(t *testing.T, d datadriven.TestData) error {
 	n := firstAsInt(t, d)
-	var snap pb.Snapshot
-	pb.EnsureSnapshot(&snap)
+	snap := pb.EnsureSnapshot(nil)
 	cfg := raftConfigStub()
 	for _, arg := range d.CmdArgs[1:] {
 		for i := range arg.Vals {
@@ -80,10 +79,10 @@ func (env *InteractionEnv) handleAddNodes(t *testing.T, d datadriven.TestData) e
 
 type snapOverrideStorage struct {
 	Storage
-	snapshotOverride func() (pb.Snapshot, error)
+	snapshotOverride func() (*pb.Snapshot, error)
 }
 
-func (s snapOverrideStorage) Snapshot() (pb.Snapshot, error) {
+func (s snapOverrideStorage) Snapshot() (*pb.Snapshot, error) {
 	if s.snapshotOverride != nil {
 		return s.snapshotOverride()
 	}
@@ -94,10 +93,11 @@ var _ raft.Storage = snapOverrideStorage{}
 
 // AddNodes adds n new nodes initialized from the given snapshot (which may be
 // empty), and using the cfg as template. They will be assigned consecutive IDs.
-func (env *InteractionEnv) AddNodes(n int, cfg raft.Config, snap pb.Snapshot) error {
-	emptySnapshot := &pb.Snapshot{}
-	pb.EnsureSnapshot(emptySnapshot)
-	bootstrap := !reflect.DeepEqual(&snap, emptySnapshot)
+func (env *InteractionEnv) AddNodes(n int, cfg raft.Config, snap *pb.Snapshot) error {
+	emptySnapshot := pb.EnsureSnapshot(nil)
+	snap = pb.EnsureSnapshot(snap)
+	// TODO: use the proto.Equal after switching to the protoc-gen-go
+	bootstrap := !reflect.DeepEqual(snap, emptySnapshot)
 	for i := 0; i < n; i++ {
 		id := uint64(1 + len(env.Nodes))
 		s := snapOverrideStorage{
@@ -108,7 +108,7 @@ func (env *InteractionEnv) AddNodes(n int, cfg raft.Config, snap pb.Snapshot) er
 			// give you some fixed snapshot and also the snapshot changes
 			// whenever you compact the logs and vice versa, so it's all a bit
 			// awkward to use.
-			snapshotOverride: func() (pb.Snapshot, error) {
+			snapshotOverride: func() (*pb.Snapshot, error) {
 				snaps := env.Nodes[int(id-1)].History
 				return snaps[len(snaps)-1], nil
 			},
@@ -160,7 +160,7 @@ func (env *InteractionEnv) AddNodes(n int, cfg raft.Config, snap pb.Snapshot) er
 			// us to apply snapshots, append entries, and update the HardState.
 			Storage: s,
 			Config:  &cfg,
-			History: []pb.Snapshot{snap},
+			History: []*pb.Snapshot{snap},
 		}
 		env.Nodes = append(env.Nodes, node)
 	}

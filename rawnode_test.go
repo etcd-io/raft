@@ -81,7 +81,7 @@ func TestRawNodeStep(t *testing.T) {
 			s := NewMemoryStorage()
 			s.SetHardState(pb.HardState{Term: new(uint64(1)), Commit: new(uint64(1))})
 			s.Append([]*pb.Entry{{Term: new(uint64(1)), Index: new(uint64(1))}})
-			require.NoError(t, s.ApplySnapshot(pb.Snapshot{Metadata: &pb.SnapshotMetadata{
+			require.NoError(t, s.ApplySnapshot(&pb.Snapshot{Metadata: &pb.SnapshotMetadata{
 				ConfState: &pb.ConfState{
 					Voters: []uint64{1},
 				},
@@ -595,7 +595,7 @@ func TestRawNodeStart(t *testing.T) {
 	// index 10, so empty followers (at index 1) always need a snapshot first.
 	type appenderStorage interface {
 		Storage
-		ApplySnapshot(pb.Snapshot) error
+		ApplySnapshot(*pb.Snapshot) error
 	}
 	bootstrap := func(storage appenderStorage, cs pb.ConfState) error {
 		require.NotEmpty(t, cs.Voters, "no voters specified")
@@ -618,7 +618,7 @@ func TestRawNodeStart(t *testing.T) {
 		require.True(t, IsEmptyHardState(hs))
 		require.Empty(t, ics.Voters)
 
-		snap := pb.Snapshot{Metadata: &pb.SnapshotMetadata{
+		snap := &pb.Snapshot{Metadata: &pb.SnapshotMetadata{
 			Index:     new(uint64(1)),
 			Term:      new(uint64(0)),
 			ConfState: &cs,
@@ -682,7 +682,7 @@ func TestRawNodeRestart(t *testing.T) {
 }
 
 func TestRawNodeRestartFromSnapshot(t *testing.T) {
-	snap := pb.Snapshot{
+	snap := &pb.Snapshot{
 		Metadata: &pb.SnapshotMetadata{
 			ConfState: &pb.ConfState{Voters: []uint64{1, 2}},
 			Index:     new(uint64(2)),

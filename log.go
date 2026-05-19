@@ -17,6 +17,8 @@ package raft
 import (
 	"fmt"
 
+	"github.com/gogo/protobuf/proto"
+
 	pb "go.etcd.io/raft/v3/raftpb"
 )
 
@@ -288,9 +290,10 @@ func (l *raftLog) hasNextOrInProgressSnapshot() bool {
 	return l.unstable.snapshot != nil
 }
 
-func (l *raftLog) snapshot() (pb.Snapshot, error) {
+func (l *raftLog) snapshot() (*pb.Snapshot, error) {
 	if l.unstable.snapshot != nil {
-		return *l.unstable.snapshot, nil
+		// TODO: Use the standard proto.Clone after switching to protoc-gen-go
+		return proto.Clone(l.unstable.snapshot).(*pb.Snapshot), nil
 	}
 	return l.storage.Snapshot()
 }
@@ -461,7 +464,7 @@ func (l *raftLog) maybeCommit(at entryID) bool {
 	return false
 }
 
-func (l *raftLog) restore(s pb.Snapshot) {
+func (l *raftLog) restore(s *pb.Snapshot) {
 	l.logger.Infof("log [%s] starts to restore snapshot [index: %d, term: %d]", l, s.GetMetadata().GetIndex(), s.GetMetadata().GetTerm())
 	l.committed = s.GetMetadata().GetIndex()
 	l.unstable.restore(s)

@@ -84,7 +84,7 @@ type Ready struct {
 	// If async storage writes are enabled, this field does not need to be acted
 	// on immediately. It will be reflected in a MsgStorageAppend message in the
 	// Messages slice.
-	Snapshot pb.Snapshot
+	Snapshot *pb.Snapshot
 
 	// CommittedEntries specifies entries to be committed to a
 	// store/state-machine. These have previously been appended to stable
@@ -124,7 +124,7 @@ func IsEmptyHardState(st pb.HardState) bool {
 }
 
 // IsEmptySnap returns true if the given Snapshot is empty.
-func IsEmptySnap(sp pb.Snapshot) bool {
+func IsEmptySnap(sp *pb.Snapshot) bool {
 	return sp.GetMetadata().GetIndex() == 0
 }
 
