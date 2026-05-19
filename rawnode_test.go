@@ -618,12 +618,11 @@ func TestRawNodeStart(t *testing.T) {
 		require.True(t, IsEmptyHardState(hs))
 		require.Empty(t, ics.Voters)
 
-		meta := pb.SnapshotMetadata{
+		snap := pb.Snapshot{Metadata: &pb.SnapshotMetadata{
 			Index:     new(uint64(1)),
 			Term:      new(uint64(0)),
 			ConfState: &cs,
-		}
-		snap := pb.Snapshot{Metadata: &meta}
+		}}
 		return storage.ApplySnapshot(snap)
 	}
 
