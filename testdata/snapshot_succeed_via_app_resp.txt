@@ -6,21 +6,11 @@
 #
 # See https://github.com/etcd-io/etcd/pull/10308 for additional background.
 
-# Turn off output during the setup of the test.
-log-level none
-----
-ok
-
 # Start with two nodes, but the config already has a third.
-add-nodes 2 voters=(1,2,3) index=10
-----
-ok
-
-campaign 1
-----
-ok
-
 # Fully replicate everything, including the leader's empty index.
+log-level none
+add-nodes 2 voters=(1,2,3) index=10
+campaign 1
 stabilize
 ----
 ok
@@ -34,11 +24,7 @@ deliver-msgs drop=(3)
 ----
 ok
 
-# Show the Raft log messages from now on.
 log-level debug
-----
-ok
-
 status 1
 ----
 1: StateReplicate match=11 next=12
@@ -56,9 +42,6 @@ INFO newRaft 3 [peers: [], term: 0, commit: 0, applied: 0, lastindex: 0, lastter
 # Time passes on the leader so that it will try the previously missing follower
 # again.
 tick-heartbeat 1
-----
-ok
-
 process-ready 1
 ----
 Ready MustSync=false:

@@ -24,9 +24,9 @@ import (
 	"go.etcd.io/raft/v3/raftpb"
 )
 
-func (env *InteractionEnv) handleStabilize(t *testing.T, d datadriven.TestData) error {
-	idxs := nodeIdxs(t, d) // skips key=value args
-	for _, arg := range d.CmdArgs {
+func (env *InteractionEnv) handleStabilize(t *testing.T, args []datadriven.CmdArg) error {
+	idxs := nodeIdxs(t, args) // skips key=value args
+	for _, arg := range args {
 		for i := range arg.Vals {
 			switch arg.Key {
 			case "log-level":

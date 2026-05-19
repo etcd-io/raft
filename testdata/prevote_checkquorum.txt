@@ -4,26 +4,14 @@
 # timeout interval, or if a quorum of voters are precandidates.
 
 log-level none
-----
-ok
-
 add-nodes 3 voters=(1,2,3) index=10 prevote=true checkquorum=true
-----
-ok
-
 campaign 1
-----
-ok
-
 stabilize
 ----
 ok
 
-log-level debug
-----
-ok
-
 # 2 should fail to campaign, leaving 1's leadership alone.
+log-level debug
 campaign 2
 ----
 INFO 2 is starting a new election at term 1
@@ -51,13 +39,7 @@ stabilize
 # If 2 hasn't heard from the leader in the past election timeout, it should
 # grant prevotes, allowing 3 to hold an election.
 set-randomized-election-timeout 2 timeout=5
-----
-ok
-
 tick-election 2
-----
-ok
-
 campaign 3
 ----
 INFO 3 is starting a new election at term 1

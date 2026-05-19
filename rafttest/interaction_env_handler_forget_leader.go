@@ -20,8 +20,8 @@ import (
 	"github.com/cockroachdb/datadriven"
 )
 
-func (env *InteractionEnv) handleForgetLeader(t *testing.T, d datadriven.TestData) error {
-	idx := firstAsNodeIdx(t, d)
+func (env *InteractionEnv) handleForgetLeader(t *testing.T, args []datadriven.CmdArg) error {
+	idx := firstAsNodeIdx(t, args)
 	env.ForgetLeader(idx)
 	return nil
 }

@@ -20,12 +20,12 @@ import (
 	"github.com/cockroachdb/datadriven"
 )
 
-func (env *InteractionEnv) handlePropose(t *testing.T, d datadriven.TestData) error {
-	idx := firstAsNodeIdx(t, d)
-	if len(d.CmdArgs) != 2 || len(d.CmdArgs[1].Vals) > 0 {
-		t.Fatalf("expected exactly one key with no vals: %+v", d.CmdArgs[1:])
+func (env *InteractionEnv) handlePropose(t *testing.T, args []datadriven.CmdArg) error {
+	idx := firstAsNodeIdx(t, args)
+	if len(args) != 2 || len(args[1].Vals) > 0 {
+		t.Fatalf("expected exactly one key with no vals: %+v", args[1:])
 	}
-	return env.Propose(idx, []byte(d.CmdArgs[1].Key))
+	return env.Propose(idx, []byte(args[1].Key))
 }
 
 // Propose a regular entry.

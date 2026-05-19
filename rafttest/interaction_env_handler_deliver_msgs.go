@@ -25,10 +25,10 @@ import (
 	"go.etcd.io/raft/v3/raftpb"
 )
 
-func (env *InteractionEnv) handleDeliverMsgs(t *testing.T, d datadriven.TestData) error {
+func (env *InteractionEnv) handleDeliverMsgs(t *testing.T, args []datadriven.CmdArg) error {
 	var typ raftpb.MessageType = -1
 	var rs []Recipient
-	for _, arg := range d.CmdArgs {
+	for _, arg := range args {
 		if len(arg.Vals) == 0 {
 			id, err := strconv.ParseUint(arg.Key, 10, 64)
 			if err != nil {

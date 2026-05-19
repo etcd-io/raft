@@ -20,10 +20,14 @@ import (
 	"github.com/cockroachdb/datadriven"
 )
 
-func (env *InteractionEnv) handleTransferLeadership(t *testing.T, d datadriven.TestData) error {
+func (env *InteractionEnv) handleTransferLeadership(t *testing.T, args []datadriven.CmdArg) error {
 	var from, to uint64
-	d.ScanArgs(t, "from", &from)
-	d.ScanArgs(t, "to", &to)
+	if err := scanArgs(args, "from", &from); err != nil {
+		t.Fatal(err) // FIXME: TestData.Fatalf(t, err)
+	}
+	if err := scanArgs(args, "to", &to); err != nil {
+		t.Fatal(err) // FIXME: TestData.Fatalf(t, err)
+	}
 	if from == 0 || from > uint64(len(env.Nodes)) {
 		t.Fatalf(`expected valid "from" argument`)
 	}

@@ -8,21 +8,10 @@
 # See:
 # https://github.com/etcd-io/etcd/pull/10998
 
-# Turn output off during boilerplate.
+# Bootstrap three nodes, and elect node 1 as leader.
 log-level none
-----
-ok
-
-# Bootstrap three nodes.
 add-nodes 3 voters=(1,2) learners=(3) index=2
-----
-ok
-
-# n1 gets to be leader.
 campaign 1
-----
-ok
-
 stabilize
 ----
 ok
@@ -47,9 +36,6 @@ ok
 # We now pretend that n1 is dead, and n2 is trying to become leader.
 
 log-level debug
-----
-ok
-
 campaign 2
 ----
 INFO 2 is starting a new election at term 1

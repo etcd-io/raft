@@ -20,8 +20,8 @@ import (
 	"github.com/cockroachdb/datadriven"
 )
 
-func (env *InteractionEnv) handleReportUnreachable(t *testing.T, d datadriven.TestData) error {
-	sl := nodeIdxs(t, d)
+func (env *InteractionEnv) handleReportUnreachable(t *testing.T, args []datadriven.CmdArg) error {
+	sl := nodeIdxs(t, args)
 	if len(sl) != 2 {
 		return errors.New("must specify exactly two node indexes: node on which to report, and reported node")
 	}

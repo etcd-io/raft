@@ -21,8 +21,8 @@ import (
 	"github.com/cockroachdb/datadriven"
 )
 
-func (env *InteractionEnv) handleLogLevel(d datadriven.TestData) error {
-	return env.LogLevel(d.CmdArgs[0].Key)
+func (env *InteractionEnv) handleLogLevel(args []datadriven.CmdArg) error {
+	return env.LogLevel(args[0].Key)
 }
 
 func (env *InteractionEnv) LogLevel(name string) error {

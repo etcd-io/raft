@@ -6,30 +6,15 @@
 # and is not enforced with PreVote alone.
 
 log-level none
-----
-ok
-
 add-nodes 3 voters=(1,2,3) index=10 prevote=true
-----
-ok
-
 campaign 1
-----
-ok
-
 stabilize
 ----
 ok
 
-log-level debug
-----
-ok
-
 # Propose a command on 1 and replicate it to 2.
+log-level debug
 propose 1 prop_1
-----
-ok
-
 process-ready 1
 ----
 Ready MustSync=true:
