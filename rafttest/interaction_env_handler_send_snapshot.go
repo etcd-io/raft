@@ -43,7 +43,7 @@ func (env *InteractionEnv) SendSnapshot(fromIdx, toIdx int) error {
 		Term:     new(fromStatus.GetTerm()),
 		From:     new(from),
 		To:       new(to),
-		Snapshot: &snap,
+		Snapshot: snap,
 	}
 	env.Messages = append(env.Messages, msg)
 	_, _ = env.Output.WriteString(raft.DescribeMessage(msg, nil))

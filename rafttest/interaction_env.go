@@ -41,7 +41,7 @@ type Node struct {
 	Config     *raft.Config
 	AppendWork []pb.Message // []MsgStorageAppend
 	ApplyWork  []pb.Message // []MsgStorageApply
-	History    []pb.Snapshot
+	History    []*pb.Snapshot
 }
 
 // InteractionEnv facilitates testing of complex interactions between the
@@ -85,7 +85,7 @@ func (env *InteractionEnv) withIndent(f func()) {
 type Storage interface {
 	raft.Storage
 	SetHardState(state pb.HardState) error
-	ApplySnapshot(pb.Snapshot) error
+	ApplySnapshot(*pb.Snapshot) error
 	Compact(newFirstIndex uint64) error
 	Append([]*pb.Entry) error
 }

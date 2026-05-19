@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/cockroachdb/datadriven"
+	"github.com/gogo/protobuf/proto"
 
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
@@ -62,11 +63,14 @@ func (env *InteractionEnv) ProcessAppendThread(idx int) error {
 		Vote:   new(m.GetVote()),
 		Commit: new(m.GetCommit()),
 	}
-	var snap raftpb.Snapshot
-	if m.GetSnapshot() != nil {
-		snap = *m.GetSnapshot()
+	snap := m.GetSnapshot()
+	var cloned *raftpb.Snapshot
+	if snap != nil {
+		// TODO: use the standard proto.Clone after switching to protoc-gen-go
+		cloned = proto.Clone(snap).(*raftpb.Snapshot)
 	}
-	if err := processAppend(n, st, m.GetEntries(), snap); err != nil {
+	cloned = raftpb.EnsureSnapshot(cloned)
+	if err := processAppend(n, st, m.GetEntries(), cloned); err != nil {
 		return err
 	}
 
@@ -78,7 +82,7 @@ func (env *InteractionEnv) ProcessAppendThread(idx int) error {
 	return nil
 }
 
-func processAppend(n *Node, st raftpb.HardState, ents []*raftpb.Entry, snap raftpb.Snapshot) error {
+func processAppend(n *Node, st raftpb.HardState, ents []*raftpb.Entry, snap *raftpb.Snapshot) error {
 	// TODO(tbg): the order of operations here is not necessarily safe. See:
 	// https://github.com/etcd-io/etcd/pull/10861
 	s := n.Storage

@@ -2241,7 +2241,7 @@ func TestLeaderAppResp(t *testing.T) {
 func TestBcastBeat(t *testing.T) {
 	offset := uint64(1000)
 	// make a state machine with log.offset = 1000
-	s := pb.Snapshot{
+	s := &pb.Snapshot{
 		Metadata: &pb.SnapshotMetadata{
 			Index:     new(offset),
 			Term:      new(uint64(1)),
@@ -2450,7 +2450,7 @@ func TestRecvMsgUnreachable(t *testing.T) {
 }
 
 func TestRestore(t *testing.T) {
-	s := pb.Snapshot{
+	s := &pb.Snapshot{
 		Metadata: &pb.SnapshotMetadata{
 			Index:     new(uint64(11)), // magic number
 			Term:      new(uint64(11)), // magic number
@@ -2475,7 +2475,7 @@ func TestRestore(t *testing.T) {
 
 // TestRestoreWithLearner restores a snapshot which contains learners.
 func TestRestoreWithLearner(t *testing.T) {
-	s := pb.Snapshot{
+	s := &pb.Snapshot{
 		Metadata: &pb.SnapshotMetadata{
 			Index:     new(uint64(11)), // magic number
 			Term:      new(uint64(11)), // magic number
@@ -2508,7 +2508,7 @@ func TestRestoreWithLearner(t *testing.T) {
 
 // TestRestoreWithVotersOutgoing tests if outgoing voter can receive and apply snapshot correctly.
 func TestRestoreWithVotersOutgoing(t *testing.T) {
-	s := pb.Snapshot{
+	s := &pb.Snapshot{
 		Metadata: &pb.SnapshotMetadata{
 			Index:     new(uint64(11)), // magic number
 			Term:      new(uint64(11)), // magic number
@@ -2544,7 +2544,7 @@ func TestRestoreWithVotersOutgoing(t *testing.T) {
 // a learner. In fact, the node has to accept that snapshot, or it is
 // permanently cut off from the Raft log.
 func TestRestoreVoterToLearner(t *testing.T) {
-	s := pb.Snapshot{
+	s := &pb.Snapshot{
 		Metadata: &pb.SnapshotMetadata{
 			Index:     new(uint64(11)), // magic number
 			Term:      new(uint64(11)), // magic number
@@ -2562,7 +2562,7 @@ func TestRestoreVoterToLearner(t *testing.T) {
 // TestRestoreLearnerPromotion checks that a learner can become to a follower after
 // restoring snapshot.
 func TestRestoreLearnerPromotion(t *testing.T) {
-	s := pb.Snapshot{
+	s := &pb.Snapshot{
 		Metadata: &pb.SnapshotMetadata{
 			Index:     new(uint64(11)), // magic number
 			Term:      new(uint64(11)), // magic number
@@ -2581,7 +2581,7 @@ func TestRestoreLearnerPromotion(t *testing.T) {
 // TestLearnerReceiveSnapshot tests that a learner can receive a snpahost from leader
 func TestLearnerReceiveSnapshot(t *testing.T) {
 	// restore the state machine from a snapshot so it has a compacted log and a snapshot
-	s := pb.Snapshot{
+	s := &pb.Snapshot{
 		Metadata: &pb.SnapshotMetadata{
 			Index:     new(uint64(11)), // magic number
 			Term:      new(uint64(11)), // magic number
@@ -2595,7 +2595,7 @@ func TestLearnerReceiveSnapshot(t *testing.T) {
 
 	n1.restore(s)
 	snap := n1.raftLog.nextUnstableSnapshot()
-	store.ApplySnapshot(*snap)
+	store.ApplySnapshot(snap)
 	n1.appliedSnap(snap)
 
 	nt := newNetwork(n1, n2)
@@ -2618,7 +2618,7 @@ func TestRestoreIgnoreSnapshot(t *testing.T) {
 	sm.raftLog.append(previousEnts...)
 	sm.raftLog.commitTo(commit)
 
-	s := pb.Snapshot{
+	s := &pb.Snapshot{
 		Metadata: &pb.SnapshotMetadata{
 			Index:     new(commit),
 			Term:      new(uint64(1)),
@@ -2638,7 +2638,7 @@ func TestRestoreIgnoreSnapshot(t *testing.T) {
 
 func TestProvideSnap(t *testing.T) {
 	// restore the state machine from a snapshot so it has a compacted log and a snapshot
-	s := pb.Snapshot{
+	s := &pb.Snapshot{
 		Metadata: &pb.SnapshotMetadata{
 			Index:     new(uint64(11)), // magic number
 			Term:      new(uint64(11)), // magic number
@@ -2664,7 +2664,7 @@ func TestProvideSnap(t *testing.T) {
 
 func TestIgnoreProvidingSnap(t *testing.T) {
 	// restore the state machine from a snapshot so it has a compacted log and a snapshot
-	s := pb.Snapshot{
+	s := &pb.Snapshot{
 		Metadata: &pb.SnapshotMetadata{
 			Index:     new(uint64(11)), // magic number
 			Term:      new(uint64(11)), // magic number
@@ -3137,7 +3137,7 @@ func TestLeaderTransferAfterSnapshot(t *testing.T) {
 	// Apply snapshot and resume progress
 	follower := nt.peers[3].(*raft)
 	snap := follower.raftLog.nextUnstableSnapshot()
-	nt.storage[3].ApplySnapshot(*snap)
+	nt.storage[3].ApplySnapshot(snap)
 	follower.appliedSnap(snap)
 	nt.msgHook = nil
 	nt.send(filtered)

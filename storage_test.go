@@ -153,10 +153,10 @@ func TestStorageCreateSnapshot(t *testing.T) {
 		i uint64
 
 		werr  error
-		wsnap pb.Snapshot
+		wsnap *pb.Snapshot
 	}{
-		{4, nil, pb.Snapshot{Data: data, Metadata: &pb.SnapshotMetadata{Index: new(uint64(4)), Term: new(uint64(4)), ConfState: &pb.ConfState{Voters: []uint64{1, 2, 3}}}}},
-		{5, nil, pb.Snapshot{Data: data, Metadata: &pb.SnapshotMetadata{Index: new(uint64(5)), Term: new(uint64(5)), ConfState: &pb.ConfState{Voters: []uint64{1, 2, 3}}}}},
+		{4, nil, &pb.Snapshot{Data: data, Metadata: &pb.SnapshotMetadata{Index: new(uint64(4)), Term: new(uint64(4)), ConfState: &pb.ConfState{Voters: []uint64{1, 2, 3}}}}},
+		{5, nil, &pb.Snapshot{Data: data, Metadata: &pb.SnapshotMetadata{Index: new(uint64(5)), Term: new(uint64(5)), ConfState: &pb.ConfState{Voters: []uint64{1, 2, 3}}}}},
 	}
 
 	for _, tt := range tests {
@@ -232,19 +232,19 @@ func TestStorageApplySnapshot(t *testing.T) {
 
 	testCases := []struct {
 		name          string
-		snapshots     []pb.Snapshot
+		snapshots     []*pb.Snapshot
 		expectedError error
 	}{
 		{
 			name: "normal case",
-			snapshots: []pb.Snapshot{
+			snapshots: []*pb.Snapshot{
 				{Data: data, Metadata: &pb.SnapshotMetadata{Index: new(uint64(4)), Term: new(uint64(4)), ConfState: cs}},
 			},
 			expectedError: nil,
 		},
 		{
 			name: "snapshot out of date",
-			snapshots: []pb.Snapshot{
+			snapshots: []*pb.Snapshot{
 				{Data: data, Metadata: &pb.SnapshotMetadata{Index: new(uint64(4)), Term: new(uint64(4)), ConfState: cs}},
 				{Data: data, Metadata: &pb.SnapshotMetadata{Index: new(uint64(3)), Term: new(uint64(3)), ConfState: cs}},
 			},
@@ -252,7 +252,7 @@ func TestStorageApplySnapshot(t *testing.T) {
 		},
 		{
 			name: "bootstrap with confState",
-			snapshots: []pb.Snapshot{
+			snapshots: []*pb.Snapshot{
 				{Data: data, Metadata: &pb.SnapshotMetadata{ConfState: cs}},
 			},
 			expectedError: nil,

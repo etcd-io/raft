@@ -154,7 +154,7 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 		rd.HardState = hardSt
 	}
 	if r.raftLog.hasNextUnstableSnapshot() {
-		rd.Snapshot = *r.raftLog.nextUnstableSnapshot()
+		rd.Snapshot = r.raftLog.nextUnstableSnapshot()
 	}
 	if len(r.readStates) != 0 {
 		rd.ReadStates = r.readStates
@@ -241,8 +241,7 @@ func newStorageAppendMsg(r *raft, rd Ready) pb.Message {
 		m.Commit = new(rd.GetCommit())
 	}
 	if !IsEmptySnap(rd.Snapshot) {
-		snap := rd.Snapshot
-		m.Snapshot = &snap
+		m.Snapshot = rd.Snapshot
 	}
 	// Attach all messages in msgsAfterAppend as responses to be delivered after
 	// the message is processed, along with a self-directed MsgStorageAppendResp
@@ -359,8 +358,7 @@ func newStorageAppendRespMsg(r *raft, rd Ready) pb.Message {
 		m.LogTerm = new(last.term)
 	}
 	if !IsEmptySnap(rd.Snapshot) {
-		snap := rd.Snapshot
-		m.Snapshot = &snap
+		m.Snapshot = rd.Snapshot
 	}
 	return m
 }
