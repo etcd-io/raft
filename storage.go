@@ -49,7 +49,9 @@ type Storage interface {
 	// TODO(tbg): split this into two interfaces, LogStorage and StateStorage.
 
 	// InitialState returns the saved HardState and ConfState information.
-	InitialState() (pb.HardState, pb.ConfState, error)
+	// The returned HardState may be nil to indicate that no HardState has been
+	// persisted yet; IsEmptyHardState treats nil as empty.
+	InitialState() (*pb.HardState, pb.ConfState, error)
 
 	// Entries returns a slice of consecutive log entries in the range [lo, hi),
 	// starting from lo. The maxSize limits the total size of the log entries
@@ -103,7 +105,7 @@ type MemoryStorage struct {
 	// goroutine.
 	sync.Mutex
 
-	hardState pb.HardState
+	hardState *pb.HardState
 	snapshot  *pb.Snapshot
 	// ents[i] has raft log position i+ms.snapshot.GetMetadata().GetIndex()
 	ents []*pb.Entry
@@ -122,7 +124,7 @@ func NewMemoryStorage() *MemoryStorage {
 }
 
 // InitialState implements the Storage interface.
-func (ms *MemoryStorage) InitialState() (pb.HardState, pb.ConfState, error) {
+func (ms *MemoryStorage) InitialState() (*pb.HardState, pb.ConfState, error) {
 	ms.callStats.initialState++
 	cs := ms.snapshot.GetMetadata().GetConfState()
 	cs = pb.EnsureConfState(cs)
@@ -130,7 +132,7 @@ func (ms *MemoryStorage) InitialState() (pb.HardState, pb.ConfState, error) {
 }
 
 // SetHardState saves the current HardState.
-func (ms *MemoryStorage) SetHardState(st pb.HardState) error {
+func (ms *MemoryStorage) SetHardState(st *pb.HardState) error {
 	ms.Lock()
 	defer ms.Unlock()
 	ms.hardState = st

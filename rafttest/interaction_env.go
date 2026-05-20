@@ -84,7 +84,7 @@ func (env *InteractionEnv) withIndent(f func()) {
 // the Ready handling loop.
 type Storage interface {
 	raft.Storage
-	SetHardState(state pb.HardState) error
+	SetHardState(state *pb.HardState) error
 	ApplySnapshot(*pb.Snapshot) error
 	Compact(newFirstIndex uint64) error
 	Append([]*pb.Entry) error

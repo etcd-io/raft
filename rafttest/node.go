@@ -36,7 +36,7 @@ type node struct {
 	storage *raft.MemoryStorage
 
 	mu    sync.Mutex // guards state
-	state raftpb.HardState
+	state *raftpb.HardState
 }
 
 func startNode(id uint64, peers []raft.Peer, iface iface) *node {

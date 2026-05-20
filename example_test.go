@@ -18,10 +18,10 @@ import (
 	pb "go.etcd.io/raft/v3/raftpb"
 )
 
-func applyToStore(_ []*pb.Entry)     {}
-func sendMessages(_ []*pb.Message)   {}
-func saveStateToDisk(_ pb.HardState) {}
-func saveToDisk(_ []*pb.Entry)       {}
+func applyToStore(_ []*pb.Entry)      {}
+func sendMessages(_ []*pb.Message)    {}
+func saveStateToDisk(_ *pb.HardState) {}
+func saveToDisk(_ []*pb.Entry)        {}
 
 func ExampleNode() {
 	c := &Config{}
@@ -31,7 +31,7 @@ func ExampleNode() {
 	// stuff to n happens in other goroutines
 
 	// the last known state
-	var prev pb.HardState
+	var prev *pb.HardState
 	for {
 		// Ready blocks until there is new state ready.
 		rd := <-n.Ready()
