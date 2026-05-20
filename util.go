@@ -78,7 +78,7 @@ func voteRespMsgType(msgt pb.MessageType) pb.MessageType {
 	}
 }
 
-func DescribeHardState(hs pb.HardState) string {
+func DescribeHardState(hs *pb.HardState) string {
 	var buf strings.Builder
 	fmt.Fprintf(&buf, "Term:%d", hs.GetTerm())
 	if hs.GetVote() != 0 {

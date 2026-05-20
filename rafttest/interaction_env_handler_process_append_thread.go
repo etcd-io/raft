@@ -58,7 +58,7 @@ func (env *InteractionEnv) ProcessAppendThread(idx int) error {
 	m.Responses = nil
 	env.Output.WriteString("Processing:\n")
 	env.Output.WriteString(raft.DescribeMessage(m, defaultEntryFormatter) + "\n")
-	st := raftpb.HardState{
+	st := &raftpb.HardState{
 		Term:   new(m.GetTerm()),
 		Vote:   new(m.GetVote()),
 		Commit: new(m.GetCommit()),
@@ -82,7 +82,7 @@ func (env *InteractionEnv) ProcessAppendThread(idx int) error {
 	return nil
 }
 
-func processAppend(n *Node, st raftpb.HardState, ents []*raftpb.Entry, snap *raftpb.Snapshot) error {
+func processAppend(n *Node, st *raftpb.HardState, ents []*raftpb.Entry, snap *raftpb.Snapshot) error {
 	// TODO(tbg): the order of operations here is not necessarily safe. See:
 	// https://github.com/etcd-io/etcd/pull/10861
 	s := n.Storage

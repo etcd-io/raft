@@ -33,7 +33,7 @@ type Status struct {
 type BasicStatus struct {
 	ID uint64
 
-	pb.HardState
+	*pb.HardState
 	SoftState
 
 	Applied uint64

@@ -37,7 +37,7 @@ type RawNode struct {
 
 	// Mutable fields.
 	prevSoftSt     *SoftState
-	prevHardSt     pb.HardState
+	prevHardSt     *pb.HardState
 	stepsOnAdvance []*pb.Message
 }
 
@@ -189,7 +189,7 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 
 // MustSync returns true if the hard state and count of Raft entries indicate
 // that a synchronous write to persistent storage is required.
-func MustSync(st, prevst pb.HardState, entsnum int) bool {
+func MustSync(st, prevst *pb.HardState, entsnum int) bool {
 	// Persistent state on all servers:
 	// (Updated on stable storage before responding to RPCs)
 	// currentTerm
