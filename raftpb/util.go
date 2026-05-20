@@ -54,31 +54,3 @@ func EnsureSnapshot(s *Snapshot) *Snapshot {
 	s.Metadata = EnsureSnapshotMetadata(s.Metadata)
 	return s
 }
-
-// MessageSliceToPointers converts a slice of Message values to a slice of Message pointers.
-// TODO: remove this function after we switch to use *Message everywhere
-func MessageSliceToPointers(msgs []Message) []*Message {
-	if msgs == nil {
-		return nil
-	}
-	result := make([]*Message, len(msgs))
-	for i := range msgs {
-		result[i] = &msgs[i]
-	}
-	return result
-}
-
-// MessageSliceFromPointers converts a slice of Message pointers to a slice of Message values.
-// TODO: remove this function after we switch to use *Message everywhere
-func MessageSliceFromPointers(msgs []*Message) []Message {
-	if msgs == nil {
-		return nil
-	}
-	result := make([]Message, len(msgs))
-	for i := range msgs {
-		if msgs[i] != nil {
-			result[i] = *msgs[i]
-		}
-	}
-	return result
-}

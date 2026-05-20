@@ -107,7 +107,7 @@ type Ready struct {
 	//
 	// If it contains a MsgSnap message, the application MUST report back to raft
 	// when the snapshot has been received or has failed by calling ReportSnapshot.
-	Messages []pb.Message
+	Messages []*pb.Message
 
 	// MustSync indicates whether the HardState and Entries must be durably
 	// written to disk or if a non-durable write is permissible.
@@ -153,7 +153,7 @@ type Node interface {
 	ProposeConfChange(ctx context.Context, cc pb.ConfChangeI) error
 
 	// Step advances the state machine using the given message. ctx.Err() will be returned, if any.
-	Step(ctx context.Context, msg pb.Message) error
+	Step(ctx context.Context, msg *pb.Message) error
 
 	// Ready returns a channel that returns the current point-in-time state.
 	// Users of the Node must call Advance after retrieving the state returned by Ready (unless
@@ -289,14 +289,14 @@ func RestartNode(c *Config) Node {
 }
 
 type msgWithResult struct {
-	m      pb.Message
+	m      *pb.Message
 	result chan error
 }
 
 // node is the canonical implementation of the Node interface
 type node struct {
 	propc      chan msgWithResult
-	recvc      chan pb.Message
+	recvc      chan *pb.Message
 	confc      chan pb.ConfChangeV2
 	confstatec chan pb.ConfState
 	readyc     chan Ready
@@ -312,7 +312,7 @@ type node struct {
 func newNode(rn *RawNode) node {
 	return node{
 		propc:      make(chan msgWithResult),
-		recvc:      make(chan pb.Message),
+		recvc:      make(chan *pb.Message),
 		confc:      make(chan pb.ConfChangeV2),
 		confstatec: make(chan pb.ConfState),
 		readyc:     make(chan Ready),
@@ -465,14 +465,18 @@ func (n *node) Tick() {
 }
 
 func (n *node) Campaign(ctx context.Context) error {
-	return n.step(ctx, pb.Message{Type: pb.MsgHup.Enum()})
+	return n.step(ctx, &pb.Message{Type: pb.MsgHup.Enum()})
 }
 
 func (n *node) Propose(ctx context.Context, data []byte) error {
-	return n.stepWait(ctx, pb.Message{Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: data}}})
+	return n.stepWait(ctx, &pb.Message{Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: data}}})
 }
 
-func (n *node) Step(ctx context.Context, m pb.Message) error {
+func (n *node) Step(ctx context.Context, m *pb.Message) error {
+	// m should never be nil
+	if m == nil {
+		return errors.New("cannot step with nil message")
+	}
 	// Ignore unexpected local messages receiving over network.
 	if IsLocalMsg(m.GetType()) && !IsLocalMsgTarget(m.GetFrom()) {
 		// TODO: return an error?
@@ -481,12 +485,12 @@ func (n *node) Step(ctx context.Context, m pb.Message) error {
 	return n.step(ctx, m)
 }
 
-func confChangeToMsg(c pb.ConfChangeI) (pb.Message, error) {
+func confChangeToMsg(c pb.ConfChangeI) (*pb.Message, error) {
 	typ, data, err := pb.MarshalConfChange(c)
 	if err != nil {
-		return pb.Message{}, err
+		return nil, err
 	}
-	return pb.Message{Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Type: typ.Enum(), Data: data}}}, nil
+	return &pb.Message{Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Type: typ.Enum(), Data: data}}}, nil
 }
 
 func (n *node) ProposeConfChange(ctx context.Context, cc pb.ConfChangeI) error {
@@ -497,17 +501,17 @@ func (n *node) ProposeConfChange(ctx context.Context, cc pb.ConfChangeI) error {
 	return n.Step(ctx, msg)
 }
 
-func (n *node) step(ctx context.Context, m pb.Message) error {
+func (n *node) step(ctx context.Context, m *pb.Message) error {
 	return n.stepWithWaitOption(ctx, m, false)
 }
 
-func (n *node) stepWait(ctx context.Context, m pb.Message) error {
+func (n *node) stepWait(ctx context.Context, m *pb.Message) error {
 	return n.stepWithWaitOption(ctx, m, true)
 }
 
 // Step advances the state machine using msgs. The ctx.Err() will be returned,
 // if any.
-func (n *node) stepWithWaitOption(ctx context.Context, m pb.Message, wait bool) error {
+func (n *node) stepWithWaitOption(ctx context.Context, m *pb.Message, wait bool) error {
 	if m.GetType() != pb.MsgProp {
 		select {
 		case n.recvc <- m:
@@ -580,7 +584,7 @@ func (n *node) Status() Status {
 
 func (n *node) ReportUnreachable(id uint64) {
 	select {
-	case n.recvc <- pb.Message{Type: pb.MsgUnreachable.Enum(), From: new(id)}:
+	case n.recvc <- &pb.Message{Type: pb.MsgUnreachable.Enum(), From: new(id)}:
 	case <-n.done:
 	}
 }
@@ -589,7 +593,7 @@ func (n *node) ReportSnapshot(id uint64, status SnapshotStatus) {
 	rej := status == SnapshotFailure
 
 	select {
-	case n.recvc <- pb.Message{Type: pb.MsgSnapStatus.Enum(), From: new(id), Reject: new(rej)}:
+	case n.recvc <- &pb.Message{Type: pb.MsgSnapStatus.Enum(), From: new(id), Reject: new(rej)}:
 	case <-n.done:
 	}
 }
@@ -597,16 +601,16 @@ func (n *node) ReportSnapshot(id uint64, status SnapshotStatus) {
 func (n *node) TransferLeadership(ctx context.Context, lead, transferee uint64) {
 	select {
 	// manually set 'from' and 'to', so that leader can voluntarily transfers its leadership
-	case n.recvc <- pb.Message{Type: pb.MsgTransferLeader.Enum(), From: new(transferee), To: new(lead)}:
+	case n.recvc <- &pb.Message{Type: pb.MsgTransferLeader.Enum(), From: new(transferee), To: new(lead)}:
 	case <-n.done:
 	case <-ctx.Done():
 	}
 }
 
 func (n *node) ForgetLeader(ctx context.Context) error {
-	return n.step(ctx, pb.Message{Type: pb.MsgForgetLeader.Enum()})
+	return n.step(ctx, &pb.Message{Type: pb.MsgForgetLeader.Enum()})
 }
 
 func (n *node) ReadIndex(ctx context.Context, rctx []byte) error {
-	return n.step(ctx, pb.Message{Type: pb.MsgReadIndex.Enum(), Entries: []*pb.Entry{{Data: rctx}}})
+	return n.step(ctx, &pb.Message{Type: pb.MsgReadIndex.Enum(), Entries: []*pb.Entry{{Data: rctx}}})
 }
