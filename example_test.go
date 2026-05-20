@@ -19,7 +19,7 @@ import (
 )
 
 func applyToStore(_ []*pb.Entry)     {}
-func sendMessages(_ []pb.Message)    {}
+func sendMessages(_ []*pb.Message)   {}
 func saveStateToDisk(_ pb.HardState) {}
 func saveToDisk(_ []*pb.Entry)       {}
 

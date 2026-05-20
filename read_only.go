@@ -32,7 +32,7 @@ type ReadState struct {
 }
 
 type readIndexRequest struct {
-	req   pb.Message
+	req   *pb.Message
 	index uint64
 }
 
@@ -57,7 +57,7 @@ func newReadOnly(option ReadOnlyOption) *readOnly {
 // `commitIndex` is the commit index of the raft state machine when it received
 // the read only request.
 // `req` is the original read only request message from the local or remote node.
-func (ro *readOnly) addRequest(commitIndex uint64, req pb.Message) {
+func (ro *readOnly) addRequest(commitIndex uint64, req *pb.Message) {
 	ro.unconfirmedReads = append(ro.unconfirmedReads, &readIndexRequest{req: req, index: commitIndex})
 }
 

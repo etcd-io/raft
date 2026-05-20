@@ -147,11 +147,11 @@ type EntryFormatter func([]byte) string
 
 // DescribeMessage returns a concise human-readable description of a
 // Message for debugging.
-func DescribeMessage(m pb.Message, f EntryFormatter) string {
+func DescribeMessage(m *pb.Message, f EntryFormatter) string {
 	return describeMessageWithIndent("", m, f)
 }
 
-func describeMessageWithIndent(indent string, m pb.Message, f EntryFormatter) string {
+func describeMessageWithIndent(indent string, m *pb.Message, f EntryFormatter) string {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "%s%s->%s %v Term:%d Log:%d/%d", indent,
 		describeTarget(m.GetFrom()), describeTarget(m.GetTo()), m.GetType(), m.GetTerm(), m.GetLogTerm(), m.GetIndex())
@@ -181,7 +181,7 @@ func describeMessageWithIndent(indent string, m pb.Message, f EntryFormatter) st
 		fmt.Fprintf(&buf, " Responses:[")
 		for _, r := range m.GetResponses() {
 			buf.WriteString("\n")
-			buf.WriteString(describeMessageWithIndent(indent+"  ", *r, f))
+			buf.WriteString(describeMessageWithIndent(indent+"  ", r, f))
 		}
 		fmt.Fprintf(&buf, "\n%s]", indent)
 	}

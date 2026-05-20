@@ -38,7 +38,7 @@ type RawNode struct {
 	// Mutable fields.
 	prevSoftSt     *SoftState
 	prevHardSt     pb.HardState
-	stepsOnAdvance []pb.Message
+	stepsOnAdvance []*pb.Message
 }
 
 // NewRawNode instantiates a RawNode from the given configuration.
@@ -81,14 +81,14 @@ func (rn *RawNode) TickQuiesced() {
 
 // Campaign causes this RawNode to transition to candidate state.
 func (rn *RawNode) Campaign() error {
-	return rn.raft.Step(pb.Message{
+	return rn.raft.Step(&pb.Message{
 		Type: pb.MsgHup.Enum(),
 	})
 }
 
 // Propose proposes data be appended to the raft log.
 func (rn *RawNode) Propose(data []byte) error {
-	return rn.raft.Step(pb.Message{
+	return rn.raft.Step(&pb.Message{
 		Type:    pb.MsgProp.Enum(),
 		From:    new(rn.raft.id),
 		Entries: []*pb.Entry{{Data: data}},
@@ -114,7 +114,7 @@ func (rn *RawNode) ApplyConfChange(cc pb.ConfChangeI) *pb.ConfState {
 }
 
 // Step advances the state machine using the given message.
-func (rn *RawNode) Step(m pb.Message) error {
+func (rn *RawNode) Step(m *pb.Message) error {
 	// Ignore unexpected local messages receiving over network.
 	if IsLocalMsg(m.GetType()) && !IsLocalMsgTarget(m.GetFrom()) {
 		return ErrStepLocalMsg
@@ -221,8 +221,8 @@ func needStorageAppendRespMsg(r *raft, rd Ready) bool {
 // state, and apply a snapshot. The message also carries a set of responses
 // that should be delivered after the rest of the message is processed. Used
 // with AsyncStorageWrites.
-func newStorageAppendMsg(r *raft, rd Ready) pb.Message {
-	m := pb.Message{
+func newStorageAppendMsg(r *raft, rd Ready) *pb.Message {
+	m := &pb.Message{
 		Type:    pb.MsgStorageAppend.Enum(),
 		To:      new(LocalAppendThread),
 		From:    new(r.id),
@@ -252,10 +252,10 @@ func newStorageAppendMsg(r *raft, rd Ready) pb.Message {
 	// be contained in msgsAfterAppend). This ordering allows the MsgAppResp
 	// handling to use a fast-path in r.raftLog.term() before the newly appended
 	// entries are removed from the unstable log.
-	m.Responses = pb.MessageSliceToPointers(r.msgsAfterAppend)
+	m.Responses = r.msgsAfterAppend
 	if needStorageAppendRespMsg(r, rd) {
 		resp := newStorageAppendRespMsg(r, rd)
-		m.Responses = append(m.GetResponses(), &resp)
+		m.Responses = append(m.GetResponses(), resp)
 	}
 	return m
 }
@@ -264,8 +264,8 @@ func newStorageAppendMsg(r *raft, rd Ready) pb.Message {
 // after the unstable log entries, hard state, and snapshot in the current Ready
 // (along with those in all prior Ready structs) have been saved to stable
 // storage.
-func newStorageAppendRespMsg(r *raft, rd Ready) pb.Message {
-	m := pb.Message{
+func newStorageAppendRespMsg(r *raft, rd Ready) *pb.Message {
+	m := &pb.Message{
 		Type: pb.MsgStorageAppendResp.Enum(),
 		To:   new(r.id),
 		From: new(LocalAppendThread),
@@ -370,23 +370,23 @@ func needStorageApplyRespMsg(rd Ready) bool { return needStorageApplyMsg(rd) }
 // apply thread to instruct it to apply committed log entries. The message
 // also carries a response that should be delivered after the rest of the
 // message is processed. Used with AsyncStorageWrites.
-func newStorageApplyMsg(r *raft, rd Ready) pb.Message {
+func newStorageApplyMsg(r *raft, rd Ready) *pb.Message {
 	ents := rd.CommittedEntries
-	return pb.Message{
+	return &pb.Message{
 		Type:      pb.MsgStorageApply.Enum(),
 		To:        new(LocalApplyThread),
 		From:      new(r.id),
 		Term:      new(uint64(0)), // committed entries don't apply under a specific term
 		Entries:   ents,
-		Responses: pb.MessageSliceToPointers([]pb.Message{newStorageApplyRespMsg(r, ents)}),
+		Responses: []*pb.Message{newStorageApplyRespMsg(r, ents)},
 	}
 }
 
 // newStorageApplyRespMsg creates the message that should be returned to node
 // after the committed entries in the current Ready (along with those in all
 // prior Ready structs) have been applied to the local state machine.
-func newStorageApplyRespMsg(r *raft, ents []*pb.Entry) pb.Message {
-	return pb.Message{
+func newStorageApplyRespMsg(r *raft, ents []*pb.Entry) *pb.Message {
+	return &pb.Message{
 		Type:    pb.MsgStorageApplyResp.Enum(),
 		To:      new(r.id),
 		From:    new(LocalApplyThread),
@@ -484,7 +484,7 @@ func (rn *RawNode) Advance(_ Ready) {
 	}
 	for i, m := range rn.stepsOnAdvance {
 		_ = rn.raft.Step(m)
-		rn.stepsOnAdvance[i] = pb.Message{}
+		rn.stepsOnAdvance[i] = nil
 	}
 	rn.stepsOnAdvance = rn.stepsOnAdvance[:0]
 }
@@ -528,25 +528,25 @@ func (rn *RawNode) WithProgress(visitor func(id uint64, typ ProgressType, pr tra
 
 // ReportUnreachable reports the given node is not reachable for the last send.
 func (rn *RawNode) ReportUnreachable(id uint64) {
-	_ = rn.raft.Step(pb.Message{Type: pb.MsgUnreachable.Enum(), From: new(id)})
+	_ = rn.raft.Step(&pb.Message{Type: pb.MsgUnreachable.Enum(), From: new(id)})
 }
 
 // ReportSnapshot reports the status of the sent snapshot.
 func (rn *RawNode) ReportSnapshot(id uint64, status SnapshotStatus) {
 	rej := status == SnapshotFailure
 
-	_ = rn.raft.Step(pb.Message{Type: pb.MsgSnapStatus.Enum(), From: new(id), Reject: new(rej)})
+	_ = rn.raft.Step(&pb.Message{Type: pb.MsgSnapStatus.Enum(), From: new(id), Reject: new(rej)})
 }
 
 // TransferLeader tries to transfer leadership to the given transferee.
 func (rn *RawNode) TransferLeader(transferee uint64) {
-	_ = rn.raft.Step(pb.Message{Type: pb.MsgTransferLeader.Enum(), From: new(transferee)})
+	_ = rn.raft.Step(&pb.Message{Type: pb.MsgTransferLeader.Enum(), From: new(transferee)})
 }
 
 // ForgetLeader forgets a follower's current leader, changing it to None.
 // See (Node).ForgetLeader for details.
 func (rn *RawNode) ForgetLeader() error {
-	return rn.raft.Step(pb.Message{Type: pb.MsgForgetLeader.Enum()})
+	return rn.raft.Step(&pb.Message{Type: pb.MsgForgetLeader.Enum()})
 }
 
 // ReadIndex requests a read state. The read state will be set in ready.
@@ -554,5 +554,5 @@ func (rn *RawNode) ForgetLeader() error {
 // index, any linearizable read requests issued before the read request can be
 // processed safely. The read state will have the same rctx attached.
 func (rn *RawNode) ReadIndex(rctx []byte) {
-	_ = rn.raft.Step(pb.Message{Type: pb.MsgReadIndex.Enum(), Entries: []*pb.Entry{{Data: rctx}}})
+	_ = rn.raft.Step(&pb.Message{Type: pb.MsgReadIndex.Enum(), Entries: []*pb.Entry{{Data: rctx}}})
 }

@@ -114,7 +114,7 @@ func (env *InteractionEnv) Stabilize(idxs ...int) error {
 
 // splitMsgs extracts messages for the given recipient of the given type (-1 for
 // all types) from msgs, and returns them along with the remainder of msgs.
-func splitMsgs(msgs []raftpb.Message, to uint64, typ raftpb.MessageType, drop bool) (toMsgs []raftpb.Message, rmdr []raftpb.Message) {
+func splitMsgs(msgs []*raftpb.Message, to uint64, typ raftpb.MessageType, drop bool) (toMsgs []*raftpb.Message, rmdr []*raftpb.Message) {
 	// NB: this method does not reorder messages.
 	for _, msg := range msgs {
 		if msg.GetTo() == to && !(drop && isLocalMsg(msg)) && (typ < 0 || msg.GetType() == typ) {
@@ -127,6 +127,6 @@ func splitMsgs(msgs []raftpb.Message, to uint64, typ raftpb.MessageType, drop bo
 }
 
 // Don't drop local messages, which require reliable delivery.
-func isLocalMsg(msg raftpb.Message) bool {
+func isLocalMsg(msg *raftpb.Message) bool {
 	return msg.GetFrom() == msg.GetTo() || raft.IsLocalMsgTarget(msg.GetFrom()) || raft.IsLocalMsgTarget(msg.GetTo())
 }

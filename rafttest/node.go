@@ -99,7 +99,7 @@ func (n *node) start() {
 				close(n.stopc)
 				return
 			case p := <-n.pausec:
-				recvms := make([]raftpb.Message, 0)
+				recvms := make([]*raftpb.Message, 0)
 				for p {
 					select {
 					case m := <-n.iface.recv():

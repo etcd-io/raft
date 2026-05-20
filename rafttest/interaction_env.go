@@ -39,8 +39,8 @@ type Node struct {
 	Storage
 
 	Config     *raft.Config
-	AppendWork []pb.Message // []MsgStorageAppend
-	ApplyWork  []pb.Message // []MsgStorageApply
+	AppendWork []*pb.Message // []MsgStorageAppend
+	ApplyWork  []*pb.Message // []MsgStorageApply
 	History    []*pb.Snapshot
 }
 
@@ -49,7 +49,7 @@ type Node struct {
 type InteractionEnv struct {
 	Options  *InteractionOpts
 	Nodes    []Node
-	Messages []pb.Message // in-flight messages
+	Messages []*pb.Message // in-flight messages
 
 	Output *RedirectLogger
 }

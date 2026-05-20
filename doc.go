@@ -109,7 +109,7 @@ restart), or you can supply your own disk-backed implementation.
 
 Third, when you receive a message from another node, pass it to Node.Step:
 
-	func recvRaftRPC(ctx context.Context, m raftpb.Message) {
+	func recvRaftRPC(ctx context.Context, m *raftpb.Message) {
 		n.Step(ctx, m)
 	}
 

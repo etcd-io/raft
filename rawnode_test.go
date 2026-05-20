@@ -66,7 +66,7 @@ func (a *rawNodeAdapter) ReadIndex(_ context.Context, rctx []byte) error {
 	// RawNode swallowed the error in ReadIndex, it probably should not do that.
 	return nil
 }
-func (a *rawNodeAdapter) Step(_ context.Context, m pb.Message) error { return a.RawNode.Step(m) }
+func (a *rawNodeAdapter) Step(_ context.Context, m *pb.Message) error { return a.RawNode.Step(m) }
 func (a *rawNodeAdapter) Propose(_ context.Context, data []byte) error {
 	return a.RawNode.Propose(data)
 }
@@ -93,7 +93,7 @@ func TestRawNodeStep(t *testing.T) {
 			rawNode, err := NewRawNode(newTestConfig(1, 10, 1, s))
 			require.NoError(t, err, "#%d", i)
 			msgt := pb.MessageType(i)
-			err = rawNode.Step(pb.Message{Type: msgt.Enum()})
+			err = rawNode.Step(&pb.Message{Type: msgt.Enum()})
 			// LocalMsg should be ignored.
 			if IsLocalMsg(msgt) {
 				assert.Equal(t, ErrStepLocalMsg, err, "#%d", i)
@@ -379,7 +379,7 @@ func TestRawNodeJointAutoLeave(t *testing.T) {
 			}
 			if cc != nil {
 				// Force it step down.
-				rawNode.Step(pb.Message{Type: pb.MsgHeartbeatResp.Enum(), From: new(uint64(1)), Term: new(rawNode.raft.Term + 1)})
+				rawNode.Step(&pb.Message{Type: pb.MsgHeartbeatResp.Enum(), From: new(uint64(1)), Term: new(rawNode.raft.Term + 1)})
 				cs = rawNode.ApplyConfChange(cc)
 			}
 		}
@@ -510,8 +510,8 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 // TestRawNodeReadIndex ensures that Rawnode.ReadIndex sends the MsgReadIndex message
 // to the underlying raft. It also ensures that ReadState can be read out.
 func TestRawNodeReadIndex(t *testing.T) {
-	var msgs []pb.Message
-	appendStep := func(_ *raft, m pb.Message) error {
+	var msgs []*pb.Message
+	appendStep := func(_ *raft, m *pb.Message) error {
 		msgs = append(msgs, m)
 		return nil
 	}
@@ -794,7 +794,7 @@ func TestRawNodeCommitPaginationAfterRestart(t *testing.T) {
 
 		highestApplied = rd.CommittedEntries[n-1].GetIndex()
 		rawNode.Advance(rd)
-		rawNode.Step(pb.Message{
+		rawNode.Step(&pb.Message{
 			Type:   pb.MsgHeartbeat.Enum(),
 			To:     new(uint64(1)),
 			From:   new(uint64(2)), // illegal, but we get away with it
@@ -938,8 +938,8 @@ func TestRawNodeConsumeReady(t *testing.T) {
 	// the messages) but Ready() does.
 	s := newTestMemoryStorage(withPeers(1))
 	rn := newTestRawNode(1, 3, 1, s)
-	m1 := pb.Message{Context: []byte("foo")}
-	m2 := pb.Message{Context: []byte("bar")}
+	m1 := &pb.Message{Context: []byte("foo")}
+	m2 := &pb.Message{Context: []byte("bar")}
 
 	// Inject first message, make sure it's visible via readyWithoutAccept.
 	rn.raft.msgs = append(rn.raft.msgs, m1)
@@ -1017,7 +1017,7 @@ func benchmarkRawNodeImpl(b *testing.B, peers ...uint64) {
 			s.Append(rd.Entries)
 			for _, m := range rd.Messages {
 				if m.GetType() == pb.MsgVote {
-					resp := pb.Message{To: m.From, From: m.To, Term: m.Term, Type: pb.MsgVoteResp.Enum()}
+					resp := &pb.Message{To: m.From, From: m.To, Term: m.Term, Type: pb.MsgVoteResp.Enum()}
 					if debug {
 						b.Log(DescribeMessage(resp, nil))
 					}
@@ -1028,7 +1028,7 @@ func benchmarkRawNodeImpl(b *testing.B, peers ...uint64) {
 					if n := len(m.GetEntries()); n > 0 {
 						idx = m.GetEntries()[n-1].GetIndex()
 					}
-					resp := pb.Message{To: m.From, From: m.To, Type: pb.MsgAppResp.Enum(), Term: m.Term, Index: new(idx)}
+					resp := &pb.Message{To: m.From, From: m.To, Type: pb.MsgAppResp.Enum(), Term: m.Term, Index: new(idx)}
 					if debug {
 						b.Log(DescribeMessage(resp, nil))
 					}

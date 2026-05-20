@@ -81,7 +81,7 @@ type Recipient struct {
 func (env *InteractionEnv) DeliverMsgs(typ raftpb.MessageType, rs ...Recipient) int {
 	var n int
 	for _, r := range rs {
-		var msgs []raftpb.Message
+		var msgs []*raftpb.Message
 		msgs, env.Messages = splitMsgs(env.Messages, r.ID, typ, r.Drop)
 		n += len(msgs)
 		for _, msg := range msgs {
