@@ -51,7 +51,9 @@ type Storage interface {
 	// InitialState returns the saved HardState and ConfState information.
 	// The returned HardState may be nil to indicate that no HardState has been
 	// persisted yet; IsEmptyHardState treats nil as empty.
-	InitialState() (*pb.HardState, pb.ConfState, error)
+	// The returned ConfState must not be nil; if no ConfState has been
+	// persisted yet, return an empty ConfState instead.
+	InitialState() (*pb.HardState, *pb.ConfState, error)
 
 	// Entries returns a slice of consecutive log entries in the range [lo, hi),
 	// starting from lo. The maxSize limits the total size of the log entries
@@ -124,11 +126,11 @@ func NewMemoryStorage() *MemoryStorage {
 }
 
 // InitialState implements the Storage interface.
-func (ms *MemoryStorage) InitialState() (*pb.HardState, pb.ConfState, error) {
+func (ms *MemoryStorage) InitialState() (*pb.HardState, *pb.ConfState, error) {
 	ms.callStats.initialState++
 	cs := ms.snapshot.GetMetadata().GetConfState()
 	cs = pb.EnsureConfState(cs)
-	return ms.hardState, *cs, nil
+	return ms.hardState, cs, nil
 }
 
 // SetHardState saves the current HardState.

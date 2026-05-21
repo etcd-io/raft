@@ -109,8 +109,7 @@ func (rn *RawNode) ProposeConfChange(cc pb.ConfChangeI) error {
 // this when it applies a configuration change, except when it decides to reject
 // the configuration change, in which case no call must take place.
 func (rn *RawNode) ApplyConfChange(cc pb.ConfChangeI) *pb.ConfState {
-	cs := rn.raft.applyConfChange(cc.AsV2())
-	return &cs
+	return rn.raft.applyConfChange(cc.AsV2())
 }
 
 // Step advances the state machine using the given message.

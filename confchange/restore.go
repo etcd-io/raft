@@ -23,7 +23,7 @@ import (
 // first the config that will become the outgoing one, and then the incoming one, and
 // b) another slice that, when applied to the config resulted from 1), represents the
 // ConfState.
-func toConfChangeSingle(cs pb.ConfState) (out []*pb.ConfChangeSingle, in []*pb.ConfChangeSingle) {
+func toConfChangeSingle(cs *pb.ConfState) (out []*pb.ConfChangeSingle, in []*pb.ConfChangeSingle) {
 	// Example to follow along this code:
 	// voters=(1 2 3) learners=(5) outgoing=(1 2 4 6) learners_next=(4)
 	//
@@ -116,7 +116,7 @@ func chain(chg Changer, ops ...func(Changer) (tracker.Config, tracker.ProgressMa
 // the Changer only needs a ProgressMap (not a whole Tracker) at which point
 // this can just take LastIndex and MaxInflight directly instead and cook up
 // the results from that alone.
-func Restore(chg Changer, cs pb.ConfState) (tracker.Config, tracker.ProgressMap, error) {
+func Restore(chg Changer, cs *pb.ConfState) (tracker.Config, tracker.ProgressMap, error) {
 	outgoing, incoming := toConfChangeSingle(cs)
 
 	var ops []func(Changer) (tracker.Config, tracker.ProgressMap, error)
