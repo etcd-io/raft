@@ -112,13 +112,13 @@ func TestRawNodeStep(t *testing.T) {
 func TestRawNodeProposeAndConfChange(t *testing.T) {
 	testCases := []struct {
 		cc   pb.ConfChangeI
-		exp  pb.ConfState
+		exp  *pb.ConfState
 		exp2 *pb.ConfState
 	}{
 		// V1 config change.
 		{
 			pb.ConfChange{Type: pb.ConfChangeAddNode.Enum(), NodeId: new(uint64(2))},
-			pb.ConfState{Voters: []uint64{1, 2}},
+			&pb.ConfState{Voters: []uint64{1, 2}},
 			nil,
 		},
 		// Proposing the same as a V2 change works just the same, without entering
@@ -128,7 +128,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 				{Type: pb.ConfChangeAddNode.Enum(), NodeId: new(uint64(2))},
 			},
 			},
-			pb.ConfState{Voters: []uint64{1, 2}},
+			&pb.ConfState{Voters: []uint64{1, 2}},
 			nil,
 		},
 		// Ditto if we add it as a learner instead.
@@ -137,7 +137,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 				{Type: pb.ConfChangeAddLearnerNode.Enum(), NodeId: new(uint64(2))},
 			},
 			},
-			pb.ConfState{Voters: []uint64{1}, Learners: []uint64{2}},
+			&pb.ConfState{Voters: []uint64{1}, Learners: []uint64{2}},
 			nil,
 		},
 		// We can ask explicitly for joint consensus if we want it.
@@ -147,7 +147,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 			},
 				Transition: pb.ConfChangeTransitionJointExplicit.Enum(),
 			},
-			pb.ConfState{Voters: []uint64{1}, VotersOutgoing: []uint64{1}, Learners: []uint64{2}},
+			&pb.ConfState{Voters: []uint64{1}, VotersOutgoing: []uint64{1}, Learners: []uint64{2}},
 			&pb.ConfState{Voters: []uint64{1}, Learners: []uint64{2}},
 		},
 		// Ditto, but with implicit transition (the harness checks this).
@@ -157,7 +157,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 			},
 				Transition: pb.ConfChangeTransitionJointImplicit.Enum(),
 			},
-			pb.ConfState{
+			&pb.ConfState{
 				Voters: []uint64{1}, VotersOutgoing: []uint64{1}, Learners: []uint64{2},
 				AutoLeave: new(true),
 			},
@@ -172,7 +172,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 				{NodeId: new(uint64(3)), Type: pb.ConfChangeAddLearnerNode.Enum()},
 			},
 			},
-			pb.ConfState{
+			&pb.ConfState{
 				Voters:         []uint64{2},
 				VotersOutgoing: []uint64{1},
 				Learners:       []uint64{3},
@@ -190,7 +190,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 			},
 				Transition: pb.ConfChangeTransitionJointExplicit.Enum(),
 			},
-			pb.ConfState{
+			&pb.ConfState{
 				Voters:         []uint64{2},
 				VotersOutgoing: []uint64{1},
 				Learners:       []uint64{3},
@@ -208,7 +208,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 				},
 				Transition: pb.ConfChangeTransitionJointImplicit.Enum(),
 			},
-			pb.ConfState{
+			&pb.ConfState{
 				Voters:         []uint64{2},
 				VotersOutgoing: []uint64{1},
 				Learners:       []uint64{3},
@@ -221,7 +221,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run("", func(t *testing.T) {
-			pb.EnsureConfState(&tc.exp)
+			pb.EnsureConfState(tc.exp)
 			pb.EnsureConfState(tc.exp2)
 			s := newTestMemoryStorage(withPeers(1))
 			rawNode, err := NewRawNode(newTestConfig(1, 10, 1, s))
@@ -291,7 +291,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 			require.Equal(t, typ, entries[1].GetType())
 			assert.Equal(t, ccdata, entries[1].GetData())
 
-			require.Equal(t, &tc.exp, cs)
+			require.Equal(t, tc.exp, cs)
 
 			var maybePlusOne uint64
 			if autoLeave, ok := tc.cc.AsV2().EnterJoint(); ok && autoLeave {
@@ -348,11 +348,11 @@ func TestRawNodeJointAutoLeave(t *testing.T) {
 	},
 		Transition: pb.ConfChangeTransitionJointImplicit.Enum(),
 	}
-	expCs := pb.ConfState{
+	expCs := &pb.ConfState{
 		Voters: []uint64{1}, VotersOutgoing: []uint64{1}, Learners: []uint64{2},
 		AutoLeave: new(true),
 	}
-	exp2Cs := pb.ConfState{Voters: []uint64{1}, Learners: []uint64{2}, AutoLeave: new(false)}
+	exp2Cs := &pb.ConfState{Voters: []uint64{1}, Learners: []uint64{2}, AutoLeave: new(false)}
 
 	s := newTestMemoryStorage(withPeers(1))
 	rawNode, err := NewRawNode(newTestConfig(1, 10, 1, s))
@@ -408,7 +408,7 @@ func TestRawNodeJointAutoLeave(t *testing.T) {
 	require.Equal(t, pb.EntryConfChangeV2, entries[1].GetType())
 	assert.Equal(t, ccdata, entries[1].GetData())
 
-	require.Equal(t, &expCs, cs)
+	require.Equal(t, expCs, cs)
 
 	require.Zero(t, rawNode.raft.pendingConfIndex)
 
@@ -443,7 +443,7 @@ func TestRawNodeJointAutoLeave(t *testing.T) {
 	// Lie and pretend the ConfChange applied. It won't do so because now
 	// we require the joint quorum and we're only running one node.
 	cs = rawNode.ApplyConfChange(cc)
-	require.Equal(t, exp2Cs, *cs)
+	require.Equal(t, exp2Cs, cs)
 }
 
 // TestRawNodeProposeAddDuplicateNode ensures that two proposes to add the same node should
@@ -597,7 +597,7 @@ func TestRawNodeStart(t *testing.T) {
 		Storage
 		ApplySnapshot(*pb.Snapshot) error
 	}
-	bootstrap := func(storage appenderStorage, cs pb.ConfState) error {
+	bootstrap := func(storage appenderStorage, cs *pb.ConfState) error {
 		require.NotEmpty(t, cs.Voters, "no voters specified")
 		fi, err := storage.FirstIndex()
 		require.NoError(t, err)
@@ -621,12 +621,12 @@ func TestRawNodeStart(t *testing.T) {
 		snap := &pb.Snapshot{Metadata: &pb.SnapshotMetadata{
 			Index:     new(uint64(1)),
 			Term:      new(uint64(0)),
-			ConfState: &cs,
+			ConfState: cs,
 		}}
 		return storage.ApplySnapshot(snap)
 	}
 
-	require.NoError(t, bootstrap(storage, pb.ConfState{Voters: []uint64{1}}))
+	require.NoError(t, bootstrap(storage, &pb.ConfState{Voters: []uint64{1}}))
 
 	rawNode, err := NewRawNode(newTestConfig(1, 10, 1, storage))
 	require.NoError(t, err)

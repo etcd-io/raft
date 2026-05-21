@@ -22,23 +22,27 @@ import (
 
 // Equivalent returns a nil error if the inputs describe the same configuration.
 // On mismatch, returns a descriptive error showing the differences.
-func (cs ConfState) Equivalent(cs2 ConfState) error {
-	cs1 := cs
-	orig1, orig2 := cs1, cs2
+func (cs *ConfState) Equivalent(cs2 *ConfState) error {
+	if cs == nil || cs2 == nil {
+		return fmt.Errorf("cannot compare ConfState: nil input (left=%v, right=%v)", cs == nil, cs2 == nil)
+	}
+	cs1 := *cs
+	cs2v := *cs2
+	orig1, orig2 := cs1, cs2v
 	s := func(sl *[]uint64) {
 		*sl = append([]uint64(nil), *sl...)
 		slices.Sort(*sl)
 	}
 
-	for _, cs := range []*ConfState{&cs1, &cs2} {
-		s(&cs.Voters)
-		s(&cs.Learners)
-		s(&cs.VotersOutgoing)
-		s(&cs.LearnersNext)
+	for _, c := range []*ConfState{&cs1, &cs2v} {
+		s(&c.Voters)
+		s(&c.Learners)
+		s(&c.VotersOutgoing)
+		s(&c.LearnersNext)
 	}
 
-	if !reflect.DeepEqual(cs1, cs2) {
-		return fmt.Errorf("ConfStates not equivalent after sorting:\n%+#v\n%+#v\nInputs were:\n%+#v\n%+#v", cs1, cs2, orig1, orig2)
+	if !reflect.DeepEqual(cs1, cs2v) {
+		return fmt.Errorf("ConfStates not equivalent after sorting:\n%+#v\n%+#v\nInputs were:\n%+#v\n%+#v", cs1, cs2v, orig1, orig2)
 	}
 	return nil
 }

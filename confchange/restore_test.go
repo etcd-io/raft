@@ -86,7 +86,7 @@ func (rndConfChange) Generate(rand *rand.Rand, _ int) reflect.Value {
 func TestRestore(t *testing.T) {
 	cfg := quick.Config{MaxCount: 1000}
 
-	f := func(cs pb.ConfState) bool {
+	f := func(cs *pb.ConfState) bool {
 		chg := Changer{
 			Tracker:   tracker.MakeProgressTracker(20, 0),
 			LastIndex: 10,
@@ -121,19 +121,20 @@ func TestRestore(t *testing.T) {
 	}
 
 	// Unit tests.
-	for _, cs := range []pb.ConfState{
+	for _, cs := range []*pb.ConfState{
 		{},
 		{Voters: ids(1, 2, 3)},
 		{Voters: ids(1, 2, 3), Learners: ids(4, 5, 6)},
 		{Voters: ids(1, 2, 3), Learners: ids(5), VotersOutgoing: ids(1, 2, 4, 6), LearnersNext: ids(4)},
 	} {
-		pb.EnsureConfState(&cs)
+		pb.EnsureConfState(cs)
 		if !f(cs) {
 			t.FailNow() // f() already logged a nice t.Error()
 		}
 	}
 
 	assert.NoError(t, quick.Check(func(cs rndConfChange) bool {
-		return f(pb.ConfState(cs))
+		v := pb.ConfState(cs)
+		return f(&v)
 	}, &cfg))
 }
