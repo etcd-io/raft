@@ -297,7 +297,7 @@ type msgWithResult struct {
 type node struct {
 	propc      chan msgWithResult
 	recvc      chan *pb.Message
-	confc      chan pb.ConfChangeV2
+	confc      chan *pb.ConfChangeV2
 	confstatec chan *pb.ConfState
 	readyc     chan Ready
 	advancec   chan struct{}
@@ -313,7 +313,7 @@ func newNode(rn *RawNode) node {
 	return node{
 		propc:      make(chan msgWithResult),
 		recvc:      make(chan *pb.Message),
-		confc:      make(chan pb.ConfChangeV2),
+		confc:      make(chan *pb.ConfChangeV2),
 		confstatec: make(chan *pb.ConfState),
 		readyc:     make(chan Ready),
 		advancec:   make(chan struct{}),

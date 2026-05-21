@@ -117,14 +117,14 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 	}{
 		// V1 config change.
 		{
-			pb.ConfChange{Type: pb.ConfChangeAddNode.Enum(), NodeId: new(uint64(2))},
+			&pb.ConfChange{Type: pb.ConfChangeAddNode.Enum(), NodeId: new(uint64(2))},
 			&pb.ConfState{Voters: []uint64{1, 2}},
 			nil,
 		},
 		// Proposing the same as a V2 change works just the same, without entering
 		// a joint config.
 		{
-			pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
+			&pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
 				{Type: pb.ConfChangeAddNode.Enum(), NodeId: new(uint64(2))},
 			},
 			},
@@ -133,7 +133,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		},
 		// Ditto if we add it as a learner instead.
 		{
-			pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
+			&pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
 				{Type: pb.ConfChangeAddLearnerNode.Enum(), NodeId: new(uint64(2))},
 			},
 			},
@@ -142,7 +142,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		},
 		// We can ask explicitly for joint consensus if we want it.
 		{
-			pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
+			&pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
 				{Type: pb.ConfChangeAddLearnerNode.Enum(), NodeId: new(uint64(2))},
 			},
 				Transition: pb.ConfChangeTransitionJointExplicit.Enum(),
@@ -152,7 +152,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		},
 		// Ditto, but with implicit transition (the harness checks this).
 		{
-			pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
+			&pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
 				{Type: pb.ConfChangeAddLearnerNode.Enum(), NodeId: new(uint64(2))},
 			},
 				Transition: pb.ConfChangeTransitionJointImplicit.Enum(),
@@ -166,7 +166,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		// Add a new node and demote n1. This exercises the interesting case in
 		// which we really need joint config changes and also need LearnersNext.
 		{
-			pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
+			&pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
 				{NodeId: new(uint64(2)), Type: pb.ConfChangeAddNode.Enum()},
 				{NodeId: new(uint64(1)), Type: pb.ConfChangeAddLearnerNode.Enum()},
 				{NodeId: new(uint64(3)), Type: pb.ConfChangeAddLearnerNode.Enum()},
@@ -183,7 +183,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		},
 		// Ditto explicit.
 		{
-			pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
+			&pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
 				{NodeId: new(uint64(2)), Type: pb.ConfChangeAddNode.Enum()},
 				{NodeId: new(uint64(1)), Type: pb.ConfChangeAddLearnerNode.Enum()},
 				{NodeId: new(uint64(3)), Type: pb.ConfChangeAddLearnerNode.Enum()},
@@ -200,7 +200,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		},
 		// Ditto implicit.
 		{
-			pb.ConfChangeV2{
+			&pb.ConfChangeV2{
 				Changes: []*pb.ConfChangeSingle{
 					{NodeId: new(uint64(2)), Type: pb.ConfChangeAddNode.Enum()},
 					{NodeId: new(uint64(1)), Type: pb.ConfChangeAddLearnerNode.Enum()},
@@ -242,11 +242,11 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 				for _, ent := range rd.CommittedEntries {
 					var cc pb.ConfChangeI
 					if ent.GetType() == pb.EntryConfChange {
-						var ccc pb.ConfChange
+						ccc := &pb.ConfChange{}
 						require.NoError(t, ccc.Unmarshal(ent.GetData()))
 						cc = ccc
 					} else if ent.GetType() == pb.EntryConfChangeV2 {
-						var ccc pb.ConfChangeV2
+						ccc := &pb.ConfChangeV2{}
 						require.NoError(t, ccc.Unmarshal(ent.GetData()))
 						cc = ccc
 					}
@@ -319,16 +319,16 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 				}
 				context = []byte("manual")
 				t.Log("leaving joint state manually")
-				require.NoError(t, rawNode.ProposeConfChange(pb.ConfChangeV2{Context: context}))
+				require.NoError(t, rawNode.ProposeConfChange(&pb.ConfChangeV2{Context: context}))
 				rd = rawNode.Ready()
 			}
 
 			// Check that the right ConfChange comes out.
 			require.Len(t, rd.Entries, 1)
 			require.Equal(t, pb.EntryConfChangeV2, rd.Entries[0].GetType())
-			var cc pb.ConfChangeV2
+			cc := &pb.ConfChangeV2{}
 			require.NoError(t, cc.Unmarshal(rd.Entries[0].GetData()))
-			require.Equal(t, pb.ConfChangeV2{Context: context}, cc)
+			require.Equal(t, &pb.ConfChangeV2{Context: context}, cc)
 
 			// Lie and pretend the ConfChange applied. It won't do so because now
 			// we require the joint quorum and we're only running one node.
@@ -343,7 +343,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 // TestRawNodeJointAutoLeave tests the configuration change auto leave even leader
 // lost leadership.
 func TestRawNodeJointAutoLeave(t *testing.T) {
-	testCc := pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
+	testCc := &pb.ConfChangeV2{Changes: []*pb.ConfChangeSingle{
 		{Type: pb.ConfChangeAddLearnerNode.Enum(), NodeId: new(uint64(2))},
 	},
 		Transition: pb.ConfChangeTransitionJointImplicit.Enum(),
@@ -373,9 +373,9 @@ func TestRawNodeJointAutoLeave(t *testing.T) {
 		for _, ent := range rd.CommittedEntries {
 			var cc pb.ConfChangeI
 			if ent.GetType() == pb.EntryConfChangeV2 {
-				var ccc pb.ConfChangeV2
+				ccc := &pb.ConfChangeV2{}
 				require.NoError(t, ccc.Unmarshal(ent.GetData()))
-				cc = &ccc
+				cc = ccc
 			}
 			if cc != nil {
 				// Force it step down.
@@ -437,9 +437,9 @@ func TestRawNodeJointAutoLeave(t *testing.T) {
 	// Check that the right ConfChange comes out.
 	require.Len(t, rd.Entries, 1)
 	require.Equal(t, pb.EntryConfChangeV2, rd.Entries[0].GetType())
-	var cc pb.ConfChangeV2
+	cc := &pb.ConfChangeV2{}
 	require.NoError(t, cc.Unmarshal(rd.Entries[0].GetData()))
-	require.Equal(t, pb.ConfChangeV2{Context: nil}, cc)
+	require.Equal(t, &pb.ConfChangeV2{Context: nil}, cc)
 	// Lie and pretend the ConfChange applied. It won't do so because now
 	// we require the joint quorum and we're only running one node.
 	cs = rawNode.ApplyConfChange(cc)
@@ -468,13 +468,13 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 		rawNode.Advance(rd)
 	}
 
-	proposeConfChangeAndApply := func(cc pb.ConfChange) {
+	proposeConfChangeAndApply := func(cc *pb.ConfChange) {
 		rawNode.ProposeConfChange(cc)
 		rd = rawNode.Ready()
 		s.Append(rd.Entries)
 		for _, entry := range rd.CommittedEntries {
 			if entry.GetType() == pb.EntryConfChange {
-				var cc pb.ConfChange
+				cc := &pb.ConfChange{}
 				cc.Unmarshal(entry.GetData())
 				rawNode.ApplyConfChange(cc)
 			}
@@ -482,7 +482,7 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 		rawNode.Advance(rd)
 	}
 
-	cc1 := pb.ConfChange{Type: pb.ConfChangeAddNode.Enum(), NodeId: new(uint64(1))}
+	cc1 := &pb.ConfChange{Type: pb.ConfChangeAddNode.Enum(), NodeId: new(uint64(1))}
 	ccdata1, err := cc1.Marshal()
 	require.NoError(t, err)
 	proposeConfChangeAndApply(cc1)
@@ -491,7 +491,7 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 	proposeConfChangeAndApply(cc1)
 
 	// the new node join should be ok
-	cc2 := pb.ConfChange{Type: pb.ConfChangeAddNode.Enum(), NodeId: new(uint64(2))}
+	cc2 := &pb.ConfChange{Type: pb.ConfChangeAddNode.Enum(), NodeId: new(uint64(2))}
 	ccdata2, err := cc2.Marshal()
 	require.NoError(t, err)
 	proposeConfChangeAndApply(cc2)

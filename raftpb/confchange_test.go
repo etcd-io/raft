@@ -31,12 +31,12 @@ func TestLeaveJoint(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		cc       ConfChangeV2
+		cc       *ConfChangeV2
 		expected bool
 	}{
 		{
 			name: "empty conf change (all zero values)",
-			cc: ConfChangeV2{
+			cc: &ConfChangeV2{
 				Transition: nil,
 				Changes:    nil,
 				Context:    nil,
@@ -45,7 +45,7 @@ func TestLeaveJoint(t *testing.T) {
 		},
 		{
 			name: "empty conf change with auto transition explicitly set",
-			cc: ConfChangeV2{
+			cc: &ConfChangeV2{
 				Transition: ConfChangeTransition_ConfChangeTransitionAuto.Enum(),
 				Changes:    nil,
 				Context:    nil,
@@ -54,7 +54,7 @@ func TestLeaveJoint(t *testing.T) {
 		},
 		{
 			name: "empty changes with context (context should be ignored)",
-			cc: ConfChangeV2{
+			cc: &ConfChangeV2{
 				Transition: ConfChangeTransition_ConfChangeTransitionAuto.Enum(),
 				Changes:    nil,
 				Context:    []byte("some context"),
@@ -64,7 +64,7 @@ func TestLeaveJoint(t *testing.T) {
 
 		{
 			name: "empty changes slice with auto transition",
-			cc: ConfChangeV2{
+			cc: &ConfChangeV2{
 				Transition: ConfChangeTransition_ConfChangeTransitionAuto.Enum(),
 				Changes:    []*ConfChangeSingle{},
 				Context:    nil,
@@ -73,7 +73,7 @@ func TestLeaveJoint(t *testing.T) {
 		},
 		{
 			name: "non-empty changes",
-			cc: ConfChangeV2{
+			cc: &ConfChangeV2{
 				Transition: ConfChangeTransition_ConfChangeTransitionAuto.Enum(),
 				Changes: []*ConfChangeSingle{
 					{
@@ -87,7 +87,7 @@ func TestLeaveJoint(t *testing.T) {
 		},
 		{
 			name: "joint implicit transition with empty changes",
-			cc: ConfChangeV2{
+			cc: &ConfChangeV2{
 				Transition: ConfChangeTransition_ConfChangeTransitionJointImplicit.Enum(),
 				Changes:    nil,
 				Context:    nil,
@@ -96,7 +96,7 @@ func TestLeaveJoint(t *testing.T) {
 		},
 		{
 			name: "joint explicit transition with empty changes",
-			cc: ConfChangeV2{
+			cc: &ConfChangeV2{
 				Transition: ConfChangeTransition_ConfChangeTransitionJointExplicit.Enum(),
 				Changes:    nil,
 				Context:    nil,
@@ -105,7 +105,7 @@ func TestLeaveJoint(t *testing.T) {
 		},
 		{
 			name: "auto transition with multiple changes",
-			cc: ConfChangeV2{
+			cc: &ConfChangeV2{
 				Transition: ConfChangeTransition_ConfChangeTransitionAuto.Enum(),
 				Changes: []*ConfChangeSingle{
 					{Type: ConfChangeAddNode.Enum(), NodeId: new(uint64)},
