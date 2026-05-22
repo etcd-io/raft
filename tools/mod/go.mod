@@ -18,6 +18,7 @@ require (
 	go.etcd.io/gofail v0.0.0-20221125214112-fc21f61ba88a
 	go.etcd.io/protodoc v0.0.0-20180829002748-484ab544e116
 	golang.org/x/tools v0.42.0
+	google.golang.org/protobuf v1.36.11
 	gotest.tools/gotestsum v1.13.0
 	gotest.tools/v3 v3.5.2
 	honnef.co/go/tools v0.3.0

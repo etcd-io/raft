@@ -18,27 +18,25 @@ if [[ $(protoc --version | cut -f2 -d' ') != "3.20.3" ]]; then
   exit 255
 fi
 
-GOFAST_BIN=$(tool_get_bin github.com/gogo/protobuf/protoc-gen-gofast)
+GOGEN_BIN=$(tool_get_bin google.golang.org/protobuf/cmd/protoc-gen-go)
 GOGOPROTO_ROOT="$(tool_pkg_dir github.com/gogo/protobuf/proto)/.."
 
 echo
 echo "Resolved binary and packages versions:"
-echo "  - protoc-gen-gofast:       ${GOFAST_BIN}"
+echo "  - protoc-gen-go:           ${GOGEN_BIN}"
 echo "  - gogoproto-root:          ${GOGOPROTO_ROOT}"
 GOGOPROTO_PATH="${GOGOPROTO_ROOT}:${GOGOPROTO_ROOT}/protobuf"
 
 # directories containing protos to be built
 DIRS="./raftpb"
 
-log_callout -e "\\nRunning gofast (gogo) proto generation..."
+log_callout -e "\\nRunning protoc-gen-go proto generation..."
 
 for dir in ${DIRS}; do
   pushd "${dir}"
-    protoc --gofast_out=. -I=".:${GOGOPROTO_PATH}:${RAFT_ROOT_DIR}/..:${RAFT_ROOT_DIR}" \
-      --plugin="${GOFAST_BIN}" ./**/*.proto
-
-    sed -i.bak -E 's|"raft/raftpb"|"go.etcd.io/etcd/raft/v3/raftpb"|g' ./**/*.pb.go
-    sed -i.bak -E 's|"google/protobuf"|"github.com/gogo/protobuf/protoc-gen-gogo/descriptor"|g' ./**/*.pb.go
+    protoc --go_out=. -I=".:${GOGOPROTO_PATH}:${RAFT_ROOT_DIR}/..:${RAFT_ROOT_DIR}" \
+    --plugin=protoc-gen-go="${GOGEN_BIN}" \
+    --go_opt=paths=source_relative ./**/*.proto
 
     rm -f ./**/*.bak
     gofmt -s -w ./**/*.pb.go
