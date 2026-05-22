@@ -241,6 +241,22 @@ func DescribeEntry(e *pb.Entry, f EntryFormatter) string {
 	return fmt.Sprintf("%d/%d %s%s", e.GetTerm(), e.GetIndex(), e.GetType(), formatted)
 }
 
+// DescribeConfChange returns a deterministic, human-readable representation of
+// a ConfChangeI. It avoids using the proto text format (which adds random extra
+// spaces via detrand, producing unstable output across architectures/builds).
+func DescribeConfChange(cc pb.ConfChangeI) string {
+	cv2 := cc.AsV2()
+	var b strings.Builder
+	fmt.Fprintf(&b, "transition:%v", cv2.GetTransition())
+	for _, c := range cv2.GetChanges() {
+		fmt.Fprintf(&b, " changes:{type:%v node_id:%d}", c.GetType(), c.GetNodeId())
+	}
+	if len(cv2.Context) > 0 {
+		fmt.Fprintf(&b, " context:%q", cv2.Context)
+	}
+	return b.String()
+}
+
 // DescribeEntries calls DescribeEntry for each Entry, adding a newline to
 // each.
 func DescribeEntries(ents []*pb.Entry, f EntryFormatter) string {
