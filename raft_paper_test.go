@@ -27,7 +27,6 @@ outgoing messages and state.
 package raft
 
 import (
-	"fmt"
 	"sort"
 	"testing"
 
@@ -379,11 +378,11 @@ func TestLeaderStartReplication(t *testing.T) {
 	msgs := r.readMessages()
 	sort.Sort(messageSlice(msgs))
 	wents := []*pb.Entry{{Index: new(li + 1), Term: new(uint64(1)), Data: []byte("some data")}}
-	assert.Equal(t, []*pb.Message{
+	assertEqualMessages(t, []*pb.Message{
 		{From: new(uint64(1)), To: new(uint64(2)), Term: new(uint64(1)), Type: pb.MsgApp.Enum(), Index: new(li), LogTerm: new(uint64(1)), Entries: wents, Commit: new(li)},
 		{From: new(uint64(1)), To: new(uint64(3)), Term: new(uint64(1)), Type: pb.MsgApp.Enum(), Index: new(li), LogTerm: new(uint64(1)), Entries: wents, Commit: new(li)},
 	}, msgs)
-	assert.Equal(t, []*pb.Entry{
+	requireEqualEntries(t, []*pb.Entry{
 		{Index: new(li + 1), Term: new(uint64(1)), Data: []byte("some data")},
 	}, r.raftLog.nextUnstableEnts())
 }
@@ -409,7 +408,7 @@ func TestLeaderCommitEntry(t *testing.T) {
 	}
 
 	assert.Equal(t, li+1, r.raftLog.committed)
-	assert.Equal(t, []*pb.Entry{
+	requireEqualEntries(t, []*pb.Entry{
 		{Index: new(li + 1), Term: new(uint64(1)), Data: []byte("some data")},
 	}, r.raftLog.nextCommittedEnts(true))
 	msgs := r.readMessages()
@@ -485,7 +484,7 @@ func TestLeaderCommitPrecedingEntries(t *testing.T) {
 		}
 
 		li := uint64(len(tt))
-		assert.Equal(t, append(tt,
+		requireEqualEntries(t, append(tt,
 			&pb.Entry{Term: new(uint64(3)), Index: new(li + 1)},
 			&pb.Entry{Term: new(uint64(3)), Index: new(li + 2), Data: []byte("some data")},
 		), r.raftLog.nextCommittedEnts(true), "#%d", i)
@@ -629,8 +628,8 @@ func TestFollowerAppendEntries(t *testing.T) {
 
 		r.Step(&pb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: pb.MsgApp.Enum(), Term: new(uint64(2)), LogTerm: new(tt.term), Index: new(tt.index), Entries: tt.ents})
 
-		assert.Equal(t, tt.wents, r.raftLog.allEntries(), "#%d", i)
-		assert.Equal(t, tt.wunstable, r.raftLog.nextUnstableEnts(), "#%d", i)
+		requireEqualEntries(t, tt.wents, r.raftLog.allEntries(), "#%d", i)
+		requireEqualEntries(t, tt.wunstable, r.raftLog.nextUnstableEnts(), "#%d", i)
 	}
 }
 
@@ -782,9 +781,19 @@ func TestLeaderOnlyCommitsLogFromCurrentTerm(t *testing.T) {
 
 type messageSlice []*pb.Message
 
-func (s messageSlice) Len() int           { return len(s) }
-func (s messageSlice) Less(i, j int) bool { return fmt.Sprint(s[i]) < fmt.Sprint(s[j]) }
-func (s messageSlice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s messageSlice) Len() int      { return len(s) }
+func (s messageSlice) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
+func (s messageSlice) Less(i, j int) bool {
+	ai, bi := s[i].GetTo(), s[j].GetTo()
+	if ai != bi {
+		return ai < bi
+	}
+	at, bt := s[i].GetType(), s[j].GetType()
+	if at != bt {
+		return at < bt
+	}
+	return s[i].GetFrom() < s[j].GetFrom()
+}
 
 func commitNoopEntry(r *raft, s *MemoryStorage) {
 	if r.state != StateLeader {

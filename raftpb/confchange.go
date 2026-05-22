@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"google.golang.org/protobuf/proto"
 )
 
 // ConfChangeI abstracts over ConfChangeV2 and (legacy) ConfChange to allow
@@ -43,11 +45,11 @@ func MarshalConfChange(c ConfChangeI) (EntryType, []byte, error) {
 		ccdata = nil
 	} else if ccv1, ok := c.AsV1(); ok {
 		typ = EntryConfChange
-		ccdata, err = ccv1.Marshal()
+		ccdata, err = proto.Marshal(ccv1)
 	} else {
 		ccv2 := c.AsV2()
 		typ = EntryConfChangeV2
-		ccdata, err = ccv2.Marshal()
+		ccdata, err = proto.Marshal(ccv2)
 	}
 	return typ, ccdata, err
 }

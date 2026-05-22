@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	"go.etcd.io/raft/v3/raftpb"
 )
@@ -266,7 +267,7 @@ func TestNodeProposeConfig(t *testing.T) {
 		n.Advance()
 	}
 	cc := &raftpb.ConfChange{Type: raftpb.ConfChangeAddNode.Enum(), NodeId: new(uint64(1))}
-	ccdata, err := cc.Marshal()
+	ccdata, err := proto.Marshal(cc)
 	require.NoError(t, err)
 	n.ProposeConfChange(t.Context(), cc)
 	n.Stop()
@@ -312,7 +313,7 @@ func TestNodeProposeAddDuplicateNode(t *testing.T) {
 					case raftpb.EntryNormal:
 					case raftpb.EntryConfChange:
 						cc := &raftpb.ConfChange{}
-						cc.Unmarshal(e.GetData())
+						proto.Unmarshal(e.GetData(), cc)
 						n.ApplyConfChange(cc)
 						applied = true
 					}
@@ -326,7 +327,7 @@ func TestNodeProposeAddDuplicateNode(t *testing.T) {
 	}()
 
 	cc1 := &raftpb.ConfChange{Type: raftpb.ConfChangeAddNode.Enum(), NodeId: new(uint64(1))}
-	ccdata1, _ := cc1.Marshal()
+	ccdata1, _ := proto.Marshal(cc1)
 	n.ProposeConfChange(ctx, cc1)
 	<-applyConfChan
 
@@ -336,7 +337,7 @@ func TestNodeProposeAddDuplicateNode(t *testing.T) {
 
 	// the new node join should be ok
 	cc2 := &raftpb.ConfChange{Type: raftpb.ConfChangeAddNode.Enum(), NodeId: new(uint64(2))}
-	ccdata2, _ := cc2.Marshal()
+	ccdata2, _ := proto.Marshal(cc2)
 	n.ProposeConfChange(ctx, cc2)
 	<-applyConfChan
 
@@ -481,7 +482,7 @@ func TestNodeStop(t *testing.T) {
 // proposals.
 func TestNodeStart(t *testing.T) {
 	cc := &raftpb.ConfChange{Type: raftpb.ConfChangeAddNode.Enum(), NodeId: new(uint64(1))}
-	ccdata, err := cc.Marshal()
+	ccdata, err := proto.Marshal(cc)
 	require.NoError(t, err)
 	wants := []Ready{
 		{
@@ -522,7 +523,7 @@ func TestNodeStart(t *testing.T) {
 
 	{
 		rd := <-n.Ready()
-		require.Equal(t, wants[0], rd)
+		requireEqualReady(t, wants[0], rd)
 		storage.Append(rd.Entries)
 		n.Advance()
 	}
@@ -543,14 +544,14 @@ func TestNodeStart(t *testing.T) {
 	n.Propose(ctx, []byte("foo"))
 	{
 		rd := <-n.Ready()
-		assert.Equal(t, wants[1], rd)
+		requireEqualReady(t, wants[1], rd)
 		storage.Append(rd.Entries)
 		n.Advance()
 	}
 
 	{
 		rd := <-n.Ready()
-		assert.Equal(t, wants[2], rd)
+		requireEqualReady(t, wants[2], rd)
 		storage.Append(rd.Entries)
 		n.Advance()
 	}
@@ -741,7 +742,7 @@ func TestNodeProposeAddLearnerNode(t *testing.T) {
 						continue
 					}
 					cc := &raftpb.ConfChange{}
-					cc.Unmarshal(ent.GetData())
+					proto.Unmarshal(ent.GetData(), cc)
 					state := n.ApplyConfChange(cc)
 					assert.True(t, len(state.Learners) > 0 && state.Learners[0] == cc.GetNodeId() && cc.GetNodeId() == 2,
 						"apply conf change should return new added learner: %v", state.String())
@@ -1036,14 +1037,14 @@ func TestNodeCommitPaginationAfterRestart(t *testing.T) {
 		}
 
 		s.ents[i] = ent
-		size += uint64(ent.Size())
+		size += uint64(proto.Size(ent))
 	}
 
 	cfg := newTestConfig(1, 10, 1, s)
 	// Set a MaxSizePerMsg that would suggest to Raft that the last committed entry should
 	// not be included in the initial rd.CommittedEntries. However, our storage will ignore
 	// this and *will* return it (which is how the Commit index ended up being 10 initially).
-	cfg.MaxSizePerMsg = size - uint64(s.ents[len(s.ents)-1].Size()) - 1
+	cfg.MaxSizePerMsg = size - uint64(proto.Size(s.ents[len(s.ents)-1])) - 1
 
 	rn, err := NewRawNode(cfg)
 	require.NoError(t, err)

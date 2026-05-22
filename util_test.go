@@ -22,6 +22,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	pb "go.etcd.io/raft/v3/raftpb"
 )
@@ -54,11 +55,11 @@ func TestLimitSize(t *testing.T) {
 		// Even if maxSize is zero, the first entry should be returned.
 		{0, prefix(1)},
 		// Limit to 2.
-		{uint64(ents[0].Size() + ents[1].Size()), prefix(2)},
-		{uint64(ents[0].Size() + ents[1].Size() + ents[2].Size()/2), prefix(2)},
-		{uint64(ents[0].Size() + ents[1].Size() + ents[2].Size() - 1), prefix(2)},
+		{uint64(proto.Size(ents[0]) + proto.Size(ents[1])), prefix(2)},
+		{uint64(proto.Size(ents[0]) + proto.Size(ents[1]) + proto.Size(ents[2])/2), prefix(2)},
+		{uint64(proto.Size(ents[0]) + proto.Size(ents[1]) + proto.Size(ents[2]) - 1), prefix(2)},
 		// All.
-		{uint64(ents[0].Size() + ents[1].Size() + ents[2].Size()), prefix(3)},
+		{uint64(proto.Size(ents[0]) + proto.Size(ents[1]) + proto.Size(ents[2])), prefix(3)},
 	} {
 		t.Run("", func(t *testing.T) {
 			got := limitSize(ents, entryEncodingSize(tt.maxSize))

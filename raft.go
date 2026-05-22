@@ -25,7 +25,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gogo/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 
 	"go.etcd.io/raft/v3/confchange"
 	"go.etcd.io/raft/v3/quorum"
@@ -813,7 +813,6 @@ func (r *raft) appendEntry(es ...*pb.Entry) (accepted bool) {
 	li := r.raftLog.lastIndex()
 	cloned := make([]*pb.Entry, len(es))
 	for i := range es {
-		// TODO: Replace with proto.Clone from protoc-gen-go after migration completes.
 		// TODO: Consider whether cloning/copying is necessary at all, and aim to eliminate it if possible.
 		cloned[i] = proto.Clone(es[i]).(*pb.Entry)
 		cloned[i].Term = new(r.Term)
@@ -1312,13 +1311,13 @@ func stepLeader(r *raft, m *pb.Message) error {
 			var cc pb.ConfChangeI
 			if e.GetType() == pb.EntryConfChange {
 				ccc := &pb.ConfChange{}
-				if err := ccc.Unmarshal(e.GetData()); err != nil {
+				if err := proto.Unmarshal(e.GetData(), ccc); err != nil {
 					panic(err)
 				}
 				cc = ccc
 			} else if e.GetType() == pb.EntryConfChangeV2 {
 				ccc := &pb.ConfChangeV2{}
-				if err := ccc.Unmarshal(e.GetData()); err != nil {
+				if err := proto.Unmarshal(e.GetData(), ccc); err != nil {
 					panic(err)
 				}
 				cc = ccc

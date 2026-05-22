@@ -19,6 +19,8 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"go.etcd.io/raft/v3/raftpb"
 )
 
@@ -90,13 +92,13 @@ func (rn *raftNetwork) send(m *raftpb.Message) {
 	}
 
 	// use marshal/unmarshal to copy message to avoid data race.
-	b, err := m.Marshal()
+	b, err := proto.Marshal(m)
 	if err != nil {
 		panic(err)
 	}
 
 	cm := &raftpb.Message{}
-	err = cm.Unmarshal(b)
+	err = proto.Unmarshal(b, cm)
 	if err != nil {
 		panic(err)
 	}

@@ -17,7 +17,7 @@ package raft
 import (
 	"fmt"
 
-	"github.com/gogo/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 
 	pb "go.etcd.io/raft/v3/raftpb"
 )
@@ -292,7 +292,6 @@ func (l *raftLog) hasNextOrInProgressSnapshot() bool {
 
 func (l *raftLog) snapshot() (*pb.Snapshot, error) {
 	if l.unstable.snapshot != nil {
-		// TODO: Use the standard proto.Clone after switching to protoc-gen-go
 		return proto.Clone(l.unstable.snapshot).(*pb.Snapshot), nil
 	}
 	return l.storage.Snapshot()

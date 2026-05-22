@@ -24,10 +24,57 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	pb "go.etcd.io/raft/v3/raftpb"
 	"go.etcd.io/raft/v3/tracker"
 )
+
+// requireEqualEntries asserts that two entry slices are semantically equal,
+// comparing field values via proto.Equal to avoid false failures from internal
+// protobuf metadata fields (e.g. atomicMessageInfo) that differ between
+// entries created as struct literals and those returned by proto operations.
+func requireEqualEntries(t testing.TB, expected, actual []*pb.Entry, msgAndArgs ...interface{}) {
+	t.Helper()
+	require.Len(t, actual, len(expected), msgAndArgs...)
+	for i := range expected {
+		require.True(t, proto.Equal(expected[i], actual[i]), "entry %d mismatch: expected %v, got %v", i, expected[i], actual[i])
+	}
+}
+
+// assertEqualMessages asserts that two message slices are semantically equal,
+// using proto.Equal to avoid false failures from atomicMessageInfo in embedded
+// entry fields.
+func assertEqualMessages(t testing.TB, expected, actual []*pb.Message, msgAndArgs ...interface{}) {
+	t.Helper()
+	assert.Len(t, actual, len(expected), msgAndArgs...)
+	n := len(expected)
+	if len(actual) < n {
+		n = len(actual)
+	}
+	for i := 0; i < n; i++ {
+		assert.True(t, proto.Equal(expected[i], actual[i]), "message %d mismatch: expected %v, got %v", i, expected[i], actual[i])
+	}
+}
+
+// requireEqualReady asserts that two Ready values are semantically equal,
+// comparing protobuf message fields (Entries, CommittedEntries, Messages)
+// via proto.Equal to avoid atomicMessageInfo false failures.
+func requireEqualReady(t testing.TB, expected, actual Ready) {
+	t.Helper()
+	requireEqualEntries(t, expected.Entries, actual.Entries)
+	requireEqualEntries(t, expected.CommittedEntries, actual.CommittedEntries)
+	assertEqualMessages(t, expected.Messages, actual.Messages)
+	exp := expected
+	exp.Entries = nil
+	exp.CommittedEntries = nil
+	exp.Messages = nil
+	act := actual
+	act.Entries = nil
+	act.CommittedEntries = nil
+	act.Messages = nil
+	require.Equal(t, exp, act)
+}
 
 // nextEnts returns the appliable entries and updates the applied index.
 func nextEnts(r *raft, s *MemoryStorage) (ents []*pb.Entry) {
@@ -2767,7 +2814,7 @@ func TestStepIgnoreConfig(t *testing.T) {
 	wents := []*pb.Entry{{Type: pb.EntryNormal.Enum(), Term: new(uint64(1)), Index: new(uint64(3)), Data: nil}}
 	ents, err := r.raftLog.entries(index+1, noLimit)
 	require.NoError(t, err)
-	assert.Equal(t, wents, ents)
+	requireEqualEntries(t, wents, ents)
 	assert.Equal(t, pendingConfIndex, r.pendingConfIndex)
 }
 
@@ -2965,7 +3012,7 @@ func TestCommitAfterRemoveNode(t *testing.T) {
 		Type:   pb.ConfChangeRemoveNode.Enum(),
 		NodeId: new(uint64(2)),
 	}
-	ccData, err := cc.Marshal()
+	ccData, err := proto.Marshal(cc)
 	require.NoError(t, err)
 	r.Step(&pb.Message{
 		Type:    pb.MsgProp.Enum(),
@@ -3670,10 +3717,10 @@ func testConfChangeCheckBeforeCampaign(t *testing.T, v2 bool) {
 	var ty pb.EntryType
 	if v2 {
 		ccv2 := cc.AsV2()
-		ccData, err = ccv2.Marshal()
+		ccData, err = proto.Marshal(ccv2)
 		ty = pb.EntryConfChangeV2
 	} else {
-		ccData, err = cc.Marshal()
+		ccData, err = proto.Marshal(cc)
 		ty = pb.EntryConfChange
 	}
 	require.NoError(t, err)

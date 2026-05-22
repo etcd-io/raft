@@ -23,7 +23,9 @@ func TestLeaveJoint(t *testing.T) {
 	// Verify that ConfChangeV2 has exactly the expected fields.
 	// This ensures that if new fields are added to ConfChangeV2, this test will fail.
 	ccv2Type := reflect.TypeOf((*ConfChangeV2)(nil)).Elem()
-	expectedFieldCount := 3 // Transition, Changes, Context
+	// 3 user-visible fields (Transition, Changes, Context) + 3 internal protobuf
+	// fields (state, unknownFields, sizeCache) added by protoc-gen-go v2.
+	expectedFieldCount := 6
 	if ccv2Type.NumField() != expectedFieldCount {
 		t.Fatalf("ConfChangeV2 has %d fields, expected %d. If new fields were added, please update this test.",
 			ccv2Type.NumField(), expectedFieldCount)

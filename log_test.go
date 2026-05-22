@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	pb "go.etcd.io/raft/v3/raftpb"
 )
@@ -179,7 +180,7 @@ func TestAppend(t *testing.T) {
 			require.Equal(t, tt.windex, raftLog.append(tt.ents...))
 			g, err := raftLog.entries(1, noLimit)
 			require.NoError(t, err)
-			require.Equal(t, tt.wents, g)
+			requireEqualEntries(t, tt.wents, g)
 			require.Equal(t, tt.wunstable, raftLog.unstable.offset)
 		})
 	}
@@ -923,26 +924,26 @@ func TestSlice(t *testing.T) {
 		{lo: half, hi: last, lim: 0, w: entries(half, half+1)},
 		{lo: half + 1, hi: last, lim: 0, w: entries(half+1, half+2)},
 		// Low limit.
-		{lo: offset + 1, hi: last, lim: uint64(halfe.Size() - 1), w: entries(offset+1, offset+2)},
-		{lo: half - 1, hi: half + 1, lim: uint64(halfe.Size() - 1), w: entries(half-1, half)},
-		{lo: half, hi: last, lim: uint64(halfe.Size() - 1), w: entries(half, half+1)},
+		{lo: offset + 1, hi: last, lim: uint64(proto.Size(halfe) - 1), w: entries(offset+1, offset+2)},
+		{lo: half - 1, hi: half + 1, lim: uint64(proto.Size(halfe) - 1), w: entries(half-1, half)},
+		{lo: half, hi: last, lim: uint64(proto.Size(halfe) - 1), w: entries(half, half+1)},
 		// Just enough for one limit.
-		{lo: offset + 1, hi: last, lim: uint64(halfe.Size()), w: entries(offset+1, offset+2)},
-		{lo: half - 1, hi: half + 1, lim: uint64(halfe.Size()), w: entries(half-1, half)},
-		{lo: half, hi: last, lim: uint64(halfe.Size()), w: entries(half, half+1)},
+		{lo: offset + 1, hi: last, lim: uint64(proto.Size(halfe)), w: entries(offset+1, offset+2)},
+		{lo: half - 1, hi: half + 1, lim: uint64(proto.Size(halfe)), w: entries(half-1, half)},
+		{lo: half, hi: last, lim: uint64(proto.Size(halfe)), w: entries(half, half+1)},
 		// Not enough for two limit.
-		{lo: offset + 1, hi: last, lim: uint64(halfe.Size() + 1), w: entries(offset+1, offset+2)},
-		{lo: half - 1, hi: half + 1, lim: uint64(halfe.Size() + 1), w: entries(half-1, half)},
-		{lo: half, hi: last, lim: uint64(halfe.Size() + 1), w: entries(half, half+1)},
+		{lo: offset + 1, hi: last, lim: uint64(proto.Size(halfe) + 1), w: entries(offset+1, offset+2)},
+		{lo: half - 1, hi: half + 1, lim: uint64(proto.Size(halfe) + 1), w: entries(half-1, half)},
+		{lo: half, hi: last, lim: uint64(proto.Size(halfe) + 1), w: entries(half, half+1)},
 		// Enough for two limit.
-		{lo: offset + 1, hi: last, lim: uint64(halfe.Size() * 2), w: entries(offset+1, offset+3)},
-		{lo: half - 2, hi: half + 1, lim: uint64(halfe.Size() * 2), w: entries(half-2, half)},
-		{lo: half - 1, hi: half + 1, lim: uint64(halfe.Size() * 2), w: entries(half-1, half+1)},
-		{lo: half, hi: last, lim: uint64(halfe.Size() * 2), w: entries(half, half+2)},
+		{lo: offset + 1, hi: last, lim: uint64(proto.Size(halfe) * 2), w: entries(offset+1, offset+3)},
+		{lo: half - 2, hi: half + 1, lim: uint64(proto.Size(halfe) * 2), w: entries(half-2, half)},
+		{lo: half - 1, hi: half + 1, lim: uint64(proto.Size(halfe) * 2), w: entries(half-1, half+1)},
+		{lo: half, hi: last, lim: uint64(proto.Size(halfe) * 2), w: entries(half, half+2)},
 		// Not enough for three.
-		{lo: half - 2, hi: half + 1, lim: uint64(halfe.Size()*3 - 1), w: entries(half-2, half)},
+		{lo: half - 2, hi: half + 1, lim: uint64(proto.Size(halfe)*3 - 1), w: entries(half-2, half)},
 		// Enough for three.
-		{lo: half - 1, hi: half + 2, lim: uint64(halfe.Size() * 3), w: entries(half-1, half+2)},
+		{lo: half - 1, hi: half + 2, lim: uint64(proto.Size(halfe) * 3), w: entries(half-1, half+2)},
 	} {
 		t.Run("", func(t *testing.T) {
 			defer func() {
@@ -953,7 +954,7 @@ func TestSlice(t *testing.T) {
 			g, err := l.slice(tt.lo, tt.hi, entryEncodingSize(tt.lim))
 			require.False(t, tt.lo <= offset && err != ErrCompacted)
 			require.False(t, tt.lo > offset && err != nil)
-			require.Equal(t, tt.w, g)
+			requireEqualEntries(t, tt.w, g)
 		})
 	}
 }
