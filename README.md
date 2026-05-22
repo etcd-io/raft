@@ -126,7 +126,7 @@ Second, all persisted log entries must be made available via an implementation o
 Third, after receiving a message from another node, pass it to Node.Step:
 
 ```go
-	func recvRaftRPC(ctx context.Context, m raftpb.Message) {
+	func recvRaftRPC(ctx context.Context, m *raftpb.Message) {
 		n.Step(ctx, m)
 	}
 ```
@@ -148,9 +148,9 @@ The total state machine handling loop will look something like this:
       }
       for _, entry := range rd.CommittedEntries {
         process(entry)
-        if entry.Type == raftpb.EntryConfChange {
+        if entry.GetType() == raftpb.EntryConfChange {
           var cc raftpb.ConfChange
-          cc.Unmarshal(entry.Data)
+          proto.Unmarshal(entry.GetData(), &cc)
           s.Node.ApplyConfChange(cc)
         }
       }
@@ -179,7 +179,7 @@ After config change is committed, some committed entry with type raftpb.EntryCon
 
 ```go
 	var cc raftpb.ConfChange
-	cc.Unmarshal(data)
+	proto.Unmarshal(data, &cc)
 	n.ApplyConfChange(cc)
 ```
 

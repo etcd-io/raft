@@ -134,7 +134,7 @@ The total state machine handling loop will look something like this:
 	      process(entry)
 	      if entry.GetType() == raftpb.EntryConfChange {
 	        var cc raftpb.ConfChange
-	        cc.Unmarshal(entry.GetData())
+	        proto.Unmarshal(entry.GetData(), &cc)
 	        s.Node.ApplyConfChange(cc)
 	      }
 	    }
@@ -161,7 +161,7 @@ After config change is committed, some committed entry with type
 raftpb.EntryConfChange will be returned. You must apply it to node through:
 
 	var cc raftpb.ConfChange
-	cc.Unmarshal(data)
+	proto.Unmarshal(data, &cc)
 	n.ApplyConfChange(cc)
 
 Note: An ID represents a unique node in a cluster for all time. A
@@ -246,7 +246,7 @@ application to the local state machine (apply). Those will look something like:
 	        process(entry)
 	        if entry.GetType() == raftpb.EntryConfChange {
 	          var cc raftpb.ConfChange
-	          cc.Unmarshal(entry.GetData())
+	          proto.Unmarshal(entry.GetData(), &cc)
 	          s.Node.ApplyConfChange(cc)
 	        }
 	      }
