@@ -19,13 +19,10 @@ if [[ $(protoc --version | cut -f2 -d' ') != "3.20.3" ]]; then
 fi
 
 GOGEN_BIN=$(tool_get_bin google.golang.org/protobuf/cmd/protoc-gen-go)
-GOGOPROTO_ROOT="$(tool_pkg_dir github.com/gogo/protobuf/proto)/.."
 
 echo
 echo "Resolved binary and packages versions:"
 echo "  - protoc-gen-go:           ${GOGEN_BIN}"
-echo "  - gogoproto-root:          ${GOGOPROTO_ROOT}"
-GOGOPROTO_PATH="${GOGOPROTO_ROOT}:${GOGOPROTO_ROOT}/protobuf"
 
 # directories containing protos to be built
 DIRS="./raftpb"
@@ -34,7 +31,7 @@ log_callout -e "\\nRunning protoc-gen-go proto generation..."
 
 for dir in ${DIRS}; do
   pushd "${dir}"
-    protoc --go_out=. -I=".:${GOGOPROTO_PATH}:${RAFT_ROOT_DIR}/..:${RAFT_ROOT_DIR}" \
+    protoc --go_out=. -I=".:${RAFT_ROOT_DIR}/..:${RAFT_ROOT_DIR}" \
     --plugin=protoc-gen-go="${GOGEN_BIN}" \
     --go_opt=paths=source_relative ./**/*.proto
 
