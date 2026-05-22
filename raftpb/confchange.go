@@ -127,7 +127,7 @@ func ConfChangesFromString(s string) ([]*ConfChangeSingle, error) {
 		if len(tok) < 2 {
 			return nil, fmt.Errorf("unknown token %s", tok)
 		}
-		var cc ConfChangeSingle
+		cc := &ConfChangeSingle{}
 		switch tok[0] {
 		case 'v':
 			cc.Type = ConfChangeAddNode.Enum()
@@ -145,7 +145,7 @@ func ConfChangesFromString(s string) ([]*ConfChangeSingle, error) {
 			return nil, err
 		}
 		cc.NodeId = new(id)
-		ccs = append(ccs, &cc)
+		ccs = append(ccs, cc)
 	}
 	return ccs, nil
 }

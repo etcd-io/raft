@@ -58,7 +58,7 @@ func TestConfChangeDataDriven(t *testing.T) {
 				if len(tok) < 2 {
 					return fmt.Sprintf("unknown token %s", tok)
 				}
-				var cc pb.ConfChangeSingle
+				cc := &pb.ConfChangeSingle{}
 				switch tok[0] {
 				case 'v':
 					cc.Type = pb.ConfChangeAddNode.Enum()
@@ -76,7 +76,7 @@ func TestConfChangeDataDriven(t *testing.T) {
 					return err.Error()
 				}
 				cc.NodeId = new(id)
-				ccs = append(ccs, &cc)
+				ccs = append(ccs, cc)
 			}
 
 			var cfg tracker.Config
