@@ -16,8 +16,9 @@ package raftpb
 
 import (
 	"fmt"
-	"reflect"
 	"slices"
+
+	"google.golang.org/protobuf/proto"
 )
 
 // Equivalent returns a nil error if the inputs describe the same configuration.
@@ -26,23 +27,26 @@ func (cs *ConfState) Equivalent(cs2 *ConfState) error {
 	if cs == nil || cs2 == nil {
 		return fmt.Errorf("cannot compare ConfState: nil input (left=%v, right=%v)", cs == nil, cs2 == nil)
 	}
-	cs1 := *cs
-	cs2v := *cs2
-	orig1, orig2 := cs1, cs2v
+
+	cs1v := proto.Clone(cs).(*ConfState)
+	cs2v := proto.Clone(cs2).(*ConfState)
+
 	s := func(sl *[]uint64) {
-		*sl = append([]uint64(nil), *sl...)
 		slices.Sort(*sl)
 	}
-
-	for _, c := range []*ConfState{&cs1, &cs2v} {
+	for _, c := range []*ConfState{cs1v, cs2v} {
 		s(&c.Voters)
 		s(&c.Learners)
 		s(&c.VotersOutgoing)
 		s(&c.LearnersNext)
+
+		// Treat nil AutoLeave as false.
+		autoLeave := c.GetAutoLeave()
+		c.AutoLeave = &autoLeave
 	}
 
-	if !reflect.DeepEqual(cs1, cs2v) {
-		return fmt.Errorf("ConfStates not equivalent after sorting:\n%+#v\n%+#v\nInputs were:\n%+#v\n%+#v", cs1, cs2v, orig1, orig2)
+	if !proto.Equal(cs1v, cs2v) {
+		return fmt.Errorf("ConfStates not equivalent after sorting:\n%+#v\n%+#v\nInputs were:\n%+#v\n%+#v", cs1v, cs2v, cs, cs2)
 	}
 	return nil
 }

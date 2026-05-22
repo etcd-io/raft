@@ -30,7 +30,7 @@ import (
 type rndConfChange pb.ConfState
 
 // Generate creates a random (valid) ConfState for use with quickcheck.
-func (rndConfChange) Generate(rand *rand.Rand, _ int) reflect.Value {
+func (*rndConfChange) Generate(rand *rand.Rand, _ int) reflect.Value {
 	conv := func(sl []int) []uint64 {
 		// We want IDs but the incoming slice is zero-indexed, so add one to
 		// each.
@@ -40,7 +40,7 @@ func (rndConfChange) Generate(rand *rand.Rand, _ int) reflect.Value {
 		}
 		return out
 	}
-	var cs pb.ConfState
+	cs := &pb.ConfState{}
 	// NB: never generate the empty ConfState, that one should be unit tested.
 	nVoters := 1 + rand.Intn(5)
 
@@ -80,7 +80,7 @@ func (rndConfChange) Generate(rand *rand.Rand, _ int) reflect.Value {
 	}
 
 	cs.AutoLeave = new(len(cs.VotersOutgoing) > 0 && rand.Intn(2) == 1)
-	return reflect.ValueOf(rndConfChange(cs))
+	return reflect.ValueOf((*rndConfChange)(cs))
 }
 
 func TestRestore(t *testing.T) {
@@ -133,8 +133,7 @@ func TestRestore(t *testing.T) {
 		}
 	}
 
-	assert.NoError(t, quick.Check(func(cs rndConfChange) bool {
-		v := pb.ConfState(cs)
-		return f(&v)
+	assert.NoError(t, quick.Check(func(cs *rndConfChange) bool {
+		return f((*pb.ConfState)(cs))
 	}, &cfg))
 }

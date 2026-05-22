@@ -17,10 +17,10 @@ package rafttest
 import (
 	"errors"
 	"fmt"
-	"reflect"
 	"testing"
 
 	"github.com/cockroachdb/datadriven"
+	"google.golang.org/protobuf/proto"
 
 	"go.etcd.io/raft/v3"
 	pb "go.etcd.io/raft/v3/raftpb"
@@ -96,8 +96,7 @@ var _ raft.Storage = snapOverrideStorage{}
 func (env *InteractionEnv) AddNodes(n int, cfg raft.Config, snap *pb.Snapshot) error {
 	emptySnapshot := pb.EnsureSnapshot(nil)
 	snap = pb.EnsureSnapshot(snap)
-	// TODO: use the proto.Equal after switching to the protoc-gen-go
-	bootstrap := !reflect.DeepEqual(snap, emptySnapshot)
+	bootstrap := !proto.Equal(snap, emptySnapshot)
 	for i := 0; i < n; i++ {
 		id := uint64(1 + len(env.Nodes))
 		s := snapOverrideStorage{
