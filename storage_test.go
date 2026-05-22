@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	pb "go.etcd.io/raft/v3/raftpb"
 )
@@ -71,12 +72,12 @@ func TestStorageEntries(t *testing.T) {
 		// even if maxsize is zero, the first entry should be returned
 		{4, 7, 0, nil, index(4).terms(4)},
 		// limit to 2
-		{4, 7, uint64(ents[1].Size() + ents[2].Size()), nil, index(4).terms(4, 5)},
+		{4, 7, uint64(proto.Size(ents[1]) + proto.Size(ents[2])), nil, index(4).terms(4, 5)},
 		// limit to 2
-		{4, 7, uint64(ents[1].Size() + ents[2].Size() + ents[3].Size()/2), nil, index(4).terms(4, 5)},
-		{4, 7, uint64(ents[1].Size() + ents[2].Size() + ents[3].Size() - 1), nil, index(4).terms(4, 5)},
+		{4, 7, uint64(proto.Size(ents[1]) + proto.Size(ents[2]) + proto.Size(ents[3])/2), nil, index(4).terms(4, 5)},
+		{4, 7, uint64(proto.Size(ents[1]) + proto.Size(ents[2]) + proto.Size(ents[3]) - 1), nil, index(4).terms(4, 5)},
 		// all
-		{4, 7, uint64(ents[1].Size() + ents[2].Size() + ents[3].Size()), nil, index(4).terms(4, 5, 6)},
+		{4, 7, uint64(proto.Size(ents[1]) + proto.Size(ents[2]) + proto.Size(ents[3])), nil, index(4).terms(4, 5, 6)},
 	}
 
 	for _, tt := range tests {
@@ -84,7 +85,7 @@ func TestStorageEntries(t *testing.T) {
 			s := &MemoryStorage{ents: ents}
 			entries, err := s.Entries(tt.lo, tt.hi, tt.maxsize)
 			require.Equal(t, tt.werr, err)
-			require.Equal(t, tt.wentries, entries)
+			requireEqualEntries(t, tt.wentries, entries)
 		})
 	}
 }
@@ -164,7 +165,7 @@ func TestStorageCreateSnapshot(t *testing.T) {
 			s := &MemoryStorage{ents: ents}
 			snap, err := s.CreateSnapshot(tt.i, cs, data)
 			require.Equal(t, tt.werr, err)
-			require.Equal(t, tt.wsnap, snap)
+			require.True(t, proto.Equal(tt.wsnap, snap))
 		})
 	}
 }

@@ -8,7 +8,6 @@ require (
 	github.com/alexkohler/nakedret v1.0.0
 	github.com/chzchzchz/goword v0.0.0-20170907005317-a9744cb52b03
 	github.com/coreos/license-bill-of-materials v0.0.0-20190913234955-13baff47494e
-	github.com/gogo/protobuf v1.3.2
 	github.com/google/addlicense v1.0.0
 	github.com/gordonklaus/ineffassign v0.0.0-20210914165742-4cc7213b9bc8
 	github.com/gyuho/gocovmerge v0.0.0-20171205171859-50c7e6afd535
@@ -18,6 +17,7 @@ require (
 	go.etcd.io/gofail v0.0.0-20221125214112-fc21f61ba88a
 	go.etcd.io/protodoc v0.0.0-20180829002748-484ab544e116
 	golang.org/x/tools v0.42.0
+	google.golang.org/protobuf v1.36.11
 	gotest.tools/gotestsum v1.13.0
 	gotest.tools/v3 v3.5.2
 	honnef.co/go/tools v0.3.0

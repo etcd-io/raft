@@ -1,11 +1,7 @@
 syntax = "proto2";
 package raftpb;
 
-import "gogoproto/gogo.proto";
-
-option (gogoproto.goproto_unkeyed_all) = false;
-option (gogoproto.goproto_unrecognized_all) = false;
-option (gogoproto.goproto_sizecache_all) = false;
+option go_package="go.etcd.io/raft/v3/raftpb";
 
 enum EntryType {
 	EntryNormal       = 0;

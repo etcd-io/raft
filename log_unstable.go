@@ -15,7 +15,7 @@
 package raft
 
 import (
-	"github.com/gogo/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 
 	pb "go.etcd.io/raft/v3/raftpb"
 )
@@ -111,7 +111,6 @@ func (u *unstable) nextSnapshot() *pb.Snapshot {
 	if u.snapshot == nil || u.snapshotInProgress {
 		return nil
 	}
-	// TODO: Use the standard proto.Clone after switching to protoc-gen-go
 	return proto.Clone(u.snapshot).(*pb.Snapshot)
 }
 
@@ -194,7 +193,6 @@ func (u *unstable) restore(s *pb.Snapshot) {
 	u.offset = s.GetMetadata().GetIndex() + 1
 	u.offsetInProgress = u.offset
 	u.entries = nil
-	// TODO: use the standard proto.Clone after switching to protoc-gen-go
 	u.snapshot = proto.Clone(s).(*pb.Snapshot)
 	u.snapshotInProgress = false
 }

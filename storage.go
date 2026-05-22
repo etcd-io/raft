@@ -18,7 +18,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/gogo/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 
 	pb "go.etcd.io/raft/v3/raftpb"
 )
@@ -210,7 +210,6 @@ func (ms *MemoryStorage) Snapshot() (*pb.Snapshot, error) {
 	defer ms.Unlock()
 	ms.callStats.snapshot++
 	ms.snapshot = pb.EnsureSnapshot(ms.snapshot)
-	// TODO: Use the standard proto.Clone after switching to protoc-gen-go
 	return proto.Clone(ms.snapshot).(*pb.Snapshot), nil
 }
 
@@ -232,7 +231,6 @@ func (ms *MemoryStorage) ApplySnapshot(snap *pb.Snapshot) error {
 		return ErrSnapOutOfDate
 	}
 
-	// TODO: use the standard proto.Clone after switching to protoc-gen-go
 	ms.snapshot = proto.Clone(snap).(*pb.Snapshot)
 	ms.ents = []*pb.Entry{{Term: new(snap.GetMetadata().GetTerm()), Index: new(snap.GetMetadata().GetIndex())}}
 	return nil
@@ -258,11 +256,9 @@ func (ms *MemoryStorage) CreateSnapshot(i uint64, cs *pb.ConfState, data []byte)
 	ms.snapshot.Metadata.Index = new(i)
 	ms.snapshot.Metadata.Term = new(ms.ents[i-offset].GetTerm())
 	if cs != nil {
-		// TODO: use the official protobuf clone after we switch to protoc-gen-go
 		ms.snapshot.Metadata.ConfState = proto.Clone(cs).(*pb.ConfState)
 	}
 	ms.snapshot.Data = data
-	// TODO: use the official protobuf clone after we switch to protoc-gen-go
 	return proto.Clone(ms.snapshot).(*pb.Snapshot), nil
 }
 

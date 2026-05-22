@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"strings"
 
+	"google.golang.org/protobuf/proto"
+
 	pb "go.etcd.io/raft/v3/raftpb"
 )
 
@@ -220,14 +222,14 @@ func DescribeEntry(e *pb.Entry, f EntryFormatter) string {
 		formatted = f(e.GetData())
 	case pb.EntryConfChange:
 		cc := &pb.ConfChange{}
-		if err := cc.Unmarshal(e.GetData()); err != nil {
+		if err := proto.Unmarshal(e.GetData(), cc); err != nil {
 			formatted = err.Error()
 		} else {
 			formatted = formatConfChange(cc)
 		}
 	case pb.EntryConfChangeV2:
 		cc := &pb.ConfChangeV2{}
-		if err := cc.Unmarshal(e.GetData()); err != nil {
+		if err := proto.Unmarshal(e.GetData(), cc); err != nil {
 			formatted = err.Error()
 		} else {
 			formatted = formatConfChange(cc)
@@ -237,6 +239,22 @@ func DescribeEntry(e *pb.Entry, f EntryFormatter) string {
 		formatted = " " + formatted
 	}
 	return fmt.Sprintf("%d/%d %s%s", e.GetTerm(), e.GetIndex(), e.GetType(), formatted)
+}
+
+// DescribeConfChange returns a deterministic, human-readable representation of
+// a ConfChangeI. It avoids using the proto text format (which adds random extra
+// spaces via detrand, producing unstable output across architectures/builds).
+func DescribeConfChange(cc pb.ConfChangeI) string {
+	cv2 := cc.AsV2()
+	var b strings.Builder
+	fmt.Fprintf(&b, "transition:%v", cv2.GetTransition())
+	for _, c := range cv2.GetChanges() {
+		fmt.Fprintf(&b, " changes:{type:%v node_id:%d}", c.GetType(), c.GetNodeId())
+	}
+	if len(cv2.Context) > 0 {
+		fmt.Fprintf(&b, " context:%q", cv2.Context)
+	}
+	return b.String()
 }
 
 // DescribeEntries calls DescribeEntry for each Entry, adding a newline to
@@ -256,7 +274,7 @@ type entryEncodingSize uint64
 func entsSize(ents []*pb.Entry) entryEncodingSize {
 	var size entryEncodingSize
 	for _, ent := range ents {
-		size += entryEncodingSize(ent.Size())
+		size += entryEncodingSize(proto.Size(ent))
 	}
 	return size
 }
@@ -269,10 +287,10 @@ func limitSize(ents []*pb.Entry, maxSize entryEncodingSize) []*pb.Entry {
 	if len(ents) == 0 {
 		return ents
 	}
-	size := ents[0].Size()
+	size := entryEncodingSize(proto.Size(ents[0]))
 	for limit := 1; limit < len(ents); limit++ {
-		size += ents[limit].Size()
-		if entryEncodingSize(size) > maxSize {
+		size += entryEncodingSize(proto.Size(ents[limit]))
+		if size > maxSize {
 			return ents[:limit]
 		}
 	}

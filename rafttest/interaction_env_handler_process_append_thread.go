@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	"github.com/cockroachdb/datadriven"
-	"github.com/gogo/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
@@ -66,7 +66,6 @@ func (env *InteractionEnv) ProcessAppendThread(idx int) error {
 	snap := m.GetSnapshot()
 	var cloned *raftpb.Snapshot
 	if snap != nil {
-		// TODO: use the standard proto.Clone after switching to protoc-gen-go
 		cloned = proto.Clone(snap).(*raftpb.Snapshot)
 	}
 	cloned = raftpb.EnsureSnapshot(cloned)

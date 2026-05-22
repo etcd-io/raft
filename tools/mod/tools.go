@@ -32,6 +32,7 @@ import (
 	_ "github.com/mgechev/revive"
 	_ "github.com/mikefarah/yq/v4"
 	_ "golang.org/x/tools/cmd/goimports"
+	_ "google.golang.org/protobuf/cmd/protoc-gen-go"
 	_ "gotest.tools/gotestsum"
 	_ "gotest.tools/v3"
 	_ "honnef.co/go/tools/cmd/staticcheck"
