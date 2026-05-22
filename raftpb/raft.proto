@@ -1,6 +1,8 @@
 syntax = "proto2";
 package raftpb;
 
+option go_package="go.etcd.io/raft/v3/raftpb";
+
 enum EntryType {
 	EntryNormal       = 0;
 	EntryConfChange   = 1; // corresponds to pb.ConfChange
