@@ -23,8 +23,10 @@ import (
 // ConfChangeI abstracts over ConfChangeV2 and (legacy) ConfChange to allow
 // treating them in a unified manner.
 type ConfChangeI interface {
-	AsV2() ConfChangeV2
-	AsV1() (ConfChange, bool)
+	// AsV2 should always return a non-nil object
+	AsV2() *ConfChangeV2
+	// AsV1 should always return a non-nil object
+	AsV1() (*ConfChange, bool)
 }
 
 // MarshalConfChange calls Marshal on the underlying ConfChange or ConfChangeV2
@@ -51,8 +53,8 @@ func MarshalConfChange(c ConfChangeI) (EntryType, []byte, error) {
 }
 
 // AsV2 returns a V2 configuration change carrying out the same operation.
-func (c ConfChange) AsV2() ConfChangeV2 {
-	return ConfChangeV2{
+func (c *ConfChange) AsV2() *ConfChangeV2 {
+	return &ConfChangeV2{
 		Changes: []*ConfChangeSingle{{
 			Type:   c.GetType().Enum(),
 			NodeId: new(c.GetNodeId()),
@@ -62,22 +64,22 @@ func (c ConfChange) AsV2() ConfChangeV2 {
 }
 
 // AsV1 returns the ConfChange and true.
-func (c ConfChange) AsV1() (ConfChange, bool) {
+func (c *ConfChange) AsV1() (*ConfChange, bool) {
 	return c, true
 }
 
 // AsV2 is the identity.
-func (c ConfChangeV2) AsV2() ConfChangeV2 { return c }
+func (c *ConfChangeV2) AsV2() *ConfChangeV2 { return c }
 
-// AsV1 returns ConfChange{} and false.
-func (c ConfChangeV2) AsV1() (ConfChange, bool) { return ConfChange{}, false }
+// AsV1 returns nil and false.
+func (c *ConfChangeV2) AsV1() (*ConfChange, bool) { return nil, false }
 
 // EnterJoint returns two bools. The second bool is true if and only if this
 // config change will use Joint Consensus, which is the case if it contains more
 // than one change or if the use of Joint Consensus was requested explicitly.
 // The first bool can only be true if second one is, and indicates whether the
 // Joint State will be left automatically.
-func (c ConfChangeV2) EnterJoint() (autoLeave bool, ok bool) {
+func (c *ConfChangeV2) EnterJoint() (autoLeave bool, ok bool) {
 	// NB: in theory, more config changes could qualify for the "simple"
 	// protocol but it depends on the config on top of which the changes apply.
 	// For example, adding two learners is not OK if both nodes are part of the
@@ -104,7 +106,7 @@ func (c ConfChangeV2) EnterJoint() (autoLeave bool, ok bool) {
 // LeaveJoint is true if the configuration change leaves a joint configuration.
 // This is the case if the ConfChangeV2 is zero, with the possible exception of
 // the Context field.
-func (c ConfChangeV2) LeaveJoint() bool {
+func (c *ConfChangeV2) LeaveJoint() bool {
 	return c.GetTransition() == ConfChangeTransition_ConfChangeTransitionAuto &&
 		len(c.GetChanges()) == 0
 }

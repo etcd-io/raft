@@ -219,14 +219,14 @@ func DescribeEntry(e *pb.Entry, f EntryFormatter) string {
 	case pb.EntryNormal:
 		formatted = f(e.GetData())
 	case pb.EntryConfChange:
-		var cc pb.ConfChange
+		cc := &pb.ConfChange{}
 		if err := cc.Unmarshal(e.GetData()); err != nil {
 			formatted = err.Error()
 		} else {
 			formatted = formatConfChange(cc)
 		}
 	case pb.EntryConfChangeV2:
-		var cc pb.ConfChangeV2
+		cc := &pb.ConfChangeV2{}
 		if err := cc.Unmarshal(e.GetData()); err != nil {
 			formatted = err.Error()
 		} else {
