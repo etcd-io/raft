@@ -66,18 +66,18 @@ func TestStorageEntries(t *testing.T) {
 	}{
 		{2, 6, math.MaxUint64, ErrCompacted, nil},
 		{3, 4, math.MaxUint64, ErrCompacted, nil},
-		{4, 5, math.MaxUint64, nil, ents[1:2]},
-		{4, 6, math.MaxUint64, nil, ents[1:3]},
-		{4, 7, math.MaxUint64, nil, ents[1:4]},
+		{4, 5, math.MaxUint64, nil, index(4).terms(4)},
+		{4, 6, math.MaxUint64, nil, index(4).terms(4, 5)},
+		{4, 7, math.MaxUint64, nil, index(4).terms(4, 5, 6)},
 		// even if maxsize is zero, the first entry should be returned
-		{4, 7, 0, nil, ents[1:2]},
+		{4, 7, 0, nil, index(4).terms(4)},
 		// limit to 2
-		{4, 7, uint64(proto.Size(ents[1]) + proto.Size(ents[2])), nil, ents[1:3]},
+		{4, 7, uint64(proto.Size(ents[1]) + proto.Size(ents[2])), nil, index(4).terms(4, 5)},
 		// limit to 2
-		{4, 7, uint64(proto.Size(ents[1]) + proto.Size(ents[2]) + proto.Size(ents[3])/2), nil, ents[1:3]},
-		{4, 7, uint64(proto.Size(ents[1]) + proto.Size(ents[2]) + proto.Size(ents[3]) - 1), nil, ents[1:3]},
+		{4, 7, uint64(proto.Size(ents[1]) + proto.Size(ents[2]) + proto.Size(ents[3])/2), nil, index(4).terms(4, 5)},
+		{4, 7, uint64(proto.Size(ents[1]) + proto.Size(ents[2]) + proto.Size(ents[3]) - 1), nil, index(4).terms(4, 5)},
 		// all
-		{4, 7, uint64(proto.Size(ents[1]) + proto.Size(ents[2]) + proto.Size(ents[3])), nil, ents[1:4]},
+		{4, 7, uint64(proto.Size(ents[1]) + proto.Size(ents[2]) + proto.Size(ents[3])), nil, index(4).terms(4, 5, 6)},
 	}
 
 	for _, tt := range tests {
@@ -85,7 +85,7 @@ func TestStorageEntries(t *testing.T) {
 			s := &MemoryStorage{ents: ents}
 			entries, err := s.Entries(tt.lo, tt.hi, tt.maxsize)
 			require.Equal(t, tt.werr, err)
-			require.Equal(t, tt.wentries, entries)
+			requireEqualEntries(t, tt.wentries, entries)
 		})
 	}
 }
