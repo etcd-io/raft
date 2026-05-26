@@ -15,6 +15,7 @@
 package rafttest
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/cockroachdb/datadriven"
@@ -22,11 +23,14 @@ import (
 
 func (env *InteractionEnv) handleForgetLeader(t *testing.T, d datadriven.TestData) error {
 	idx := firstAsNodeIdx(t, d)
-	env.ForgetLeader(idx)
-	return nil
+	return env.ForgetLeader(idx)
 }
 
 // ForgetLeader makes the follower at the given index forget its leader.
-func (env *InteractionEnv) ForgetLeader(idx int) {
+func (env *InteractionEnv) ForgetLeader(idx int) error {
+	if idx < 0 || idx >= len(env.Nodes) {
+		return fmt.Errorf("node index %d out of range [0, %d)", idx, len(env.Nodes))
+	}
 	env.Nodes[idx].ForgetLeader()
+	return nil
 }
