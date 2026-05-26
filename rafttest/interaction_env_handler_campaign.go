@@ -15,6 +15,7 @@
 package rafttest
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/cockroachdb/datadriven"
@@ -27,5 +28,8 @@ func (env *InteractionEnv) handleCampaign(t *testing.T, d datadriven.TestData) e
 
 // Campaign the node at the given index.
 func (env *InteractionEnv) Campaign(idx int) error {
+	if idx < 0 || idx >= len(env.Nodes) {
+		return fmt.Errorf("node index %d out of range [0, %d)", idx, len(env.Nodes))
+	}
 	return env.Nodes[idx].Campaign()
 }
