@@ -34,7 +34,13 @@ func EnsureSnapshotMetadata(m *SnapshotMetadata) *SnapshotMetadata {
 	if m == nil {
 		m = new(SnapshotMetadata)
 	}
-	m.ConfState = EnsureConfState(m.ConfState)
+	newConfState := EnsureConfState(m.ConfState)
+	if m.ConfState == nil {
+		// ConfState in a SnapshotMetadata is guaranteed to be non-nil, so in most cases
+		// we don't need to update m.ConfState, which also avoids potential races.
+		m.ConfState = newConfState
+	}
+
 	if m.Index == nil {
 		m.Index = new(uint64)
 	}
@@ -51,6 +57,11 @@ func EnsureSnapshot(s *Snapshot) *Snapshot {
 	if s == nil {
 		s = new(Snapshot)
 	}
-	s.Metadata = EnsureSnapshotMetadata(s.Metadata)
+	newMedata := EnsureSnapshotMetadata(s.Metadata)
+	if s.Metadata == nil {
+		// Metadata in a snapshot is guaranteed to be non-nil, so in most cases
+		// we don't need to update s.Metadata, which also avoids potential races.
+		s.Metadata = newMedata
+	}
 	return s
 }
