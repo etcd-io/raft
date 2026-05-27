@@ -1,6 +1,14 @@
 
 <hr>
 
+## v3.7.0-rc.1(2026-05-27)
+
+### Bug Fixes
+
+- [Update EnsureSnapshot and EnsureSnapshotMetadata to avoid race](https://github.com/etcd-io/raft/pull/442)
+
+<hr>
+
 ## v3.7.0-rc.0(2026-05-27)
 
 ### Features
