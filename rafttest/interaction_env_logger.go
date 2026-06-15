@@ -32,7 +32,7 @@ type RedirectLogger struct {
 
 var _ raft.Logger = (*RedirectLogger)(nil)
 
-func (l *RedirectLogger) printf(lvl int, format string, args ...interface{}) {
+func (l *RedirectLogger) printf(lvl int, format string, args ...any) {
 	if l.Lvl <= lvl {
 		fmt.Fprint(l, lvlNames[lvl], " ")
 		fmt.Fprintf(l, format, args...)
@@ -41,61 +41,61 @@ func (l *RedirectLogger) printf(lvl int, format string, args ...interface{}) {
 		}
 	}
 }
-func (l *RedirectLogger) print(lvl int, args ...interface{}) {
+func (l *RedirectLogger) print(lvl int, args ...any) {
 	if l.Lvl <= lvl {
 		fmt.Fprint(l, lvlNames[lvl], " ")
 		fmt.Fprintln(l, args...)
 	}
 }
 
-func (l *RedirectLogger) Debug(v ...interface{}) {
+func (l *RedirectLogger) Debug(v ...any) {
 	l.print(0, v...)
 }
 
-func (l *RedirectLogger) Debugf(format string, v ...interface{}) {
+func (l *RedirectLogger) Debugf(format string, v ...any) {
 	l.printf(0, format, v...)
 }
 
-func (l *RedirectLogger) Info(v ...interface{}) {
+func (l *RedirectLogger) Info(v ...any) {
 	l.print(1, v...)
 }
 
-func (l *RedirectLogger) Infof(format string, v ...interface{}) {
+func (l *RedirectLogger) Infof(format string, v ...any) {
 	l.printf(1, format, v...)
 }
 
-func (l *RedirectLogger) Warning(v ...interface{}) {
+func (l *RedirectLogger) Warning(v ...any) {
 	l.print(2, v...)
 }
 
-func (l *RedirectLogger) Warningf(format string, v ...interface{}) {
+func (l *RedirectLogger) Warningf(format string, v ...any) {
 	l.printf(2, format, v...)
 }
 
-func (l *RedirectLogger) Error(v ...interface{}) {
+func (l *RedirectLogger) Error(v ...any) {
 	l.print(3, v...)
 }
 
-func (l *RedirectLogger) Errorf(format string, v ...interface{}) {
+func (l *RedirectLogger) Errorf(format string, v ...any) {
 	l.printf(3, format, v...)
 }
 
-func (l *RedirectLogger) Fatal(v ...interface{}) {
+func (l *RedirectLogger) Fatal(v ...any) {
 	l.print(4, v...)
 	panic(fmt.Sprint(v...))
 }
 
-func (l *RedirectLogger) Fatalf(format string, v ...interface{}) {
+func (l *RedirectLogger) Fatalf(format string, v ...any) {
 	l.printf(4, format, v...)
 	panic(fmt.Sprintf(format, v...))
 }
 
-func (l *RedirectLogger) Panic(v ...interface{}) {
+func (l *RedirectLogger) Panic(v ...any) {
 	l.print(4, v...)
 	panic(fmt.Sprint(v...))
 }
 
-func (l *RedirectLogger) Panicf(format string, v ...interface{}) {
+func (l *RedirectLogger) Panicf(format string, v ...any) {
 	l.printf(4, format, v...)
 	// TODO(pavelkalinnikov): catch the panic gracefully in datadriven package.
 	// This would allow observing all the intermediate logging while debugging,

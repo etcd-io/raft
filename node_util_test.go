@@ -26,54 +26,54 @@ type nodeTestHarness struct {
 	t *testing.T
 }
 
-func (l *nodeTestHarness) Debug(v ...interface{}) {
+func (l *nodeTestHarness) Debug(v ...any) {
 	l.t.Log(v...)
 }
 
-func (l *nodeTestHarness) Debugf(format string, v ...interface{}) {
+func (l *nodeTestHarness) Debugf(format string, v ...any) {
 	l.t.Logf(format, v...)
 }
 
-func (l *nodeTestHarness) Error(v ...interface{}) {
+func (l *nodeTestHarness) Error(v ...any) {
 	l.t.Error(v...)
 }
 
-func (l *nodeTestHarness) Errorf(format string, v ...interface{}) {
+func (l *nodeTestHarness) Errorf(format string, v ...any) {
 	l.t.Errorf(format, v...)
 }
 
-func (l *nodeTestHarness) Info(v ...interface{}) {
+func (l *nodeTestHarness) Info(v ...any) {
 	l.t.Log(v...)
 }
 
-func (l *nodeTestHarness) Infof(format string, v ...interface{}) {
+func (l *nodeTestHarness) Infof(format string, v ...any) {
 	l.t.Logf(format, v...)
 }
 
-func (l *nodeTestHarness) Warning(v ...interface{}) {
+func (l *nodeTestHarness) Warning(v ...any) {
 	l.t.Log(v...)
 }
 
-func (l *nodeTestHarness) Warningf(format string, v ...interface{}) {
+func (l *nodeTestHarness) Warningf(format string, v ...any) {
 	l.t.Logf(format, v...)
 }
 
-func (l *nodeTestHarness) Fatal(v ...interface{}) {
+func (l *nodeTestHarness) Fatal(v ...any) {
 	l.t.Error(v...)
 	panic(fmt.Sprint(v...))
 }
 
-func (l *nodeTestHarness) Fatalf(format string, v ...interface{}) {
+func (l *nodeTestHarness) Fatalf(format string, v ...any) {
 	l.t.Errorf(format, v...)
 	panic(fmt.Sprintf(format, v...))
 }
 
-func (l *nodeTestHarness) Panic(v ...interface{}) {
+func (l *nodeTestHarness) Panic(v ...any) {
 	l.t.Log(v...)
 	panic(fmt.Sprint(v...))
 }
 
-func (l *nodeTestHarness) Panicf(format string, v ...interface{}) {
+func (l *nodeTestHarness) Panicf(format string, v ...any) {
 	l.t.Errorf(format, v...)
 	panic(fmt.Sprintf(format, v...))
 }

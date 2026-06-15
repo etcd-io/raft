@@ -23,7 +23,7 @@ import (
 
 const StateTraceDeployed = false
 
-type TraceLogger interface{}
+type TraceLogger any
 
 type TracingEvent struct{}
 
