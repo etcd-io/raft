@@ -34,7 +34,7 @@ import (
 // comparing field values via proto.Equal to avoid false failures from internal
 // protobuf metadata fields (e.g. atomicMessageInfo) that differ between
 // entries created as struct literals and those returned by proto operations.
-func requireEqualEntries(t testing.TB, expected, actual []*pb.Entry, msgAndArgs ...interface{}) {
+func requireEqualEntries(t testing.TB, expected, actual []*pb.Entry, msgAndArgs ...any) {
 	t.Helper()
 	require.Len(t, actual, len(expected), msgAndArgs...)
 	for i := range expected {
@@ -45,7 +45,7 @@ func requireEqualEntries(t testing.TB, expected, actual []*pb.Entry, msgAndArgs 
 // assertEqualMessages asserts that two message slices are semantically equal,
 // using proto.Equal to avoid false failures from atomicMessageInfo in embedded
 // entry fields.
-func assertEqualMessages(t testing.TB, expected, actual []*pb.Message, msgAndArgs ...interface{}) {
+func assertEqualMessages(t testing.TB, expected, actual []*pb.Message, msgAndArgs ...any) {
 	t.Helper()
 	assert.Len(t, actual, len(expected), msgAndArgs...)
 	n := len(expected)
