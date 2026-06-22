@@ -28,7 +28,7 @@ import (
 	pb "go.etcd.io/raft/v3/raftpb"
 )
 
-var debug = flag.Bool("debug", false, "Debug logging in benchmarks.")
+var debug = flag.Bool("bench.debug", false, "Debug logging in benchmarks.")
 
 var testFormatter EntryFormatter = func(data []byte) string {
 	return strings.ToUpper(string(data))
