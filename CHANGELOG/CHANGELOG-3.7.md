@@ -1,6 +1,13 @@
 
 <hr>
 
+## v3.7.0(2026-06-21)
+
+### Changelog since v3.7.0-rc.1
+There isn't any production code change since v3.7.0-rc.1. Only golang patch version is bumped.
+
+<hr>
+
 ## v3.7.0-rc.1(2026-05-27)
 
 ### Bug Fixes
