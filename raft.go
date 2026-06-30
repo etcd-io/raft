@@ -279,13 +279,6 @@ type Config struct {
 	// See: https://github.com/etcd-io/raft/issues/80
 	DisableConfChangeValidation bool
 
-	// StepDownOnRemoval makes the leader step down when it is removed from the
-	// group or demoted to a learner.
-	//
-	// This behavior will become unconditional in the future. See:
-	// https://github.com/etcd-io/raft/issues/83
-	StepDownOnRemoval bool
-
 	// raft state tracer
 	TraceLogger TraceLogger
 }
@@ -420,7 +413,6 @@ type raft struct {
 	// when raft changes its state to follower or candidate.
 	randomizedElectionTimeout int
 	disableProposalForwarding bool
-	stepDownOnRemoval         bool
 
 	tick func()
 	step stepFunc
@@ -462,7 +454,6 @@ func newRaft(c *Config) *raft {
 		readOnly:                    newReadOnly(c.ReadOnlyOption),
 		disableProposalForwarding:   c.DisableProposalForwarding,
 		disableConfChangeValidation: c.DisableConfChangeValidation,
-		stepDownOnRemoval:           c.StepDownOnRemoval,
 		traceLogger:                 c.TraceLogger,
 	}
 
@@ -1991,7 +1982,7 @@ func (r *raft) switchToConfig(cfg tracker.Config, trk tracker.ProgressMap) *pb.C
 	r.isLearner = ok && pr.IsLearner
 
 	if (!ok || r.isLearner) && r.state == StateLeader {
-		// This node is leader and was removed or demoted, step down if requested.
+		// This node is leader and was removed or demoted, step down.
 		//
 		// We prevent demotions at the time writing but hypothetically we handle
 		// them the same way as removing the leader.
@@ -1999,9 +1990,7 @@ func (r *raft) switchToConfig(cfg tracker.Config, trk tracker.ProgressMap) *pb.C
 		// TODO(tbg): ask follower with largest Match to TimeoutNow (to avoid
 		// interruption). This might still drop some proposals but it's better than
 		// nothing.
-		if r.stepDownOnRemoval {
-			r.becomeFollower(r.Term, None)
-		}
+		r.becomeFollower(r.Term, None)
 		return cs
 	}
 
