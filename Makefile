@@ -26,3 +26,7 @@ verify-genproto:
 .PHONY: test
 test:
 	PASSES="unit" ./scripts/test.sh $(GO_TEST_FLAGS)
+
+.PHONY: fuzz
+test:
+	./scripts/fuzzing.sh
