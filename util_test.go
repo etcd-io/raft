@@ -15,6 +15,7 @@
 package raft
 
 import (
+	"flag"
 	"fmt"
 	"math"
 	"strings"
@@ -26,6 +27,8 @@ import (
 
 	pb "go.etcd.io/raft/v3/raftpb"
 )
+
+var benchDebug = flag.Bool("bench.debug", false, "Debug logging in benchmarks.")
 
 var testFormatter EntryFormatter = func(data []byte) string {
 	return strings.ToUpper(string(data))
