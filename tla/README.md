@@ -72,6 +72,15 @@ The TLA+ spec defines the desired behaviors of the model. To validate the correc
 ./validate-model.sh -s ./MCetcdraft.tla -c ./MCetcdraft.cfg 
 ```
 
+## Regression Scenarios
+Some safety bugs of the spec were found via counterexamples that are too deep for exhaustive model checking to reach in reasonable time. Such counterexamples are kept as scripted scenario specs that replay one exact schedule against `etcdraft.tla` and check the safety invariants along it. They finish in seconds and act as regression tests for the spec:
+
+```console
+./validate-model.sh -s ./SplitBrain456.tla -c ./SplitBrain456.cfg
+```
+
+* `SplitBrain456.tla` replays the split-brain schedule from [issue #456](https://github.com/etcd-io/raft/issues/456): two servers campaign with active configurations that lag differently far behind the committed configuration entries in their logs. It checks `MoreThanOneLeaderInv` and asserts that the last campaign is blocked by the `HasUnappliedConfChange` guard in `Timeout`.
+
 
 ## Validate Collected Traces
 With above example trace logger, validate.sh can be used to validate traces parallelly.
