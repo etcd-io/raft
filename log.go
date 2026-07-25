@@ -180,17 +180,44 @@ func (l *raftLog) findConflict(ents []*pb.Entry) uint64 {
 // an unsuccessful append to a follower, and ultimately restore the steady flow
 // of appends.
 func (l *raftLog) findConflictByTerm(index uint64, term uint64) (uint64, uint64) {
-	for ; index > 0; index-- {
-		// If there is an error (likely ErrCompacted or ErrUnavailable), we don't
-		// know whether it's a match or not, so assume a possible match and return
-		// the index, with 0 term indicating an unknown term.
-		if ourTerm, err := l.term(index); err != nil {
-			return index, 0
-		} else if ourTerm <= term {
-			return index, ourTerm
+	if index > l.lastIndex() {
+		// Beyond the end of the log; the caller must treat 0 term as unknown.
+		return index, 0
+	}
+	// lo is the snapshot index (firstIndex-1), whose term is accessible even
+	// though the entry itself is compacted. Terms are monotonically non-decreasing
+	// across [lo, lastIndex], so binary search is valid.
+	lo := l.firstIndex() - 1
+	if index < lo {
+		// Fully compacted; term is unknown.
+		return index, 0
+	}
+	// Binary search for the rightmost position in [lo, index] where term(i) <= term.
+	hi := index + 1 // exclusive
+	for lo < hi {
+		mid := lo + (hi-lo)/2
+		ourTerm, err := l.term(mid)
+		if err != nil {
+			hi = mid
+			continue
+		}
+		if ourTerm <= term {
+			lo = mid + 1
+		} else {
+			hi = mid
 		}
 	}
-	return 0, 0
+	if lo == l.firstIndex()-1 {
+		// Every entry in [firstIndex-1, index] exceeded term; the next lower
+		// index is compacted, so return it with an unknown term.
+		return lo - 1, 0
+	}
+	idx := lo - 1
+	ourTerm, err := l.term(idx)
+	if err != nil {
+		return idx, 0
+	}
+	return idx, ourTerm
 }
 
 // nextUnstableEnts returns all entries that are available to be written to the
