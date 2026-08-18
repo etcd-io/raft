@@ -7,7 +7,7 @@ toolchain go1.26.6
 require (
 	github.com/cockroachdb/datadriven v1.0.2
 	github.com/stretchr/testify v1.12.0
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf v1.36.12
 )
 
 require (
