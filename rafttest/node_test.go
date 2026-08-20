@@ -34,7 +34,7 @@ func TestBasicProgress(t *testing.T) {
 		nodes = append(nodes, n)
 	}
 
-	waitLeader(nodes)
+	waitStableLeader(nodes)
 
 	for i := 0; i < 100; i++ {
 		nodes[0].Propose(t.Context(), []byte("somedata"))
@@ -58,7 +58,7 @@ func TestRestart(t *testing.T) {
 		nodes = append(nodes, n)
 	}
 
-	l := waitLeader(nodes)
+	l := waitStableLeader(nodes)
 	k1, k2 := (l+1)%5, (l+2)%5
 
 	for i := 0; i < 30; i++ {
@@ -96,7 +96,7 @@ func TestPause(t *testing.T) {
 		nodes = append(nodes, n)
 	}
 
-	waitLeader(nodes)
+	waitStableLeader(nodes)
 
 	for i := 0; i < 30; i++ {
 		nodes[0].Propose(t.Context(), []byte("somedata"))
@@ -122,26 +122,31 @@ func TestPause(t *testing.T) {
 	}
 }
 
-func waitLeader(ns []*node) int {
-	var l map[uint64]struct{}
-	var lindex = -1
-
+// waitStableLeader waits until there is a stable leader in the cluster. It
+// heuristically assumes that there is a stable leader when there is a node in
+// StateLeader among the highest-term nodes.
+//
+// Note that this function would not work properly in clusters with "network"
+// partitions, in which a node can have the highest term, and yet never become a
+// leader.
+func waitStableLeader(ns []*node) int {
 	for {
-		l = make(map[uint64]struct{})
-
+		lead := -1
+		var maxTerm uint64
 		for i, n := range ns {
-			lead := n.Status().SoftState.Lead
-			if lead != 0 {
-				l[lead] = struct{}{}
-				if n.id == lead {
-					lindex = i
-				}
+			st := n.Status()
+			if st.Term > maxTerm {
+				lead = -1
+				maxTerm = st.Term
+			}
+			if st.RaftState == raft.StateLeader {
+				lead = i
 			}
 		}
-
-		if len(l) == 1 && lindex != -1 {
-			return lindex
+		if lead != -1 {
+			return lead
 		}
+		time.Sleep(time.Millisecond)
 	}
 }
 
