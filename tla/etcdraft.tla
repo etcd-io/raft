@@ -221,6 +221,17 @@ GetLearners(i) ==
 ApplyConfigUpdate(i, k) ==
     [config EXCEPT ![i]= [jointConfig |-> << log[i][k].value.newconf, {} >>, learners |-> log[i][k].value.learners]]
 
+ConfigOfEntry(e) ==
+    [jointConfig |-> << e.value.newconf, {} >>, learners |-> e.value.learners]
+
+LatestCommittedConfigIndex(i) ==
+    SelectLastInSubSeq(log[i], 1, commitIndex[i], LAMBDA x: x.type = ConfigEntry)
+
+HasUnappliedCommittedConfig(i) ==
+    LET k == LatestCommittedConfigIndex(i)
+    IN /\ k > 0
+       /\ config[i] # ConfigOfEntry(log[i][k])
+
 CommitTo(i, c) ==
     commitIndex' = [commitIndex EXCEPT ![i] = Max({@, c})]
 
@@ -291,6 +302,7 @@ Restart(i) ==
 \* @type: Int => Bool;
 Timeout(i) == /\ state[i] \in {Follower, Candidate}
               /\ i \in GetConfig(i)
+              /\ ~HasUnappliedCommittedConfig(i)
               /\ state' = [state EXCEPT ![i] = Candidate]
               /\ currentTerm' = [currentTerm EXCEPT ![i] = currentTerm[i] + 1]
               /\ votedFor' = [votedFor EXCEPT ![i] = i]
