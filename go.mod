@@ -5,7 +5,7 @@ go 1.26
 toolchain go1.26.8
 
 require (
-	github.com/cockroachdb/datadriven v1.0.2
+	github.com/cockroachdb/datadriven v1.0.3
 	github.com/stretchr/testify v1.12.1
 	google.golang.org/protobuf v1.36.12
 )
