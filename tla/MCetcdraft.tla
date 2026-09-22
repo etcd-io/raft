@@ -44,6 +44,8 @@ etcdInitLogVars     == /\ log          = [i \in Server |-> IF i \in InitServer T
                        /\ commitIndex  = [i \in Server |-> IF i \in InitServer THEN Cardinality(InitServer) ELSE 0]
 etcdInitConfigVars  == /\ config = [i \in Server |-> [ jointConfig |-> IF i \in InitServer THEN <<InitServer, {}>> ELSE <<{}, {}>>, learners |-> {}]]
                        /\ reconfigCount = 0 \* the bootstrap configuraitons are not counted
+                       \* the bootstrap config entries are already applied
+                       /\ appliedConfChangeIndex = [i \in Server |-> IF i \in InitServer THEN Cardinality(InitServer) ELSE 0]
 
 \* This file controls the constants as seen below.
 \* In addition to basic settings of how many nodes are to be model checked,
