@@ -87,6 +87,10 @@ const noLimit = math.MaxUint64
 // so that the proposer can be notified and fail fast.
 var ErrProposalDropped = errors.New("raft proposal dropped")
 
+// ErrConfChangeRejected is returned when a configuration change proposal is
+// rejected by raft validation and converted to a no-op entry.
+var ErrConfChangeRejected = errors.New("raft conf change rejected")
+
 // lockedRand is a small wrapper around rand.Rand to provide
 // synchronization among multiple raft groups. Only the methods needed
 // by the code are exposed (e.g. Intn).
@@ -1306,6 +1310,8 @@ func stepLeader(r *raft, m *pb.Message) error {
 			return ErrProposalDropped
 		}
 
+		rejectedConfChange := false
+
 		for i := range m.GetEntries() {
 			e := m.GetEntries()[i]
 			var cc pb.ConfChangeI
@@ -1337,6 +1343,7 @@ func stepLeader(r *raft, m *pb.Message) error {
 				}
 
 				if failedCheck != "" && !r.disableConfChangeValidation {
+					rejectedConfChange = true
 					r.logger.Infof("%x ignoring conf change %s at config %s: %s", r.id, DescribeConfChange(cc), r.trk.Config, failedCheck)
 					m.GetEntries()[i] = &pb.Entry{Type: pb.EntryNormal.Enum()}
 				} else {
@@ -1350,6 +1357,9 @@ func stepLeader(r *raft, m *pb.Message) error {
 			return ErrProposalDropped
 		}
 		r.bcastAppend()
+		if rejectedConfChange {
+			return ErrConfChangeRejected
+		}
 		return nil
 	case pb.MsgReadIndex:
 		// only one voting member (the leader) in the cluster
