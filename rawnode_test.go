@@ -988,12 +988,9 @@ func BenchmarkRawNode(b *testing.B) {
 }
 
 func benchmarkRawNodeImpl(b *testing.B, peers ...uint64) {
-
-	const debug = false
-
 	s := newTestMemoryStorage(withPeers(peers...))
 	cfg := newTestConfig(1, 10, 1, s)
-	if !debug {
+	if !*benchDebug {
 		cfg.Logger = discardLogger // avoid distorting benchmark output
 	}
 	rn, err := NewRawNode(cfg)
@@ -1009,7 +1006,7 @@ func benchmarkRawNodeImpl(b *testing.B, peers ...uint64) {
 		for rn.HasReady() {
 			numReady++
 			rd := rn.Ready()
-			if debug {
+			if *benchDebug {
 				b.Log(DescribeReady(rd, nil))
 			}
 			if n := len(rd.CommittedEntries); n > 0 {
@@ -1019,7 +1016,7 @@ func benchmarkRawNodeImpl(b *testing.B, peers ...uint64) {
 			for _, m := range rd.Messages {
 				if m.GetType() == pb.MsgVote {
 					resp := &pb.Message{To: m.From, From: m.To, Term: m.Term, Type: pb.MsgVoteResp.Enum()}
-					if debug {
+					if *benchDebug {
 						b.Log(DescribeMessage(resp, nil))
 					}
 					rn.Step(resp)
@@ -1030,7 +1027,7 @@ func benchmarkRawNodeImpl(b *testing.B, peers ...uint64) {
 						idx = m.GetEntries()[n-1].GetIndex()
 					}
 					resp := &pb.Message{To: m.From, From: m.To, Type: pb.MsgAppResp.Enum(), Term: m.Term, Index: new(idx)}
-					if debug {
+					if *benchDebug {
 						b.Log(DescribeMessage(resp, nil))
 					}
 					rn.Step(resp)
@@ -1043,11 +1040,6 @@ func benchmarkRawNodeImpl(b *testing.B, peers ...uint64) {
 
 	rn.Campaign()
 	stabilize()
-
-	if debug {
-		// nolint:staticcheck
-		b.N = 1
-	}
 
 	var applied uint64
 	for i := 0; i < b.N; i++ {
