@@ -169,9 +169,9 @@ type Node interface {
 	// and snapshots from the previous one have finished.
 	Ready() <-chan Ready
 
-	// RoleChan reports changes between leader and non-leader roles. Its
-	// one-element ring buffer retains the latest unread role. The output
-	// channel closes when the node stops.
+	// RoleChan reports the initial role and changes between leader and
+	// non-leader roles. Its one-element ring buffer retains the latest unread
+	// role. The output channel closes when the node stops.
 	RoleChan() *channels.RingChannel
 
 	// Advance notifies the Node that the application has saved progress up to the last Ready.
@@ -362,7 +362,7 @@ func (n *node) run() {
 	r := n.rn.raft
 
 	lead := None
-	role := NOT_LEADER
+	role := 0
 
 	for {
 		if advancec == nil && n.rn.HasReady() {

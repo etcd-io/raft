@@ -483,6 +483,12 @@ func TestNodeRoleChan(t *testing.T) {
 	n := newNode(rn)
 	go n.run()
 	rolec := n.RoleChan().Out()
+	select {
+	case role := <-rolec:
+		assert.Equal(t, NOT_LEADER, role)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for initial role")
+	}
 
 	require.NoError(t, n.Campaign(t.Context()))
 	for {
