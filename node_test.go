@@ -477,6 +477,50 @@ func TestNodeStop(t *testing.T) {
 	n.Stop()
 }
 
+func TestNodeRoleChan(t *testing.T) {
+	s := newTestMemoryStorage(withPeers(1))
+	rn := newTestRawNode(1, 10, 1, s)
+	n := newNode(rn)
+	go n.run()
+	rolec := n.RoleChan().Out()
+
+	require.NoError(t, n.Campaign(t.Context()))
+	for {
+		rd := readyWithTimeout(&n)
+		require.NoError(t, s.Append(rd.Entries))
+		becameLeader := rd.SoftState != nil && rd.RaftState == StateLeader
+		n.Advance()
+		if becameLeader {
+			break
+		}
+	}
+	select {
+	case role := <-rolec:
+		assert.Equal(t, LEADER, role)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for leader role")
+	}
+
+	// A message from a higher term makes this node a follower again.
+	require.NoError(t, n.Step(t.Context(), &raftpb.Message{
+		Type: raftpb.MsgApp.Enum(), From: new(uint64(2)), Term: new(uint64(2)),
+	}))
+	select {
+	case role := <-rolec:
+		assert.Equal(t, NOT_LEADER, role)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for non-leader role")
+	}
+
+	n.Stop()
+	select {
+	case _, ok := <-rolec:
+		assert.False(t, ok)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for role channel to close")
+	}
+}
+
 // TestNodeStart ensures that a node can be started correctly. The node should
 // start with correct configuration change entries, and can accept and commit
 // proposals.

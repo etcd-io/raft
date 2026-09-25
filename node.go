@@ -18,6 +18,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/eapache/channels"
+
 	pb "go.etcd.io/raft/v3/raftpb"
 )
 
@@ -26,6 +28,10 @@ type SnapshotStatus int
 const (
 	SnapshotFinish  SnapshotStatus = 1
 	SnapshotFailure SnapshotStatus = 2
+
+	// LEADER and NOT_LEADER are the values emitted by Node.RoleChan.
+	LEADER     = 1
+	NOT_LEADER = 2
 )
 
 var (
@@ -162,6 +168,11 @@ type Node interface {
 	// NOTE: No committed entries from the next Ready may be applied until all committed entries
 	// and snapshots from the previous one have finished.
 	Ready() <-chan Ready
+
+	// RoleChan reports changes between leader and non-leader roles. Its
+	// one-element ring buffer retains the latest unread role. The output
+	// channel closes when the node stops.
+	RoleChan() *channels.RingChannel
 
 	// Advance notifies the Node that the application has saved progress up to the last Ready.
 	// It prepares the node to return the next available Ready.
@@ -305,6 +316,7 @@ type node struct {
 	done       chan struct{}
 	stop       chan struct{}
 	status     chan chan Status
+	rolec      *channels.RingChannel
 
 	rn *RawNode
 }
@@ -324,6 +336,7 @@ func newNode(rn *RawNode) node {
 		done:   make(chan struct{}),
 		stop:   make(chan struct{}),
 		status: make(chan chan Status),
+		rolec:  channels.NewRingChannel(1),
 		rn:     rn,
 	}
 }
@@ -349,6 +362,7 @@ func (n *node) run() {
 	r := n.rn.raft
 
 	lead := None
+	role := NOT_LEADER
 
 	for {
 		if advancec == nil && n.rn.HasReady() {
@@ -377,6 +391,14 @@ func (n *node) run() {
 				propc = nil
 			}
 			lead = r.lead
+		}
+		currentRole := NOT_LEADER
+		if r.state == StateLeader {
+			currentRole = LEADER
+		}
+		if currentRole != role {
+			role = currentRole
+			n.rolec.In() <- role
 		}
 
 		select {
@@ -447,6 +469,7 @@ func (n *node) run() {
 		case c := <-n.status:
 			c <- getStatus(r)
 		case <-n.stop:
+			n.rolec.Close()
 			close(n.done)
 			return
 		}
@@ -551,6 +574,8 @@ func (n *node) stepWithWaitOption(ctx context.Context, m *pb.Message, wait bool)
 }
 
 func (n *node) Ready() <-chan Ready { return n.readyc }
+
+func (n *node) RoleChan() *channels.RingChannel { return n.rolec }
 
 func (n *node) Advance() {
 	select {

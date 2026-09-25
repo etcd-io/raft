@@ -20,6 +20,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/eapache/channels"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -58,6 +59,9 @@ func (a *rawNodeAdapter) Advance() { a.RawNode.Advance(Ready{}) }
 
 // Ready when RawNode returns a Ready, not a chan of one.
 func (a *rawNodeAdapter) Ready() <-chan Ready { return nil }
+
+// RoleChan is only provided by Node's run loop.
+func (a *rawNodeAdapter) RoleChan() *channels.RingChannel { return nil }
 
 // Node takes more contexts. Easy enough to fix.
 
