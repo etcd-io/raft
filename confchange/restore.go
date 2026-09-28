@@ -15,6 +15,7 @@
 package confchange
 
 import (
+	"go.etcd.io/raft/v3/internal/ptr"
 	pb "go.etcd.io/raft/v3/raftpb"
 	"go.etcd.io/raft/v3/tracker"
 )
@@ -57,7 +58,7 @@ func toConfChangeSingle(cs *pb.ConfState) (out []*pb.ConfChangeSingle, in []*pb.
 		// (non-joint) config has them all.
 		out = append(out, &pb.ConfChangeSingle{
 			Type:   pb.ConfChangeAddNode.Enum(),
-			NodeId: new(id),
+			NodeId: ptr.To(id),
 		})
 
 	}
@@ -69,20 +70,20 @@ func toConfChangeSingle(cs *pb.ConfState) (out []*pb.ConfChangeSingle, in []*pb.
 	for _, id := range cs.VotersOutgoing {
 		in = append(in, &pb.ConfChangeSingle{
 			Type:   pb.ConfChangeRemoveNode.Enum(),
-			NodeId: new(id),
+			NodeId: ptr.To(id),
 		})
 	}
 	// Then we'll add the incoming voters and learners.
 	for _, id := range cs.Voters {
 		in = append(in, &pb.ConfChangeSingle{
 			Type:   pb.ConfChangeAddNode.Enum(),
-			NodeId: new(id),
+			NodeId: ptr.To(id),
 		})
 	}
 	for _, id := range cs.Learners {
 		in = append(in, &pb.ConfChangeSingle{
 			Type:   pb.ConfChangeAddLearnerNode.Enum(),
-			NodeId: new(id),
+			NodeId: ptr.To(id),
 		})
 	}
 	// Same for LearnersNext; these are nodes we want to be learners but which
@@ -90,7 +91,7 @@ func toConfChangeSingle(cs *pb.ConfState) (out []*pb.ConfChangeSingle, in []*pb.
 	for _, id := range cs.LearnersNext {
 		in = append(in, &pb.ConfChangeSingle{
 			Type:   pb.ConfChangeAddLearnerNode.Enum(),
-			NodeId: new(id),
+			NodeId: ptr.To(id),
 		})
 	}
 	return out, in

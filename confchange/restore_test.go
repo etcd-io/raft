@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"go.etcd.io/raft/v3/internal/ptr"
 	pb "go.etcd.io/raft/v3/raftpb"
 	"go.etcd.io/raft/v3/tracker"
 )
@@ -79,7 +80,7 @@ func (*rndConfChange) Generate(rand *rand.Rand, _ int) reflect.Value {
 		}
 	}
 
-	cs.AutoLeave = new(len(cs.VotersOutgoing) > 0 && rand.Intn(2) == 1)
+	cs.AutoLeave = ptr.To(len(cs.VotersOutgoing) > 0 && rand.Intn(2) == 1)
 	return reflect.ValueOf((*rndConfChange)(cs))
 }
 

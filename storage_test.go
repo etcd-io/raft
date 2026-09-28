@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
+	"go.etcd.io/raft/v3/internal/ptr"
 	pb "go.etcd.io/raft/v3/raftpb"
 )
 
@@ -156,8 +157,8 @@ func TestStorageCreateSnapshot(t *testing.T) {
 		werr  error
 		wsnap *pb.Snapshot
 	}{
-		{4, nil, &pb.Snapshot{Data: data, Metadata: &pb.SnapshotMetadata{Index: new(uint64(4)), Term: new(uint64(4)), ConfState: &pb.ConfState{Voters: []uint64{1, 2, 3}}}}},
-		{5, nil, &pb.Snapshot{Data: data, Metadata: &pb.SnapshotMetadata{Index: new(uint64(5)), Term: new(uint64(5)), ConfState: &pb.ConfState{Voters: []uint64{1, 2, 3}}}}},
+		{4, nil, &pb.Snapshot{Data: data, Metadata: &pb.SnapshotMetadata{Index: ptr.To(uint64(4)), Term: ptr.To(uint64(4)), ConfState: &pb.ConfState{Voters: []uint64{1, 2, 3}}}}},
+		{5, nil, &pb.Snapshot{Data: data, Metadata: &pb.SnapshotMetadata{Index: ptr.To(uint64(5)), Term: ptr.To(uint64(5)), ConfState: &pb.ConfState{Voters: []uint64{1, 2, 3}}}}},
 	}
 
 	for _, tt := range tests {
@@ -239,15 +240,15 @@ func TestStorageApplySnapshot(t *testing.T) {
 		{
 			name: "normal case",
 			snapshots: []*pb.Snapshot{
-				{Data: data, Metadata: &pb.SnapshotMetadata{Index: new(uint64(4)), Term: new(uint64(4)), ConfState: cs}},
+				{Data: data, Metadata: &pb.SnapshotMetadata{Index: ptr.To(uint64(4)), Term: ptr.To(uint64(4)), ConfState: cs}},
 			},
 			expectedError: nil,
 		},
 		{
 			name: "snapshot out of date",
 			snapshots: []*pb.Snapshot{
-				{Data: data, Metadata: &pb.SnapshotMetadata{Index: new(uint64(4)), Term: new(uint64(4)), ConfState: cs}},
-				{Data: data, Metadata: &pb.SnapshotMetadata{Index: new(uint64(3)), Term: new(uint64(3)), ConfState: cs}},
+				{Data: data, Metadata: &pb.SnapshotMetadata{Index: ptr.To(uint64(4)), Term: ptr.To(uint64(4)), ConfState: cs}},
+				{Data: data, Metadata: &pb.SnapshotMetadata{Index: ptr.To(uint64(3)), Term: ptr.To(uint64(3)), ConfState: cs}},
 			},
 			expectedError: ErrSnapOutOfDate,
 		},

@@ -14,6 +14,8 @@
 
 package raftpb
 
+import "go.etcd.io/raft/v3/internal/ptr"
+
 // EnsureConfState ensures that cs and all of its pointer fields are non-nil.
 // If cs is nil, a new ConfState is allocated. Any nil pointer field is set to
 // point to its zero value. Returns the resulting cs.
@@ -22,7 +24,7 @@ func EnsureConfState(cs *ConfState) *ConfState {
 		cs = new(ConfState)
 	}
 	if cs.AutoLeave == nil {
-		cs.AutoLeave = new(false)
+		cs.AutoLeave = ptr.To(false)
 	}
 	return cs
 }

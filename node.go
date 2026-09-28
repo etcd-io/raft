@@ -20,6 +20,7 @@ import (
 
 	"github.com/eapache/channels"
 
+	"go.etcd.io/raft/v3/internal/ptr"
 	pb "go.etcd.io/raft/v3/raftpb"
 )
 
@@ -407,7 +408,7 @@ func (n *node) run() {
 		// Currently it is dropped in Step silently.
 		case pm := <-propc:
 			m := pm.m
-			m.From = new(r.id)
+			m.From = ptr.To(r.id)
 			err := r.Step(m)
 			if pm.result != nil {
 				pm.result <- err
@@ -609,7 +610,7 @@ func (n *node) Status() Status {
 
 func (n *node) ReportUnreachable(id uint64) {
 	select {
-	case n.recvc <- &pb.Message{Type: pb.MsgUnreachable.Enum(), From: new(id)}:
+	case n.recvc <- &pb.Message{Type: pb.MsgUnreachable.Enum(), From: ptr.To(id)}:
 	case <-n.done:
 	}
 }
@@ -618,7 +619,7 @@ func (n *node) ReportSnapshot(id uint64, status SnapshotStatus) {
 	rej := status == SnapshotFailure
 
 	select {
-	case n.recvc <- &pb.Message{Type: pb.MsgSnapStatus.Enum(), From: new(id), Reject: new(rej)}:
+	case n.recvc <- &pb.Message{Type: pb.MsgSnapStatus.Enum(), From: ptr.To(id), Reject: ptr.To(rej)}:
 	case <-n.done:
 	}
 }
@@ -626,7 +627,7 @@ func (n *node) ReportSnapshot(id uint64, status SnapshotStatus) {
 func (n *node) TransferLeadership(ctx context.Context, lead, transferee uint64) {
 	select {
 	// manually set 'from' and 'to', so that leader can voluntarily transfers its leadership
-	case n.recvc <- &pb.Message{Type: pb.MsgTransferLeader.Enum(), From: new(transferee), To: new(lead)}:
+	case n.recvc <- &pb.Message{Type: pb.MsgTransferLeader.Enum(), From: ptr.To(transferee), To: ptr.To(lead)}:
 	case <-n.done:
 	case <-ctx.Done():
 	}

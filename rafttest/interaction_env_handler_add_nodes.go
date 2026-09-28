@@ -23,6 +23,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"go.etcd.io/raft/v3"
+	"go.etcd.io/raft/v3/internal/ptr"
 	pb "go.etcd.io/raft/v3/raftpb"
 )
 
@@ -46,7 +47,7 @@ func (env *InteractionEnv) handleAddNodes(t *testing.T, d datadriven.TestData) e
 			case "index":
 				var idx uint64
 				arg.Scan(t, i, &idx)
-				snap.Metadata.Index = new(idx)
+				snap.Metadata.Index = ptr.To(idx)
 				cfg.Applied = snap.GetMetadata().GetIndex()
 			case "content":
 				arg.Scan(t, i, &snap.Data)
@@ -118,7 +119,7 @@ func (env *InteractionEnv) AddNodes(n int, cfg raft.Config, snap *pb.Snapshot) e
 			if snap.GetMetadata().GetIndex() <= 1 {
 				return errors.New("index must be specified as > 1 due to bootstrap")
 			}
-			snap.Metadata.Term = new(uint64(1))
+			snap.Metadata.Term = ptr.To(uint64(1))
 			if err := s.ApplySnapshot(snap); err != nil {
 				return err
 			}

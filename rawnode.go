@@ -17,6 +17,7 @@ package raft
 import (
 	"errors"
 
+	"go.etcd.io/raft/v3/internal/ptr"
 	pb "go.etcd.io/raft/v3/raftpb"
 	"go.etcd.io/raft/v3/tracker"
 )
@@ -90,7 +91,7 @@ func (rn *RawNode) Campaign() error {
 func (rn *RawNode) Propose(data []byte) error {
 	return rn.raft.Step(&pb.Message{
 		Type:    pb.MsgProp.Enum(),
-		From:    new(rn.raft.id),
+		From:    ptr.To(rn.raft.id),
 		Entries: []*pb.Entry{{Data: data}},
 	})
 }
@@ -223,8 +224,8 @@ func needStorageAppendRespMsg(r *raft, rd Ready) bool {
 func newStorageAppendMsg(r *raft, rd Ready) *pb.Message {
 	m := &pb.Message{
 		Type:    pb.MsgStorageAppend.Enum(),
-		To:      new(LocalAppendThread),
-		From:    new(r.id),
+		To:      ptr.To(LocalAppendThread),
+		From:    ptr.To(r.id),
 		Entries: rd.Entries,
 	}
 	if !IsEmptyHardState(rd.HardState) {
@@ -235,9 +236,9 @@ func newStorageAppendMsg(r *raft, rd Ready) *pb.Message {
 		// If the Ready does not include a HardState update, make sure to not
 		// assign a value to any of the fields so that a HardState reconstructed
 		// from them will be empty (return true from raft.IsEmptyHardState).
-		m.Term = new(rd.GetTerm())
-		m.Vote = new(rd.GetVote())
-		m.Commit = new(rd.GetCommit())
+		m.Term = ptr.To(rd.GetTerm())
+		m.Vote = ptr.To(rd.GetVote())
+		m.Commit = ptr.To(rd.GetCommit())
 	}
 	if !IsEmptySnap(rd.Snapshot) {
 		m.Snapshot = rd.Snapshot
@@ -266,10 +267,10 @@ func newStorageAppendMsg(r *raft, rd Ready) *pb.Message {
 func newStorageAppendRespMsg(r *raft, rd Ready) *pb.Message {
 	m := &pb.Message{
 		Type: pb.MsgStorageAppendResp.Enum(),
-		To:   new(r.id),
-		From: new(LocalAppendThread),
+		To:   ptr.To(r.id),
+		From: ptr.To(LocalAppendThread),
 		// Dropped after term change, see below.
-		Term: new(r.Term),
+		Term: ptr.To(r.Term),
 	}
 	if r.raftLog.hasNextOrInProgressUnstableEnts() {
 		// If the raft log has unstable entries, attach the last index and term of the
@@ -353,8 +354,8 @@ func newStorageAppendRespMsg(r *raft, rd Ready) *pb.Message {
 		//
 		// [^1]: https://en.wikipedia.org/wiki/ABA_problem
 		last := r.raftLog.lastEntryID()
-		m.Index = new(last.index)
-		m.LogTerm = new(last.term)
+		m.Index = ptr.To(last.index)
+		m.LogTerm = ptr.To(last.term)
 	}
 	if !IsEmptySnap(rd.Snapshot) {
 		m.Snapshot = rd.Snapshot
@@ -373,9 +374,9 @@ func newStorageApplyMsg(r *raft, rd Ready) *pb.Message {
 	ents := rd.CommittedEntries
 	return &pb.Message{
 		Type:      pb.MsgStorageApply.Enum(),
-		To:        new(LocalApplyThread),
-		From:      new(r.id),
-		Term:      new(uint64(0)), // committed entries don't apply under a specific term
+		To:        ptr.To(LocalApplyThread),
+		From:      ptr.To(r.id),
+		Term:      ptr.To(uint64(0)), // committed entries don't apply under a specific term
 		Entries:   ents,
 		Responses: []*pb.Message{newStorageApplyRespMsg(r, ents)},
 	}
@@ -387,9 +388,9 @@ func newStorageApplyMsg(r *raft, rd Ready) *pb.Message {
 func newStorageApplyRespMsg(r *raft, ents []*pb.Entry) *pb.Message {
 	return &pb.Message{
 		Type:    pb.MsgStorageApplyResp.Enum(),
-		To:      new(r.id),
-		From:    new(LocalApplyThread),
-		Term:    new(uint64(0)), // committed entries don't apply under a specific term
+		To:      ptr.To(r.id),
+		From:    ptr.To(LocalApplyThread),
+		Term:    ptr.To(uint64(0)), // committed entries don't apply under a specific term
 		Entries: ents,
 	}
 }
@@ -527,19 +528,19 @@ func (rn *RawNode) WithProgress(visitor func(id uint64, typ ProgressType, pr tra
 
 // ReportUnreachable reports the given node is not reachable for the last send.
 func (rn *RawNode) ReportUnreachable(id uint64) {
-	_ = rn.raft.Step(&pb.Message{Type: pb.MsgUnreachable.Enum(), From: new(id)})
+	_ = rn.raft.Step(&pb.Message{Type: pb.MsgUnreachable.Enum(), From: ptr.To(id)})
 }
 
 // ReportSnapshot reports the status of the sent snapshot.
 func (rn *RawNode) ReportSnapshot(id uint64, status SnapshotStatus) {
 	rej := status == SnapshotFailure
 
-	_ = rn.raft.Step(&pb.Message{Type: pb.MsgSnapStatus.Enum(), From: new(id), Reject: new(rej)})
+	_ = rn.raft.Step(&pb.Message{Type: pb.MsgSnapStatus.Enum(), From: ptr.To(id), Reject: ptr.To(rej)})
 }
 
 // TransferLeader tries to transfer leadership to the given transferee.
 func (rn *RawNode) TransferLeader(transferee uint64) {
-	_ = rn.raft.Step(&pb.Message{Type: pb.MsgTransferLeader.Enum(), From: new(transferee)})
+	_ = rn.raft.Step(&pb.Message{Type: pb.MsgTransferLeader.Enum(), From: ptr.To(transferee)})
 }
 
 // ForgetLeader forgets a follower's current leader, changing it to None.

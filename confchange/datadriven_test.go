@@ -23,6 +23,7 @@ import (
 
 	"github.com/cockroachdb/datadriven"
 
+	"go.etcd.io/raft/v3/internal/ptr"
 	pb "go.etcd.io/raft/v3/raftpb"
 	"go.etcd.io/raft/v3/tracker"
 )
@@ -75,7 +76,7 @@ func TestConfChangeDataDriven(t *testing.T) {
 				if err != nil {
 					return err.Error()
 				}
-				cc.NodeId = new(id)
+				cc.NodeId = ptr.To(id)
 				ccs = append(ccs, cc)
 			}
 

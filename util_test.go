@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
+	"go.etcd.io/raft/v3/internal/ptr"
 	pb "go.etcd.io/raft/v3/raftpb"
 )
 
@@ -33,8 +34,8 @@ var testFormatter EntryFormatter = func(data []byte) string {
 
 func TestDescribeEntry(t *testing.T) {
 	entry := &pb.Entry{
-		Term:  new(uint64(1)),
-		Index: new(uint64(2)),
+		Term:  ptr.To(uint64(1)),
+		Index: ptr.To(uint64(2)),
 		Type:  pb.EntryNormal.Enum(),
 		Data:  []byte("hello\x00world"),
 	}
@@ -43,7 +44,7 @@ func TestDescribeEntry(t *testing.T) {
 }
 
 func TestLimitSize(t *testing.T) {
-	ents := []*pb.Entry{{Index: new(uint64(4)), Term: new(uint64(4))}, {Index: new(uint64(5)), Term: new(uint64(5))}, {Index: new(uint64(6)), Term: new(uint64(6))}}
+	ents := []*pb.Entry{{Index: ptr.To(uint64(4)), Term: ptr.To(uint64(4))}, {Index: ptr.To(uint64(5)), Term: ptr.To(uint64(5))}, {Index: ptr.To(uint64(6)), Term: ptr.To(uint64(6))}}
 	prefix := func(size int) []*pb.Entry {
 		return append([]*pb.Entry{}, ents[:size]...) // protect the original slice
 	}

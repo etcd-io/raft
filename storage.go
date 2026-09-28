@@ -20,6 +20,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"go.etcd.io/raft/v3/internal/ptr"
 	pb "go.etcd.io/raft/v3/raftpb"
 )
 
@@ -232,7 +233,7 @@ func (ms *MemoryStorage) ApplySnapshot(snap *pb.Snapshot) error {
 	}
 
 	ms.snapshot = proto.Clone(snap).(*pb.Snapshot)
-	ms.ents = []*pb.Entry{{Term: new(snap.GetMetadata().GetTerm()), Index: new(snap.GetMetadata().GetIndex())}}
+	ms.ents = []*pb.Entry{{Term: ptr.To(snap.GetMetadata().GetTerm()), Index: ptr.To(snap.GetMetadata().GetIndex())}}
 	return nil
 }
 
@@ -253,8 +254,8 @@ func (ms *MemoryStorage) CreateSnapshot(i uint64, cs *pb.ConfState, data []byte)
 	}
 
 	ms.snapshot = pb.EnsureSnapshot(ms.snapshot)
-	ms.snapshot.Metadata.Index = new(i)
-	ms.snapshot.Metadata.Term = new(ms.ents[i-offset].GetTerm())
+	ms.snapshot.Metadata.Index = ptr.To(i)
+	ms.snapshot.Metadata.Term = ptr.To(ms.ents[i-offset].GetTerm())
 	if cs != nil {
 		ms.snapshot.Metadata.ConfState = proto.Clone(cs).(*pb.ConfState)
 	}
@@ -281,7 +282,7 @@ func (ms *MemoryStorage) Compact(compactIndex uint64) error {
 	// ms.ents are immutable, and can be referenced from outside MemoryStorage
 	// through slices returned by ms.Entries().
 	ents := make([]*pb.Entry, 1, uint64(len(ms.ents))-i)
-	ents[0] = &pb.Entry{Index: new(ms.ents[i].GetIndex()), Term: new(ms.ents[i].GetTerm())}
+	ents[0] = &pb.Entry{Index: ptr.To(ms.ents[i].GetIndex()), Term: ptr.To(ms.ents[i].GetTerm())}
 	ents = append(ents, ms.ents[i+1:]...)
 	ms.ents = ents
 	return nil

@@ -23,6 +23,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"go.etcd.io/raft/v3"
+	"go.etcd.io/raft/v3/internal/ptr"
 	"go.etcd.io/raft/v3/raftpb"
 )
 
@@ -59,9 +60,9 @@ func (env *InteractionEnv) ProcessAppendThread(idx int) error {
 	env.Output.WriteString("Processing:\n")
 	env.Output.WriteString(raft.DescribeMessage(m, defaultEntryFormatter) + "\n")
 	st := &raftpb.HardState{
-		Term:   new(m.GetTerm()),
-		Vote:   new(m.GetVote()),
-		Commit: new(m.GetCommit()),
+		Term:   ptr.To(m.GetTerm()),
+		Vote:   ptr.To(m.GetVote()),
+		Commit: ptr.To(m.GetCommit()),
 	}
 	snap := m.GetSnapshot()
 	var cloned *raftpb.Snapshot

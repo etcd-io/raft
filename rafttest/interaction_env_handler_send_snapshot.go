@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.etcd.io/raft/v3"
+	"go.etcd.io/raft/v3/internal/ptr"
 	"go.etcd.io/raft/v3/raftpb"
 )
 
@@ -40,9 +41,9 @@ func (env *InteractionEnv) SendSnapshot(fromIdx, toIdx int) error {
 	fromStatus := env.Nodes[fromIdx].BasicStatus()
 	msg := &raftpb.Message{
 		Type:     raftpb.MsgSnap.Enum(),
-		Term:     new(fromStatus.GetTerm()),
-		From:     new(from),
-		To:       new(to),
+		Term:     ptr.To(fromStatus.GetTerm()),
+		From:     ptr.To(from),
+		To:       ptr.To(to),
 		Snapshot: snap,
 	}
 	env.Messages = append(env.Messages, msg)

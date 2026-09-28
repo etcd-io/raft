@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"go.etcd.io/raft/v3/internal/ptr"
 	pb "go.etcd.io/raft/v3/raftpb"
 )
 
@@ -36,7 +37,7 @@ func TestMsgAppFlowControlFull(t *testing.T) {
 	pr2.BecomeReplicate()
 	// fill in the inflights window
 	for i := 0; i < r.trk.MaxInflight; i++ {
-		r.Step(&pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
+		r.Step(&pb.Message{From: ptr.To(uint64(1)), To: ptr.To(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
 		ms := r.readMessages()
 		require.Len(t, ms, 1)
 		require.Equal(t, pb.MsgApp, ms[0].GetType())
@@ -47,7 +48,7 @@ func TestMsgAppFlowControlFull(t *testing.T) {
 
 	// ensure 2
 	for i := 0; i < 10; i++ {
-		r.Step(&pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
+		r.Step(&pb.Message{From: ptr.To(uint64(1)), To: ptr.To(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
 		ms := r.readMessages()
 		require.Empty(t, ms)
 	}
@@ -67,7 +68,7 @@ func TestMsgAppFlowControlMoveForward(t *testing.T) {
 	pr2.BecomeReplicate()
 	// fill in the inflights window
 	for i := 0; i < r.trk.MaxInflight; i++ {
-		r.Step(&pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
+		r.Step(&pb.Message{From: ptr.To(uint64(1)), To: ptr.To(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
 		r.readMessages()
 	}
 
@@ -75,11 +76,11 @@ func TestMsgAppFlowControlMoveForward(t *testing.T) {
 	// so we start with 2.
 	for tt := 2; tt < r.trk.MaxInflight; tt++ {
 		// move forward the window
-		r.Step(&pb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: pb.MsgAppResp.Enum(), Index: new(uint64(tt))})
+		r.Step(&pb.Message{From: ptr.To(uint64(2)), To: ptr.To(uint64(1)), Type: pb.MsgAppResp.Enum(), Index: ptr.To(uint64(tt))})
 		r.readMessages()
 
 		// fill in the inflights window again
-		r.Step(&pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
+		r.Step(&pb.Message{From: ptr.To(uint64(1)), To: ptr.To(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
 		ms := r.readMessages()
 		require.Len(t, ms, 1)
 		require.Equal(t, pb.MsgApp, ms[0].GetType())
@@ -89,7 +90,7 @@ func TestMsgAppFlowControlMoveForward(t *testing.T) {
 
 		// ensure 2
 		for i := 0; i < tt; i++ {
-			r.Step(&pb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: pb.MsgAppResp.Enum(), Index: new(uint64(i))})
+			r.Step(&pb.Message{From: ptr.To(uint64(2)), To: ptr.To(uint64(1)), Type: pb.MsgAppResp.Enum(), Index: ptr.To(uint64(i))})
 			require.True(t, pr2.IsPaused())
 		}
 	}
@@ -107,7 +108,7 @@ func TestMsgAppFlowControlRecvHeartbeat(t *testing.T) {
 	pr2.BecomeReplicate()
 	// fill in the inflights window
 	for i := 0; i < r.trk.MaxInflight; i++ {
-		r.Step(&pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
+		r.Step(&pb.Message{From: ptr.To(uint64(1)), To: ptr.To(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
 		r.readMessages()
 	}
 
@@ -116,7 +117,7 @@ func TestMsgAppFlowControlRecvHeartbeat(t *testing.T) {
 		for i := 0; i < tt; i++ {
 			require.True(t, pr2.IsPaused())
 			// Unpauses the progress, sends an empty MsgApp, and pauses it again.
-			r.Step(&pb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: pb.MsgHeartbeatResp.Enum()})
+			r.Step(&pb.Message{From: ptr.To(uint64(2)), To: ptr.To(uint64(1)), Type: pb.MsgHeartbeatResp.Enum()})
 			ms := r.readMessages()
 			require.Len(t, ms, 1)
 			require.Equal(t, pb.MsgApp, ms[0].GetType())
@@ -126,13 +127,13 @@ func TestMsgAppFlowControlRecvHeartbeat(t *testing.T) {
 		// No more appends are sent if there are no heartbeats.
 		for i := 0; i < 10; i++ {
 			require.True(t, pr2.IsPaused())
-			r.Step(&pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
+			r.Step(&pb.Message{From: ptr.To(uint64(1)), To: ptr.To(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Data: []byte("somedata")}}})
 			ms := r.readMessages()
 			require.Empty(t, ms)
 		}
 
 		// clear all pending messages.
-		r.Step(&pb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: pb.MsgHeartbeatResp.Enum()})
+		r.Step(&pb.Message{From: ptr.To(uint64(2)), To: ptr.To(uint64(1)), Type: pb.MsgHeartbeatResp.Enum()})
 		r.readMessages()
 	}
 }

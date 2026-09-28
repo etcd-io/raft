@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 
+	"go.etcd.io/raft/v3/internal/ptr"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -59,7 +60,7 @@ func (c *ConfChange) AsV2() *ConfChangeV2 {
 	return &ConfChangeV2{
 		Changes: []*ConfChangeSingle{{
 			Type:   c.GetType().Enum(),
-			NodeId: new(c.GetNodeId()),
+			NodeId: ptr.To(c.GetNodeId()),
 		}},
 		Context: c.Context,
 	}
@@ -146,7 +147,7 @@ func ConfChangesFromString(s string) ([]*ConfChangeSingle, error) {
 		if err != nil {
 			return nil, err
 		}
-		cc.NodeId = new(id)
+		cc.NodeId = ptr.To(id)
 		ccs = append(ccs, cc)
 	}
 	return ccs, nil
