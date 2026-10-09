@@ -16,7 +16,7 @@ require (
 	github.com/mikefarah/yq/v4 v4.24.2
 	go.etcd.io/gofail v0.0.0-20221125214112-fc21f61ba88a
 	go.etcd.io/protodoc v0.0.0-20180829002748-484ab544e116
-	golang.org/x/tools v0.42.0
+	golang.org/x/tools v0.44.0
 	google.golang.org/protobuf v1.36.11
 	gotest.tools/gotestsum v1.13.0
 	gotest.tools/v3 v3.5.2
@@ -54,13 +54,13 @@ require (
 	github.com/timtadh/lexmachine v0.2.2 // indirect
 	github.com/trustmaster/go-aspell v0.0.0-20200701131845-c2b1f55bec8f // indirect
 	golang.org/x/exp/typeparams v0.0.0-20220218215828-6cf2b201936e // indirect
-	golang.org/x/mod v0.34.0 // indirect
-	golang.org/x/net v0.50.0 // indirect
+	golang.org/x/mod v0.35.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/telemetry v0.0.0-20260209163413-e7419c687ee4 // indirect
-	golang.org/x/term v0.40.0 // indirect
-	golang.org/x/text v0.34.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/telemetry v0.0.0-20260409153401-be6f6cb8b1fa // indirect
+	golang.org/x/term v0.43.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/tools/go/expect v0.1.1-deprecated // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect
