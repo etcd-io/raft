@@ -72,6 +72,11 @@ The TLA+ spec defines the desired behaviors of the model. To validate the correc
 ./validate-model.sh -s ./MCetcdraft.tla -c ./MCetcdraft.cfg 
 ```
 
+You can also add `-m` option to run model checking in simulation mode, which will randomly walk in the state machine and is helpful for finding issues quickly.
+
+```console
+./validate-model.sh -m -s ./MCetcdraft.tla -c ./MCetcdraft.cfg 
+```
 
 ## Validate Collected Traces
 With above example trace logger, validate.sh can be used to validate traces parallelly.
