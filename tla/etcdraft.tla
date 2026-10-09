@@ -132,10 +132,18 @@ leaderVars == <<matchIndex, pendingConfChangeIndex>>
 \* @type: Int -> [jointConfig: Seq(Set(int)), learners: Set(int)]
 VARIABLE 
     config
-VARIABLE 
+VARIABLE
     reconfigCount
 
-configVars == <<config, reconfigCount>>
+\* The index of the latest configuration change entry that server i has
+\* applied to its active configuration (0 if none). The active configuration
+\* config[i] may lag behind committed configuration change entries in the log;
+\* this variable tracks how far application has progressed.
+VARIABLE
+    \* @type: Int -> Int;
+    appliedConfChangeIndex
+
+configVars == <<config, reconfigCount, appliedConfChangeIndex>>
 
 VARIABLE 
     durableState
@@ -217,6 +225,15 @@ IsJointConfig(i) ==
 GetLearners(i) ==
     config[i].learners
 
+\* TRUE iff the log of server i contains a committed but not yet applied
+\* configuration change entry. Mirrors hasUnappliedConfChanges() in raft.go:
+\* a server must not campaign while such an entry exists, because the active
+\* configuration it would use to count votes could lag more than one version
+\* behind the committed configuration, breaking quorum overlap between
+\* concurrent candidates (see https://github.com/etcd-io/raft/issues/456).
+HasUnappliedConfChange(i) ==
+    SelectLastInSubSeq(log[i], 1, commitIndex[i], LAMBDA x: x.type = ConfigEntry) > appliedConfChangeIndex[i]
+
 \* Apply conf change log entry to configuration
 ApplyConfigUpdate(i, k) ==
     [config EXCEPT ![i]= [jointConfig |-> << log[i][k].value.newconf, {} >>, learners |-> log[i][k].value.learners]]
@@ -226,13 +243,14 @@ CommitTo(i, c) ==
 
 CurrentLeaders == {i \in Server : state[i] = Leader}
 
-PersistState(i) == 
+PersistState(i) ==
     durableState' = [durableState EXCEPT ![i] = [
         currentTerm |-> currentTerm[i],
         votedFor |-> votedFor[i],
         log |-> Len(log[i]),
         commitIndex |-> commitIndex[i],
-        config |-> config[i]
+        config |-> config[i],
+        appliedConfChangeIndex |-> appliedConfChangeIndex[i]
     ]]
 
 ----
@@ -249,14 +267,16 @@ InitLeaderVars == /\ matchIndex = [i \in Server |-> [j \in Server |-> 0]]
 InitLogVars == /\ log          = [i \in Server |-> <<>>]
                /\ commitIndex  = [i \in Server |-> 0]
 InitConfigVars == /\ config = [i \in Server |-> [ jointConfig |-> <<InitServer, {}>>, learners |-> {}]]
-                  /\ reconfigCount = 0 
-InitDurableState == 
+                  /\ reconfigCount = 0
+                  /\ appliedConfChangeIndex = [i \in Server |-> 0]
+InitDurableState ==
     durableState = [ i \in Server |-> [
         currentTerm |-> currentTerm[i],
         votedFor |-> votedFor[i],
         log |-> Len(log[i]),
         commitIndex |-> commitIndex[i],
-        config |-> config[i]
+        config |-> config[i],
+        appliedConfChangeIndex |-> appliedConfChangeIndex[i]
     ]]
 
 Init == /\ InitMessageVars
@@ -285,12 +305,16 @@ Restart(i) ==
     /\ votedFor' = [votedFor EXCEPT ![i] = durableState[i].votedFor]
     /\ log' = [log EXCEPT ![i] = SubSeq(@, 1, durableState[i].log)]
     /\ config' = [config EXCEPT ![i] = durableState[i].config]
+    /\ appliedConfChangeIndex' = [appliedConfChangeIndex EXCEPT ![i] = durableState[i].appliedConfChangeIndex]
     /\ UNCHANGED <<messages, durableState, reconfigCount>>
 
 \* Server i times out and starts a new election.
 \* @type: Int => Bool;
 Timeout(i) == /\ state[i] \in {Follower, Candidate}
               /\ i \in GetConfig(i)
+              \* etcd refuses to campaign while a committed but unapplied
+              \* config change exists in the log (hup() in raft.go).
+              /\ ~HasUnappliedConfChange(i)
               /\ state' = [state EXCEPT ![i] = Candidate]
               /\ currentTerm' = [currentTerm EXCEPT ![i] = currentTerm[i] + 1]
               /\ votedFor' = [votedFor EXCEPT ![i] = i]
@@ -468,7 +492,8 @@ ApplySimpleConfChange(i) ==
             /\ k > 0
             /\ k <= commitIndex[i]
             /\ config' = ApplyConfigUpdate(i, k)
-            /\ IF state[i] = Leader /\ pendingConfChangeIndex[i] >= k THEN 
+            /\ appliedConfChangeIndex' = [appliedConfChangeIndex EXCEPT ![i] = k]
+            /\ IF state[i] = Leader /\ pendingConfChangeIndex[i] >= k THEN
                 /\ reconfigCount' = reconfigCount + 1
                 /\ pendingConfChangeIndex' = [pendingConfChangeIndex EXCEPT ![i] = 0]
                ELSE UNCHANGED <<reconfigCount, pendingConfChangeIndex>>

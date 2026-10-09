@@ -81,9 +81,12 @@ TraceInitServerVars == /\ currentTerm = [i \in Server |-> LastBootstrapLog[i].ev
                        /\ votedFor = [i \in Server |-> LastBootstrapLog[i].event.state.vote]
 TraceInitLogVars    == /\ log          = [i \in Server |-> [j \in 1..LastBootstrapLog[i].event.log |-> [ term |-> 1, type |-> "ConfigEntry", value |-> [newconf |-> BootstrappedConfig(i), learners |-> {}]]]]
                        /\ commitIndex  = [i \in Server |-> LastBootstrapLog[i].event.state.commit]
-TraceInitConfigVars == 
+TraceInitConfigVars ==
     /\ config = [i \in Server |-> [ jointConfig |-> <<BootstrappedConfig(i), {}>>, learners |-> {}] ]
-    /\ reconfigCount = 0 
+    /\ reconfigCount = 0
+    \* the bootstrapped config is applied, i.e. no committed-but-unapplied
+    \* config change exists at the end of bootstrap
+    /\ appliedConfChangeIndex = [i \in Server |-> LastBootstrapLog[i].event.state.commit]
                         
 
 -------------------------------------------------------------------------------------
