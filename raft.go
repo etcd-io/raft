@@ -2137,8 +2137,10 @@ func releasePendingReadIndexMessages(r *raft) {
 
 func sendMsgReadIndexResponse(r *raft, m *pb.Message) {
 	// The only voter can answer at once: it has committed an entry in its term,
-	// and no other node can have been elected since.
-	if r.trk.IsSingleton() {
+	// and no other node can have been elected since. A leader that removed
+	// itself from the configuration (and has not stepped down) is not a voter,
+	// so it can't make that claim: another node may have been elected.
+	if r.trk.IsVoter(r.id) && r.trk.IsSingleton() {
 		if resp := r.responseToReadIndexReq(m, r.raftLog.committed); resp.GetTo() != None {
 			r.send(resp)
 		}
