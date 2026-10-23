@@ -1,0 +1,2052 @@
+diff --git a/go.mod b/go.mod
+index abf24ce..a11eb2a 100644
+--- a/go.mod
++++ b/go.mod
+@@ -1,8 +1,8 @@
+ module go.etcd.io/raft/v3
+ 
+-go 1.24
++go 1.23
+ 
+-toolchain go1.24.11
++toolchain go1.23.2
+ 
+ require (
+ 	github.com/cockroachdb/datadriven v1.0.2
+diff --git a/raft.go b/raft.go
+index 94c2363..c67e67f 100644
+--- a/raft.go
++++ b/raft.go
+@@ -474,7 +474,7 @@ func newRaft(c *Config) *raft {
+ 	if err != nil {
+ 		panic(err)
+ 	}
+-	assertConfStatesEquivalent(r.logger, cs, r.switchToConfig(cfg, trk))
++	assertConfStatesEquivalent(r.logger, cs, r.switchToConfig(cfg, trk, true))
+ 
+ 	if !IsEmptyHardState(hs) {
+ 		r.loadState(hs)
+@@ -742,6 +742,11 @@ func (r *raft) appliedTo(index uint64, size entryEncodingSize) {
+ 	newApplied := max(index, oldApplied)
+ 	r.raftLog.appliedTo(newApplied, size)
+ 
++	// Trace only when applied actually changes
++	if newApplied > oldApplied {
++		traceApplyEntries(r, newApplied)
++	}
++
+ 	if r.trk.Config.AutoLeave && newApplied >= r.pendingConfIndex && r.state == StateLeader {
+ 		// If the current (and most recent, at least for this leader's term)
+ 		// configuration should be auto-left, initiate that now. We use a
+@@ -776,9 +781,11 @@ func (r *raft) appliedSnap(snap *pb.Snapshot) {
+ // index changed (in which case the caller should call r.bcastAppend). This can
+ // only be called in StateLeader.
+ func (r *raft) maybeCommit() bool {
+-	defer traceCommit(r)
+-
+-	return r.raftLog.maybeCommit(entryID{term: r.Term, index: r.trk.Committed()})
++	changed := r.raftLog.maybeCommit(entryID{term: r.Term, index: r.trk.Committed()})
++	if changed {
++		traceCommit(r)
++	}
++	return changed
+ }
+ 
+ func (r *raft) reset(term uint64) {
+@@ -1621,12 +1628,16 @@ func stepLeader(r *raft, m pb.Message) error {
+ 		// out the next MsgApp.
+ 		// If snapshot failure, wait for a heartbeat interval before next try
+ 		pr.MsgAppFlowPaused = true
++		// Trace after state transition so prop reflects new state
++		traceReportSnapshotStatus(r, m.From, !m.Reject, pr)
+ 	case pb.MsgUnreachable:
+ 		// During optimistic replication, if the remote becomes unreachable,
+ 		// there is huge probability that a MsgApp is lost.
+ 		if pr.State == tracker.StateReplicate {
+ 			pr.BecomeProbe()
+ 		}
++		// Trace after state transition so prop.state reflects new state
++		traceReportUnreachable(r, m.From, pr)
+ 		r.logger.Debugf("%x failed to send message to %x because it is unreachable [%s]", r.id, m.From, pr)
+ 	case pb.MsgTransferLeader:
+ 		if pr.IsLearner {
+@@ -1929,7 +1940,7 @@ func (r *raft) restore(s pb.Snapshot) bool {
+ 		panic(fmt.Sprintf("unable to restore config %+v: %s", cs, err))
+ 	}
+ 
+-	assertConfStatesEquivalent(r.logger, cs, r.switchToConfig(cfg, trk))
++	assertConfStatesEquivalent(r.logger, cs, r.switchToConfig(cfg, trk, true))
+ 
+ 	last := r.raftLog.lastEntryID()
+ 	r.logger.Infof("%x [commit: %d, lastindex: %d, lastterm: %d] restored snapshot [index: %d, term: %d]",
+@@ -1963,7 +1974,7 @@ func (r *raft) applyConfChange(cc pb.ConfChangeV2) pb.ConfState {
+ 		panic(err)
+ 	}
+ 
+-	return r.switchToConfig(cfg, trk)
++	return r.switchToConfig(cfg, trk, false)
+ }
+ 
+ // switchToConfig reconfigures this node to use the provided configuration. It
+@@ -1972,8 +1983,12 @@ func (r *raft) applyConfChange(cc pb.ConfChangeV2) pb.ConfState {
+ // requirements.
+ //
+ // The inputs usually result from restoring a ConfState or applying a ConfChange.
+-func (r *raft) switchToConfig(cfg tracker.Config, trk tracker.ProgressMap) pb.ConfState {
+-	traceConfChangeEvent(cfg, r)
++// skipTrace: if true, skip tracing (used during snapshot restore where config
++// change is part of the atomic HandleSnapshotRequest action).
++func (r *raft) switchToConfig(cfg tracker.Config, trk tracker.ProgressMap, skipTrace bool) pb.ConfState {
++	if !skipTrace {
++		traceConfChangeEvent(cfg, r)
++	}
+ 
+ 	r.trk.Config = cfg
+ 	r.trk.Progress = trk
+diff --git a/rafttest/interaction_env.go b/rafttest/interaction_env.go
+index 16881c4..e658ac6 100644
+--- a/rafttest/interaction_env.go
++++ b/rafttest/interaction_env.go
+@@ -31,6 +31,11 @@ type InteractionOpts struct {
+ 	// SetRandomizedElectionTimeout is used to plumb this function down from the
+ 	// raft test package.
+ 	SetRandomizedElectionTimeout func(node *raft.RawNode, timeout int)
++
++	// TraceLogger is used to emit trace events for manually injected messages
++	// (e.g., send-snapshot command). This allows trace validation to track
++	// messages that bypass the normal raft send path.
++	TraceLogger raft.TraceLogger
+ }
+ 
+ // Node is a member of a raft group tested via an InteractionEnv.
+diff --git a/rafttest/interaction_env_handler.go b/rafttest/interaction_env_handler.go
+index 2ffec2b..a675318 100644
+--- a/rafttest/interaction_env_handler.go
++++ b/rafttest/interaction_env_handler.go
+@@ -192,6 +192,13 @@ func (env *InteractionEnv) Handle(t *testing.T, d datadriven.TestData) string {
+ 		// Example:
+ 		// report-unreachable 1 2
+ 		err = env.handleReportUnreachable(t, d)
++	case "report-snapshot":
++		// Reports the status of a snapshot sent from leader to target.
++		//
++		// Example:
++		// report-snapshot 1 3 ok    (snapshot to node 3 succeeded)
++		// report-snapshot 1 3 fail  (snapshot to node 3 failed)
++		err = env.handleReportSnapshot(t, d)
+ 	default:
+ 		err = fmt.Errorf("unknown command")
+ 	}
+diff --git a/rafttest/interaction_env_handler_compact.go b/rafttest/interaction_env_handler_compact.go
+index 25fa1d2..e517216 100644
+--- a/rafttest/interaction_env_handler_compact.go
++++ b/rafttest/interaction_env_handler_compact.go
+@@ -19,6 +19,7 @@ import (
+ 	"testing"
+ 
+ 	"github.com/cockroachdb/datadriven"
++	"go.etcd.io/raft/v3"
+ )
+ 
+ func (env *InteractionEnv) handleCompact(t *testing.T, d datadriven.TestData) error {
+@@ -36,5 +37,49 @@ func (env *InteractionEnv) Compact(idx int, newFirstIndex uint64) error {
+ 	if err := env.Nodes[idx].Compact(newFirstIndex); err != nil {
+ 		return err
+ 	}
++
++	// Emit trace event if TraceLogger is configured
++	if env.Options != nil && env.Options.TraceLogger != nil {
++		nodeID := uint64(idx + 1)
++		status := env.Nodes[idx].Status()
++
++		// Get actual snapshotIndex and snapshotTerm AFTER compaction from storage
++		// MemoryStorage.Compact removes entries and shifts indices, so firstIndex changes
++		// The term is preserved in the dummy entry at ents[0]
++		firstIndex, _ := env.Nodes[idx].Storage.FirstIndex()
++		snapshotIndex := firstIndex - 1
++		snapshotTerm, _ := env.Nodes[idx].Storage.Term(snapshotIndex)
++
++		// Format config as string slices
++		voters := make([]string, 0, len(status.Config.Voters[0]))
++		for id := range status.Config.Voters[0] {
++			voters = append(voters, strconv.FormatUint(id, 10))
++		}
++		outgoing := make([]string, 0, len(status.Config.Voters[1]))
++		for id := range status.Config.Voters[1] {
++			outgoing = append(outgoing, strconv.FormatUint(id, 10))
++		}
++
++		env.Options.TraceLogger.TraceEvent(&raft.TracingEvent{
++			Name:   "CompactLog",
++			NodeID: strconv.FormatUint(nodeID, 10),
++			State: raft.TracingState{
++				Term:             status.Term,
++				Vote:             strconv.FormatUint(status.Vote, 10),
++				Commit:           status.Commit,
++				Applied:          status.Applied,
++				SnapshotIndex:    snapshotIndex,
++				SnapshotTerm:     snapshotTerm,
++				PendingConfIndex: env.Nodes[idx].PendingConfIndex(),
++			},
++			Role:    status.RaftState.String(),
++			LogSize: status.Progress[nodeID].Match,
++			Conf:    [2][]string{voters, outgoing},
++			Properties: map[string]any{
++				"compactIndex": snapshotIndex,
++			},
++		})
++	}
++
+ 	return env.RaftLog(idx)
+ }
+diff --git a/rafttest/interaction_env_handler_send_snapshot.go b/rafttest/interaction_env_handler_send_snapshot.go
+index c91d4cc..0c0f59a 100644
+--- a/rafttest/interaction_env_handler_send_snapshot.go
++++ b/rafttest/interaction_env_handler_send_snapshot.go
+@@ -15,6 +15,7 @@
+ package rafttest
+ 
+ import (
++	"strconv"
+ 	"testing"
+ 
+ 	"github.com/cockroachdb/datadriven"
+@@ -31,6 +32,8 @@ func (env *InteractionEnv) handleSendSnapshot(t *testing.T, d datadriven.TestDat
+ }
+ 
+ // SendSnapshot sends a snapshot.
++// This bypasses the normal raft send path and directly injects a MsgSnap message.
++// A trace event "ManualSendSnapshot" is emitted if TraceLogger is configured.
+ func (env *InteractionEnv) SendSnapshot(fromIdx, toIdx int) error {
+ 	snap, err := env.Nodes[fromIdx].Snapshot()
+ 	if err != nil {
+@@ -46,5 +49,50 @@ func (env *InteractionEnv) SendSnapshot(fromIdx, toIdx int) error {
+ 	}
+ 	env.Messages = append(env.Messages, msg)
+ 	_, _ = env.Output.WriteString(raft.DescribeMessage(msg, nil))
++
++	// Emit trace event if TraceLogger is configured
++	if env.Options != nil && env.Options.TraceLogger != nil {
++		status := env.Nodes[fromIdx].Status()
++		// Format config as string slices
++		voters := make([]string, 0, len(status.Config.Voters[0]))
++		for id := range status.Config.Voters[0] {
++			voters = append(voters, strconv.FormatUint(id, 10))
++		}
++		outgoing := make([]string, 0, len(status.Config.Voters[1]))
++		for id := range status.Config.Voters[1] {
++			outgoing = append(outgoing, strconv.FormatUint(id, 10))
++		}
++
++		// Get snapshot index/term from storage for accurate tracing
++		firstIndex, _ := env.Nodes[fromIdx].Storage.FirstIndex()
++		snapshotIndex := firstIndex - 1
++		snapshotTerm, _ := env.Nodes[fromIdx].Storage.Term(snapshotIndex)
++
++		env.Options.TraceLogger.TraceEvent(&raft.TracingEvent{
++			Name:   "ManualSendSnapshot",
++			NodeID: strconv.FormatUint(from, 10),
++			State: raft.TracingState{
++				Term:             status.Term,
++				Vote:             strconv.FormatUint(status.Vote, 10),
++				Commit:           status.Commit,
++				Applied:          status.Applied,
++				SnapshotIndex:    snapshotIndex,
++				SnapshotTerm:     snapshotTerm,
++				PendingConfIndex: env.Nodes[fromIdx].PendingConfIndex(),
++			},
++			Role:    status.RaftState.String(),
++			LogSize: snap.Metadata.Index, // Use snapshot index as log size
++			Conf:    [2][]string{voters, outgoing},
++			Message: &raft.TracingMessage{
++				Type:    msg.Type.String(),
++				Term:    msg.Term,
++				From:    strconv.FormatUint(msg.From, 10),
++				To:      strconv.FormatUint(msg.To, 10),
++				LogTerm: snap.Metadata.Term,
++				Index:   snap.Metadata.Index,
++			},
++		})
++	}
++
+ 	return nil
+ }
+diff --git a/rawnode.go b/rawnode.go
+index a4da2ae..6283709 100644
+--- a/rawnode.go
++++ b/rawnode.go
+@@ -560,3 +560,9 @@ func (rn *RawNode) ForgetLeader() error {
+ func (rn *RawNode) ReadIndex(rctx []byte) {
+ 	_ = rn.raft.Step(pb.Message{Type: pb.MsgReadIndex, Entries: []pb.Entry{{Data: rctx}}})
+ }
++
++// PendingConfIndex returns the index of the pending configuration change entry,
++// or 0 if there is no pending config change. Used for trace validation.
++func (rn *RawNode) PendingConfIndex() uint64 {
++	return rn.raft.pendingConfIndex
++}
+diff --git a/state_trace.go b/state_trace.go
+index 8712dc6..9c1e84e 100644
+--- a/state_trace.go
++++ b/state_trace.go
+@@ -38,6 +38,7 @@ const (
+ 	rsmChangeConf
+ 	rsmApplyConfChange
+ 	rsmReady
++	rsmApplyEntries
+ 	rsmSendAppendEntriesRequest
+ 	rsmReceiveAppendEntriesRequest
+ 	rsmSendAppendEntriesResponse
+@@ -48,6 +49,8 @@ const (
+ 	rsmReceiveRequestVoteResponse
+ 	rsmSendSnapshot
+ 	rsmReceiveSnapshot
++	rsmReportUnreachable
++	rsmReportSnapshotStatus
+ )
+ 
+ func (e stateMachineEventType) String() string {
+@@ -61,6 +64,7 @@ func (e stateMachineEventType) String() string {
+ 		"ChangeConf",
+ 		"ApplyConfChange",
+ 		"Ready",
++		"ApplyEntries",
+ 		"SendAppendEntriesRequest",
+ 		"ReceiveAppendEntriesRequest",
+ 		"SendAppendEntriesResponse",
+@@ -71,6 +75,8 @@ func (e stateMachineEventType) String() string {
+ 		"ReceiveRequestVoteResponse",
+ 		"SendSnapshot",
+ 		"ReceiveSnapshot",
++		"ReportUnreachable",
++		"ReportSnapshotStatus",
+ 	}[e]
+ }
+ 
+@@ -87,15 +93,20 @@ type TracingEvent struct {
+ 	Role       string             `json:"role"`
+ 	LogSize    uint64             `json:"log"`
+ 	Conf       [2][]string        `json:"conf"`
++	Learners   []string           `json:"learners,omitempty"`
+ 	Message    *TracingMessage    `json:"msg,omitempty"`
+ 	ConfChange *TracingConfChange `json:"cc,omitempty"`
+ 	Properties map[string]any     `json:"prop,omitempty"`
+ }
+ 
+ type TracingState struct {
+-	Term   uint64 `json:"term"`
+-	Vote   string `json:"vote"`
+-	Commit uint64 `json:"commit"`
++	Term             uint64 `json:"term"`
++	Vote             string `json:"vote"`
++	Commit           uint64 `json:"commit"`
++	Applied          uint64 `json:"applied"`
++	SnapshotIndex    uint64 `json:"snapshotIndex"`
++	SnapshotTerm     uint64 `json:"snapshotTerm"`
++	PendingConfIndex uint64 `json:"pendingConfIndex"`
+ }
+ 
+ type TracingMessage struct {
+@@ -118,16 +129,26 @@ type SingleConfChange struct {
+ }
+ 
+ type TracingConfChange struct {
+-	Changes []SingleConfChange `json:"changes,omitempty"`
+-	NewConf []string           `json:"newconf,omitempty"`
++	Changes    []SingleConfChange `json:"changes,omitempty"`
++	NewConf    []string           `json:"newconf,omitempty"`
++	Learners   []string           `json:"learners,omitempty"`
++	LeaveJoint bool               `json:"leaveJoint,omitempty"`
+ }
+ 
+ func makeTracingState(r *raft) TracingState {
+ 	hs := r.hardState()
++	// Snapshot index is firstIndex - 1 (the last compacted entry)
++	snapshotIndex := r.raftLog.firstIndex() - 1
++	// Get the term of the snapshot entry (always available per Storage interface)
++	snapshotTerm, _ := r.raftLog.term(snapshotIndex)
+ 	return TracingState{
+-		Term:   hs.Term,
+-		Vote:   strconv.FormatUint(hs.Vote, 10),
+-		Commit: hs.Commit,
++		Term:             hs.Term,
++		Vote:             strconv.FormatUint(hs.Vote, 10),
++		Commit:           hs.Commit,
++		Applied:          r.raftLog.applied,
++		SnapshotIndex:    snapshotIndex,
++		SnapshotTerm:     snapshotTerm,
++		PendingConfIndex: r.pendingConfIndex,
+ 	}
+ }
+ 
+@@ -140,9 +161,9 @@ func makeTracingMessage(m *raftpb.Message) *TracingMessage {
+ 	entries := len(m.Entries)
+ 	index := m.Index
+ 	if m.Type == raftpb.MsgSnap {
+-		index = 0
+-		logTerm = 0
+-		entries = int(m.Snapshot.Metadata.Index)
++		index = m.Snapshot.Metadata.Index
++		logTerm = m.Snapshot.Metadata.Term
++		entries = 0
+ 	}
+ 	return &TracingMessage{
+ 		Type:        m.Type.String(),
+@@ -174,6 +195,7 @@ func traceEvent(evt stateMachineEventType, r *raft, m *raftpb.Message, prop map[
+ 		State:      makeTracingState(r),
+ 		LogSize:    r.raftLog.lastIndex(),
+ 		Conf:       [2][]string{formatConf(r.trk.Voters[0].Slice()), formatConf(r.trk.Voters[1].Slice())},
++		Learners:   formatLearners(r.trk.Learners),
+ 		Role:       r.state.String(),
+ 		Message:    makeTracingMessage(m),
+ 		Properties: prop,
+@@ -196,6 +218,17 @@ func formatConf(s []uint64) []string {
+ 	return r
+ }
+ 
++func formatLearners(m map[uint64]struct{}) []string {
++	if m == nil || len(m) == 0 {
++		return nil
++	}
++	r := make([]string, 0, len(m))
++	for id := range m {
++		r = append(r, strconv.FormatUint(id, 10))
++	}
++	return r
++}
++
+ // Use following helper functions to trace specific state and/or
+ // transition at corresponding code lines
+ func traceInitState(r *raft) {
+@@ -210,6 +243,15 @@ func traceReady(r *raft) {
+ 	traceNodeEvent(rsmReady, r)
+ }
+ 
++func traceApplyEntries(r *raft, newApplied uint64) {
++	if r.traceLogger == nil {
++		return
++	}
++	traceEvent(rsmApplyEntries, r, nil, map[string]any{
++		"applied": newApplied,
++	})
++}
++
+ func traceCommit(r *raft) {
+ 	traceNodeEvent(rsmCommit, r)
+ }
+@@ -264,8 +306,12 @@ func traceChangeConfEvent(cci raftpb.ConfChangeI, r *raft) {
+ 		return
+ 	}
+ 
++	// Determine if this confchange uses joint consensus
++	_, enterJoint := cc2.EnterJoint()
++
+ 	p := map[string]any{}
+ 	p["cc"] = cc
++	p["enterJoint"] = enterJoint
+ 	traceEvent(rsmChangeConf, r, nil, p)
+ }
+ 
+@@ -274,9 +320,14 @@ func traceConfChangeEvent(cfg tracker.Config, r *raft) {
+ 		return
+ 	}
+ 
++	// Detect LeaveJoint: old config is joint (Voters[1] non-empty), new config is not joint (Voters[1] empty)
++	isLeaveJoint := len(r.trk.Config.Voters[1]) > 0 && len(cfg.Voters[1]) == 0
++
+ 	cc := &TracingConfChange{
+-		Changes: []SingleConfChange{},
+-		NewConf: formatConf(cfg.Voters[0].Slice()),
++		Changes:    []SingleConfChange{},
++		NewConf:    formatConf(cfg.Voters[0].Slice()),
++		Learners:   formatLearners(cfg.Learners),
++		LeaveJoint: isLeaveJoint,
+ 	}
+ 
+ 	p := map[string]any{}
+@@ -293,15 +344,19 @@ func traceSendMessage(r *raft, m *raftpb.Message) {
+ 
+ 	var evt stateMachineEventType
+ 	switch m.Type {
+-	case raftpb.MsgApp:
++	case raftpb.MsgApp, raftpb.MsgHeartbeat, raftpb.MsgSnap:
+ 		evt = rsmSendAppendEntriesRequest
+-		if p, exist := r.trk.Progress[m.From]; exist {
++		if p, exist := r.trk.Progress[m.To]; exist {
++			// Specula: Enhanced Progress state tracing
++			prop["state"] = p.State.String()
+ 			prop["match"] = p.Match
+ 			prop["next"] = p.Next
++			prop["paused"] = p.MsgAppFlowPaused
++			prop["inflights_count"] = p.Inflights.Count()
++			if p.State == tracker.StateSnapshot {
++				prop["pending_snapshot"] = p.PendingSnapshot
++			}
+ 		}
+-
+-	case raftpb.MsgHeartbeat, raftpb.MsgSnap:
+-		evt = rsmSendAppendEntriesRequest
+ 	case raftpb.MsgAppResp, raftpb.MsgHeartbeatResp:
+ 		evt = rsmSendAppendEntriesResponse
+ 	case raftpb.MsgVote:
+@@ -337,3 +392,38 @@ func traceReceiveMessage(r *raft, m *raftpb.Message) {
+ 	time.Sleep(time.Millisecond) // sleep 1ms to reduce time shift impact accross node
+ 	traceEvent(evt, r, m, nil)
+ }
++
++// traceReportUnreachable traces when a peer is reported as unreachable,
++// which causes StateReplicate -> StateProbe transition.
++func traceReportUnreachable(r *raft, target uint64, pr *tracker.Progress) {
++	if r.traceLogger == nil {
++		return
++	}
++
++	prop := map[string]any{
++		"target":    strconv.FormatUint(target, 10),
++		"state":     pr.State.String(),
++		"match":     pr.Match,
++		"next":      pr.Next,
++		"paused":    pr.MsgAppFlowPaused,
++	}
++	traceEvent(rsmReportUnreachable, r, nil, prop)
++}
++
++// traceReportSnapshotStatus traces when snapshot status is reported,
++// which causes StateSnapshot -> StateProbe transition.
++func traceReportSnapshotStatus(r *raft, target uint64, success bool, pr *tracker.Progress) {
++	if r.traceLogger == nil {
++		return
++	}
++
++	prop := map[string]any{
++		"target":  strconv.FormatUint(target, 10),
++		"success": success,
++		"state":   pr.State.String(),
++		"match":   pr.Match,
++		"next":    pr.Next,
++		"paused":  pr.MsgAppFlowPaused,
++	}
++	traceEvent(rsmReportSnapshotStatus, r, nil, prop)
++}
+diff --git a/state_trace_nop.go b/state_trace_nop.go
+index cdeb99b..6659daf 100644
+--- a/state_trace_nop.go
++++ b/state_trace_nop.go
+@@ -31,6 +31,8 @@ func traceInitState(*raft) {}
+ 
+ func traceReady(*raft) {}
+ 
++func traceApplyEntries(*raft, uint64) {}
++
+ func traceCommit(*raft) {}
+ 
+ func traceReplicate(*raft, ...raftpb.Entry) {}
+@@ -48,3 +50,7 @@ func traceConfChangeEvent(tracker.Config, *raft) {}
+ func traceSendMessage(*raft, *raftpb.Message) {}
+ 
+ func traceReceiveMessage(*raft, *raftpb.Message) {}
++
++func traceReportUnreachable(*raft, uint64, *tracker.Progress) {}
++
++func traceReportSnapshotStatus(*raft, uint64, bool, *tracker.Progress) {}
+diff --git a/testdata/checkquorum.txt b/testdata/checkquorum.txt
+deleted file mode 100644
+index b25c1e6..0000000
+--- a/testdata/checkquorum.txt
++++ /dev/null
+@@ -1,236 +0,0 @@
+-# Tests that CheckQuorum causes a leader to step down if it hasn't heard from a
+-# quorum of followers in the past election timeout interval.
+-#
+-# Also tests that votes are rejected when there is a current leader. In the Raft
+-# thesis this is part of PreVote, but etcd/raft enables this via CheckQuorum.
+-
+-log-level none
+-----
+-ok
+-
+-add-nodes 3 voters=(1,2,3) index=10 checkquorum=true
+-----
+-ok
+-
+-campaign 1
+-----
+-ok
+-
+-stabilize
+-----
+-ok
+-
+-log-level debug
+-----
+-ok
+-
+-# Campaigning will fail when there is an active leader.
+-campaign 2
+-----
+-INFO 2 is starting a new election at term 1
+-INFO 2 became candidate at term 2
+-INFO 2 [logterm: 1, index: 11] sent MsgVote request to 1 at term 2
+-INFO 2 [logterm: 1, index: 11] sent MsgVote request to 3 at term 2
+-
+-stabilize
+-----
+-> 2 handling Ready
+-  Ready MustSync=true:
+-  Lead:0 State:StateCandidate
+-  HardState Term:2 Vote:2 Commit:11
+-  Messages:
+-  2->1 MsgVote Term:2 Log:1/11
+-  2->3 MsgVote Term:2 Log:1/11
+-  INFO 2 received MsgVoteResp from 2 at term 2
+-  INFO 2 has received 1 MsgVoteResp votes and 0 vote rejections
+-> 1 receiving messages
+-  2->1 MsgVote Term:2 Log:1/11
+-  INFO 1 [logterm: 1, index: 11, vote: 1] ignored MsgVote from 2 [logterm: 1, index: 11] at term 1: lease is not expired (remaining ticks: 3)
+-> 3 receiving messages
+-  2->3 MsgVote Term:2 Log:1/11
+-  INFO 3 [logterm: 1, index: 11, vote: 1] ignored MsgVote from 2 [logterm: 1, index: 11] at term 1: lease is not expired (remaining ticks: 3)
+-
+-# Tick the leader without processing any messages from followers. We have to
+-# tick 2 election timeouts, since the followers were active in the current
+-# interval (see messages above).
+-tick-election 1
+-----
+-ok
+-
+-tick-election 1
+-----
+-WARN 1 stepped down to follower since quorum is not active
+-INFO 1 became follower at term 1
+-
+-# We'll now send all of the heartbeats that were buffered during the ticks
+-# above. Conceptually, "the network was slow".
+-stabilize
+-----
+-> 1 handling Ready
+-  Ready MustSync=false:
+-  Lead:0 State:StateFollower
+-  Messages:
+-  1->2 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-  1->3 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-  1->2 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-  1->3 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-  1->2 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-  1->3 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-  1->2 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-  1->3 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-  1->2 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-  1->3 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-> 2 receiving messages
+-  1->2 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-  1->2 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-  1->2 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-  1->2 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-  1->2 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-> 3 receiving messages
+-  1->3 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-  1->3 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-  1->3 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-  1->3 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-  1->3 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-> 2 handling Ready
+-  Ready MustSync=false:
+-  Messages:
+-  2->1 MsgAppResp Term:2 Log:0/0
+-  2->1 MsgAppResp Term:2 Log:0/0
+-  2->1 MsgAppResp Term:2 Log:0/0
+-  2->1 MsgAppResp Term:2 Log:0/0
+-  2->1 MsgAppResp Term:2 Log:0/0
+-> 3 handling Ready
+-  Ready MustSync=false:
+-  Messages:
+-  3->1 MsgHeartbeatResp Term:1 Log:0/0
+-  3->1 MsgHeartbeatResp Term:1 Log:0/0
+-  3->1 MsgHeartbeatResp Term:1 Log:0/0
+-  3->1 MsgHeartbeatResp Term:1 Log:0/0
+-  3->1 MsgHeartbeatResp Term:1 Log:0/0
+-> 1 receiving messages
+-  2->1 MsgAppResp Term:2 Log:0/0
+-  INFO 1 [term: 1] received a MsgAppResp message with higher term from 2 [term: 2]
+-  INFO 1 became follower at term 2
+-  2->1 MsgAppResp Term:2 Log:0/0
+-  2->1 MsgAppResp Term:2 Log:0/0
+-  2->1 MsgAppResp Term:2 Log:0/0
+-  2->1 MsgAppResp Term:2 Log:0/0
+-  3->1 MsgHeartbeatResp Term:1 Log:0/0
+-  INFO 1 [term: 2] ignored a MsgHeartbeatResp message with lower term from 3 [term: 1]
+-  3->1 MsgHeartbeatResp Term:1 Log:0/0
+-  INFO 1 [term: 2] ignored a MsgHeartbeatResp message with lower term from 3 [term: 1]
+-  3->1 MsgHeartbeatResp Term:1 Log:0/0
+-  INFO 1 [term: 2] ignored a MsgHeartbeatResp message with lower term from 3 [term: 1]
+-  3->1 MsgHeartbeatResp Term:1 Log:0/0
+-  INFO 1 [term: 2] ignored a MsgHeartbeatResp message with lower term from 3 [term: 1]
+-  3->1 MsgHeartbeatResp Term:1 Log:0/0
+-  INFO 1 [term: 2] ignored a MsgHeartbeatResp message with lower term from 3 [term: 1]
+-> 1 handling Ready
+-  Ready MustSync=true:
+-  HardState Term:2 Commit:11
+-
+-# Other nodes can now successfully campaign. Note that we haven't ticked 3, so
+-# it won't grant votes.
+-campaign 2
+-----
+-INFO 2 is starting a new election at term 2
+-INFO 2 became candidate at term 3
+-INFO 2 [logterm: 1, index: 11] sent MsgVote request to 1 at term 3
+-INFO 2 [logterm: 1, index: 11] sent MsgVote request to 3 at term 3
+-
+-process-ready 2
+-----
+-Ready MustSync=true:
+-HardState Term:3 Vote:2 Commit:11
+-Messages:
+-2->1 MsgVote Term:3 Log:1/11
+-2->3 MsgVote Term:3 Log:1/11
+-INFO 2 received MsgVoteResp from 2 at term 3
+-INFO 2 has received 1 MsgVoteResp votes and 0 vote rejections
+-
+-deliver-msgs 1
+-----
+-2->1 MsgVote Term:3 Log:1/11
+-INFO 1 [term: 2] received a MsgVote message with higher term from 2 [term: 3]
+-INFO 1 became follower at term 3
+-INFO 1 [logterm: 1, index: 11, vote: 0] cast MsgVote for 2 [logterm: 1, index: 11] at term 3
+-
+-deliver-msgs 3
+-----
+-2->3 MsgVote Term:3 Log:1/11
+-INFO 3 [logterm: 1, index: 11, vote: 1] ignored MsgVote from 2 [logterm: 1, index: 11] at term 1: lease is not expired (remaining ticks: 3)
+-
+-stabilize
+-----
+-> 1 handling Ready
+-  Ready MustSync=true:
+-  HardState Term:3 Vote:2 Commit:11
+-  Messages:
+-  1->2 MsgVoteResp Term:3 Log:0/0
+-> 2 receiving messages
+-  1->2 MsgVoteResp Term:3 Log:0/0
+-  INFO 2 received MsgVoteResp from 1 at term 3
+-  INFO 2 has received 2 MsgVoteResp votes and 0 vote rejections
+-  INFO 2 became leader at term 3
+-> 2 handling Ready
+-  Ready MustSync=true:
+-  Lead:2 State:StateLeader
+-  Entries:
+-  3/12 EntryNormal ""
+-  Messages:
+-  2->1 MsgApp Term:3 Log:1/11 Commit:11 Entries:[3/12 EntryNormal ""]
+-  2->3 MsgApp Term:3 Log:1/11 Commit:11 Entries:[3/12 EntryNormal ""]
+-> 1 receiving messages
+-  2->1 MsgApp Term:3 Log:1/11 Commit:11 Entries:[3/12 EntryNormal ""]
+-> 3 receiving messages
+-  2->3 MsgApp Term:3 Log:1/11 Commit:11 Entries:[3/12 EntryNormal ""]
+-  INFO 3 [term: 1] received a MsgApp message with higher term from 2 [term: 3]
+-  INFO 3 became follower at term 3
+-> 1 handling Ready
+-  Ready MustSync=true:
+-  Lead:2 State:StateFollower
+-  Entries:
+-  3/12 EntryNormal ""
+-  Messages:
+-  1->2 MsgAppResp Term:3 Log:0/12
+-> 3 handling Ready
+-  Ready MustSync=true:
+-  Lead:2 State:StateFollower
+-  HardState Term:3 Commit:11
+-  Entries:
+-  3/12 EntryNormal ""
+-  Messages:
+-  3->2 MsgAppResp Term:3 Log:0/12
+-> 2 receiving messages
+-  1->2 MsgAppResp Term:3 Log:0/12
+-  3->2 MsgAppResp Term:3 Log:0/12
+-> 2 handling Ready
+-  Ready MustSync=false:
+-  HardState Term:3 Vote:2 Commit:12
+-  CommittedEntries:
+-  3/12 EntryNormal ""
+-  Messages:
+-  2->1 MsgApp Term:3 Log:3/12 Commit:12
+-  2->3 MsgApp Term:3 Log:3/12 Commit:12
+-> 1 receiving messages
+-  2->1 MsgApp Term:3 Log:3/12 Commit:12
+-> 3 receiving messages
+-  2->3 MsgApp Term:3 Log:3/12 Commit:12
+-> 1 handling Ready
+-  Ready MustSync=false:
+-  HardState Term:3 Vote:2 Commit:12
+-  CommittedEntries:
+-  3/12 EntryNormal ""
+-  Messages:
+-  1->2 MsgAppResp Term:3 Log:0/12
+-> 3 handling Ready
+-  Ready MustSync=false:
+-  HardState Term:3 Commit:12
+-  CommittedEntries:
+-  3/12 EntryNormal ""
+-  Messages:
+-  3->2 MsgAppResp Term:3 Log:0/12
+-> 2 receiving messages
+-  1->2 MsgAppResp Term:3 Log:0/12
+-  3->2 MsgAppResp Term:3 Log:0/12
+diff --git a/testdata/forget_leader_prevote_checkquorum.txt b/testdata/forget_leader_prevote_checkquorum.txt
+deleted file mode 100644
+index 9b3b80f..0000000
+--- a/testdata/forget_leader_prevote_checkquorum.txt
++++ /dev/null
+@@ -1,235 +0,0 @@
+-# Tests that a follower with PreVote+CheckQuorum can forget the leader, allowing
+-# it to grant prevotes despite having heard from the leader recently.
+-#
+-# Also tests that forgetting the leader still won't grant prevotes to a
+-# replica that isn't up-to-date.
+-log-level none
+-----
+-ok
+-
+-add-nodes 3 voters=(1,2,3) index=10 prevote=true checkquorum=true
+-----
+-ok
+-
+-campaign 1
+-----
+-ok
+-
+-stabilize
+-----
+-ok
+-
+-log-level debug
+-----
+-ok
+-
+-# If 3 attempts to campaign, 2 rejects it because it has a leader.
+-campaign 3
+-----
+-INFO 3 is starting a new election at term 1
+-INFO 3 became pre-candidate at term 1
+-INFO 3 [logterm: 1, index: 11] sent MsgPreVote request to 1 at term 1
+-INFO 3 [logterm: 1, index: 11] sent MsgPreVote request to 2 at term 1
+-
+-stabilize 3
+-----
+-> 3 handling Ready
+-  Ready MustSync=false:
+-  Lead:0 State:StatePreCandidate
+-  Messages:
+-  3->1 MsgPreVote Term:2 Log:1/11
+-  3->2 MsgPreVote Term:2 Log:1/11
+-  INFO 3 received MsgPreVoteResp from 3 at term 1
+-  INFO 3 has received 1 MsgPreVoteResp votes and 0 vote rejections
+-
+-deliver-msgs 1 2
+-----
+-3->1 MsgPreVote Term:2 Log:1/11
+-INFO 1 [logterm: 1, index: 11, vote: 1] ignored MsgPreVote from 3 [logterm: 1, index: 11] at term 1: lease is not expired (remaining ticks: 3)
+-3->2 MsgPreVote Term:2 Log:1/11
+-INFO 2 [logterm: 1, index: 11, vote: 1] ignored MsgPreVote from 3 [logterm: 1, index: 11] at term 1: lease is not expired (remaining ticks: 3)
+-
+-# Make 1 assert leadership over 3 again.
+-tick-heartbeat 1
+-----
+-ok
+-
+-stabilize
+-----
+-> 1 handling Ready
+-  Ready MustSync=false:
+-  Messages:
+-  1->2 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-  1->3 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-> 2 receiving messages
+-  1->2 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-> 3 receiving messages
+-  1->3 MsgHeartbeat Term:1 Log:0/0 Commit:11
+-  INFO 3 became follower at term 1
+-> 2 handling Ready
+-  Ready MustSync=false:
+-  Messages:
+-  2->1 MsgHeartbeatResp Term:1 Log:0/0
+-> 3 handling Ready
+-  Ready MustSync=false:
+-  Lead:1 State:StateFollower
+-  Messages:
+-  3->1 MsgHeartbeatResp Term:1 Log:0/0
+-> 1 receiving messages
+-  2->1 MsgHeartbeatResp Term:1 Log:0/0
+-  3->1 MsgHeartbeatResp Term:1 Log:0/0
+-
+-raft-state
+-----
+-1: StateLeader (Voter) Term:1 Lead:1
+-2: StateFollower (Voter) Term:1 Lead:1
+-3: StateFollower (Voter) Term:1 Lead:1
+-
+-# If 2 forgets the leader, then 3 can obtain prevotes and hold an election
+-# despite 2 having heard from the leader recently.
+-forget-leader 2
+-----
+-INFO 2 forgetting leader 1 at term 1
+-
+-raft-state
+-----
+-1: StateLeader (Voter) Term:1 Lead:1
+-2: StateFollower (Voter) Term:1 Lead:0
+-3: StateFollower (Voter) Term:1 Lead:1
+-
+-campaign 3
+-----
+-INFO 3 is starting a new election at term 1
+-INFO 3 became pre-candidate at term 1
+-INFO 3 [logterm: 1, index: 11] sent MsgPreVote request to 1 at term 1
+-INFO 3 [logterm: 1, index: 11] sent MsgPreVote request to 2 at term 1
+-
+-stabilize 3
+-----
+-> 3 handling Ready
+-  Ready MustSync=false:
+-  Lead:0 State:StatePreCandidate
+-  Messages:
+-  3->1 MsgPreVote Term:2 Log:1/11
+-  3->2 MsgPreVote Term:2 Log:1/11
+-  INFO 3 received MsgPreVoteResp from 3 at term 1
+-  INFO 3 has received 1 MsgPreVoteResp votes and 0 vote rejections
+-
+-stabilize 2
+-----
+-> 2 handling Ready
+-  Ready MustSync=false:
+-  Lead:0 State:StateFollower
+-> 2 receiving messages
+-  3->2 MsgPreVote Term:2 Log:1/11
+-  INFO 2 [logterm: 1, index: 11, vote: 1] cast MsgPreVote for 3 [logterm: 1, index: 11] at term 1
+-> 2 handling Ready
+-  Ready MustSync=false:
+-  Messages:
+-  2->3 MsgPreVoteResp Term:2 Log:0/0
+-
+-stabilize 3
+-----
+-> 3 receiving messages
+-  2->3 MsgPreVoteResp Term:2 Log:0/0
+-  INFO 3 received MsgPreVoteResp from 2 at term 1
+-  INFO 3 has received 2 MsgPreVoteResp votes and 0 vote rejections
+-  INFO 3 became candidate at term 2
+-  INFO 3 [logterm: 1, index: 11] sent MsgVote request to 1 at term 2
+-  INFO 3 [logterm: 1, index: 11] sent MsgVote request to 2 at term 2
+-> 3 handling Ready
+-  Ready MustSync=true:
+-  Lead:0 State:StateCandidate
+-  HardState Term:2 Vote:3 Commit:11
+-  Messages:
+-  3->1 MsgVote Term:2 Log:1/11
+-  3->2 MsgVote Term:2 Log:1/11
+-  INFO 3 received MsgVoteResp from 3 at term 2
+-  INFO 3 has received 1 MsgVoteResp votes and 0 vote rejections
+-
+-stabilize log-level=none
+-----
+-ok
+-
+-raft-state
+-----
+-1: StateFollower (Voter) Term:2 Lead:3
+-2: StateFollower (Voter) Term:2 Lead:3
+-3: StateLeader (Voter) Term:2 Lead:3
+-
+-# Test that forgetting the leader still won't grant prevotes if the candidate
+-# isn't up-to-date. We first replicate a proposal on 3 and 2.
+-propose 3 prop_1
+-----
+-ok
+-
+-stabilize 3
+-----
+-> 3 handling Ready
+-  Ready MustSync=true:
+-  Entries:
+-  2/13 EntryNormal "prop_1"
+-  Messages:
+-  3->1 MsgApp Term:2 Log:2/12 Commit:12 Entries:[2/13 EntryNormal "prop_1"]
+-  3->2 MsgApp Term:2 Log:2/12 Commit:12 Entries:[2/13 EntryNormal "prop_1"]
+-
+-stabilize 2
+-----
+-> 2 receiving messages
+-  3->2 MsgApp Term:2 Log:2/12 Commit:12 Entries:[2/13 EntryNormal "prop_1"]
+-> 2 handling Ready
+-  Ready MustSync=true:
+-  Entries:
+-  2/13 EntryNormal "prop_1"
+-  Messages:
+-  2->3 MsgAppResp Term:2 Log:0/13
+-
+-forget-leader 2
+-----
+-INFO 2 forgetting leader 3 at term 2
+-
+-# 1 is now behind on its log. It tries to campaign, but fails.
+-raft-log 1
+-----
+-1/11 EntryNormal ""
+-2/12 EntryNormal ""
+-
+-campaign 1
+-----
+-INFO 1 is starting a new election at term 2
+-INFO 1 became pre-candidate at term 2
+-INFO 1 [logterm: 2, index: 12] sent MsgPreVote request to 2 at term 2
+-INFO 1 [logterm: 2, index: 12] sent MsgPreVote request to 3 at term 2
+-
+-process-ready 1
+-----
+-Ready MustSync=false:
+-Lead:0 State:StatePreCandidate
+-Messages:
+-1->2 MsgPreVote Term:3 Log:2/12
+-1->3 MsgPreVote Term:3 Log:2/12
+-INFO 1 received MsgPreVoteResp from 1 at term 2
+-INFO 1 has received 1 MsgPreVoteResp votes and 0 vote rejections
+-
+-stabilize 2
+-----
+-> 2 handling Ready
+-  Ready MustSync=false:
+-  Lead:0 State:StateFollower
+-> 2 receiving messages
+-  1->2 MsgPreVote Term:3 Log:2/12
+-  INFO 2 [logterm: 2, index: 13, vote: 3] rejected MsgPreVote from 1 [logterm: 2, index: 12] at term 2
+-> 2 handling Ready
+-  Ready MustSync=false:
+-  Messages:
+-  2->1 MsgPreVoteResp Term:2 Log:0/0 Rejected (Hint: 0)
+-
+-stabilize log-level=none
+-----
+-ok
+-
+-raft-state
+-----
+-1: StateFollower (Voter) Term:2 Lead:3
+-2: StateFollower (Voter) Term:2 Lead:3
+-3: StateLeader (Voter) Term:2 Lead:3
+diff --git a/testdata/prevote.txt b/testdata/prevote.txt
+deleted file mode 100644
+index db763d3..0000000
+--- a/testdata/prevote.txt
++++ /dev/null
+@@ -1,265 +0,0 @@
+-# Tests that PreVote prevents a node that is behind on the log from obtaining
+-# prevotes and calling an election.
+-#
+-# Also tests that a node that is up-to-date on its log can hold an election.
+-# Unlike the Raft thesis, the recent leader condition requires CheckQuorum
+-# and is not enforced with PreVote alone.
+-
+-log-level none
+-----
+-ok
+-
+-add-nodes 3 voters=(1,2,3) index=10 prevote=true
+-----
+-ok
+-
+-campaign 1
+-----
+-ok
+-
+-stabilize
+-----
+-ok
+-
+-log-level debug
+-----
+-ok
+-
+-# Propose a command on 1 and replicate it to 2.
+-propose 1 prop_1
+-----
+-ok
+-
+-process-ready 1
+-----
+-Ready MustSync=true:
+-Entries:
+-1/12 EntryNormal "prop_1"
+-Messages:
+-1->2 MsgApp Term:1 Log:1/11 Commit:11 Entries:[1/12 EntryNormal "prop_1"]
+-1->3 MsgApp Term:1 Log:1/11 Commit:11 Entries:[1/12 EntryNormal "prop_1"]
+-
+-deliver-msgs 2
+-----
+-1->2 MsgApp Term:1 Log:1/11 Commit:11 Entries:[1/12 EntryNormal "prop_1"]
+-
+-process-ready 2
+-----
+-Ready MustSync=true:
+-Entries:
+-1/12 EntryNormal "prop_1"
+-Messages:
+-2->1 MsgAppResp Term:1 Log:0/12
+-
+-# 3 is now behind on its log. Attempt to campaign.
+-raft-log 3
+-----
+-1/11 EntryNormal ""
+-
+-campaign 3
+-----
+-INFO 3 is starting a new election at term 1
+-INFO 3 became pre-candidate at term 1
+-INFO 3 [logterm: 1, index: 11] sent MsgPreVote request to 1 at term 1
+-INFO 3 [logterm: 1, index: 11] sent MsgPreVote request to 2 at term 1
+-
+-process-ready 3
+-----
+-Ready MustSync=false:
+-Lead:0 State:StatePreCandidate
+-Messages:
+-3->1 MsgPreVote Term:2 Log:1/11
+-3->2 MsgPreVote Term:2 Log:1/11
+-INFO 3 received MsgPreVoteResp from 3 at term 1
+-INFO 3 has received 1 MsgPreVoteResp votes and 0 vote rejections
+-
+-deliver-msgs 1 2
+-----
+-2->1 MsgAppResp Term:1 Log:0/12
+-3->1 MsgPreVote Term:2 Log:1/11
+-INFO 1 [logterm: 1, index: 12, vote: 1] rejected MsgPreVote from 3 [logterm: 1, index: 11] at term 1
+-3->2 MsgPreVote Term:2 Log:1/11
+-INFO 2 [logterm: 1, index: 12, vote: 1] rejected MsgPreVote from 3 [logterm: 1, index: 11] at term 1
+-
+-# 3 failed to campaign. Let the network stabilize.
+-stabilize
+-----
+-> 1 handling Ready
+-  Ready MustSync=false:
+-  HardState Term:1 Vote:1 Commit:12
+-  CommittedEntries:
+-  1/12 EntryNormal "prop_1"
+-  Messages:
+-  1->2 MsgApp Term:1 Log:1/12 Commit:12
+-  1->3 MsgApp Term:1 Log:1/12 Commit:12
+-  1->3 MsgPreVoteResp Term:1 Log:0/0 Rejected (Hint: 0)
+-> 2 handling Ready
+-  Ready MustSync=false:
+-  Messages:
+-  2->3 MsgPreVoteResp Term:1 Log:0/0 Rejected (Hint: 0)
+-> 2 receiving messages
+-  1->2 MsgApp Term:1 Log:1/12 Commit:12
+-> 3 receiving messages
+-  1->3 MsgApp Term:1 Log:1/11 Commit:11 Entries:[1/12 EntryNormal "prop_1"]
+-  INFO 3 became follower at term 1
+-  1->3 MsgApp Term:1 Log:1/12 Commit:12
+-  1->3 MsgPreVoteResp Term:1 Log:0/0 Rejected (Hint: 0)
+-  2->3 MsgPreVoteResp Term:1 Log:0/0 Rejected (Hint: 0)
+-> 2 handling Ready
+-  Ready MustSync=false:
+-  HardState Term:1 Vote:1 Commit:12
+-  CommittedEntries:
+-  1/12 EntryNormal "prop_1"
+-  Messages:
+-  2->1 MsgAppResp Term:1 Log:0/12
+-> 3 handling Ready
+-  Ready MustSync=true:
+-  Lead:1 State:StateFollower
+-  HardState Term:1 Vote:1 Commit:12
+-  Entries:
+-  1/12 EntryNormal "prop_1"
+-  CommittedEntries:
+-  1/12 EntryNormal "prop_1"
+-  Messages:
+-  3->1 MsgAppResp Term:1 Log:0/12
+-  3->1 MsgAppResp Term:1 Log:0/12
+-> 1 receiving messages
+-  2->1 MsgAppResp Term:1 Log:0/12
+-  3->1 MsgAppResp Term:1 Log:0/12
+-  3->1 MsgAppResp Term:1 Log:0/12
+-
+-# Let 2 campaign. It should succeed, since it's up-to-date on the log.
+-campaign 2
+-----
+-INFO 2 is starting a new election at term 1
+-INFO 2 became pre-candidate at term 1
+-INFO 2 [logterm: 1, index: 12] sent MsgPreVote request to 1 at term 1
+-INFO 2 [logterm: 1, index: 12] sent MsgPreVote request to 3 at term 1
+-
+-stabilize
+-----
+-> 2 handling Ready
+-  Ready MustSync=false:
+-  Lead:0 State:StatePreCandidate
+-  Messages:
+-  2->1 MsgPreVote Term:2 Log:1/12
+-  2->3 MsgPreVote Term:2 Log:1/12
+-  INFO 2 received MsgPreVoteResp from 2 at term 1
+-  INFO 2 has received 1 MsgPreVoteResp votes and 0 vote rejections
+-> 1 receiving messages
+-  2->1 MsgPreVote Term:2 Log:1/12
+-  INFO 1 [logterm: 1, index: 12, vote: 1] cast MsgPreVote for 2 [logterm: 1, index: 12] at term 1
+-> 3 receiving messages
+-  2->3 MsgPreVote Term:2 Log:1/12
+-  INFO 3 [logterm: 1, index: 12, vote: 1] cast MsgPreVote for 2 [logterm: 1, index: 12] at term 1
+-> 1 handling Ready
+-  Ready MustSync=false:
+-  Messages:
+-  1->2 MsgPreVoteResp Term:2 Log:0/0
+-> 3 handling Ready
+-  Ready MustSync=false:
+-  Messages:
+-  3->2 MsgPreVoteResp Term:2 Log:0/0
+-> 2 receiving messages
+-  1->2 MsgPreVoteResp Term:2 Log:0/0
+-  INFO 2 received MsgPreVoteResp from 1 at term 1
+-  INFO 2 has received 2 MsgPreVoteResp votes and 0 vote rejections
+-  INFO 2 became candidate at term 2
+-  INFO 2 [logterm: 1, index: 12] sent MsgVote request to 1 at term 2
+-  INFO 2 [logterm: 1, index: 12] sent MsgVote request to 3 at term 2
+-  3->2 MsgPreVoteResp Term:2 Log:0/0
+-> 2 handling Ready
+-  Ready MustSync=true:
+-  Lead:0 State:StateCandidate
+-  HardState Term:2 Vote:2 Commit:12
+-  Messages:
+-  2->1 MsgVote Term:2 Log:1/12
+-  2->3 MsgVote Term:2 Log:1/12
+-  INFO 2 received MsgVoteResp from 2 at term 2
+-  INFO 2 has received 1 MsgVoteResp votes and 0 vote rejections
+-> 1 receiving messages
+-  2->1 MsgVote Term:2 Log:1/12
+-  INFO 1 [term: 1] received a MsgVote message with higher term from 2 [term: 2]
+-  INFO 1 became follower at term 2
+-  INFO 1 [logterm: 1, index: 12, vote: 0] cast MsgVote for 2 [logterm: 1, index: 12] at term 2
+-> 3 receiving messages
+-  2->3 MsgVote Term:2 Log:1/12
+-  INFO 3 [term: 1] received a MsgVote message with higher term from 2 [term: 2]
+-  INFO 3 became follower at term 2
+-  INFO 3 [logterm: 1, index: 12, vote: 0] cast MsgVote for 2 [logterm: 1, index: 12] at term 2
+-> 1 handling Ready
+-  Ready MustSync=true:
+-  Lead:0 State:StateFollower
+-  HardState Term:2 Vote:2 Commit:12
+-  Messages:
+-  1->2 MsgVoteResp Term:2 Log:0/0
+-> 3 handling Ready
+-  Ready MustSync=true:
+-  Lead:0 State:StateFollower
+-  HardState Term:2 Vote:2 Commit:12
+-  Messages:
+-  3->2 MsgVoteResp Term:2 Log:0/0
+-> 2 receiving messages
+-  1->2 MsgVoteResp Term:2 Log:0/0
+-  INFO 2 received MsgVoteResp from 1 at term 2
+-  INFO 2 has received 2 MsgVoteResp votes and 0 vote rejections
+-  INFO 2 became leader at term 2
+-  3->2 MsgVoteResp Term:2 Log:0/0
+-> 2 handling Ready
+-  Ready MustSync=true:
+-  Lead:2 State:StateLeader
+-  Entries:
+-  2/13 EntryNormal ""
+-  Messages:
+-  2->1 MsgApp Term:2 Log:1/12 Commit:12 Entries:[2/13 EntryNormal ""]
+-  2->3 MsgApp Term:2 Log:1/12 Commit:12 Entries:[2/13 EntryNormal ""]
+-> 1 receiving messages
+-  2->1 MsgApp Term:2 Log:1/12 Commit:12 Entries:[2/13 EntryNormal ""]
+-> 3 receiving messages
+-  2->3 MsgApp Term:2 Log:1/12 Commit:12 Entries:[2/13 EntryNormal ""]
+-> 1 handling Ready
+-  Ready MustSync=true:
+-  Lead:2 State:StateFollower
+-  Entries:
+-  2/13 EntryNormal ""
+-  Messages:
+-  1->2 MsgAppResp Term:2 Log:0/13
+-> 3 handling Ready
+-  Ready MustSync=true:
+-  Lead:2 State:StateFollower
+-  Entries:
+-  2/13 EntryNormal ""
+-  Messages:
+-  3->2 MsgAppResp Term:2 Log:0/13
+-> 2 receiving messages
+-  1->2 MsgAppResp Term:2 Log:0/13
+-  3->2 MsgAppResp Term:2 Log:0/13
+-> 2 handling Ready
+-  Ready MustSync=false:
+-  HardState Term:2 Vote:2 Commit:13
+-  CommittedEntries:
+-  2/13 EntryNormal ""
+-  Messages:
+-  2->1 MsgApp Term:2 Log:2/13 Commit:13
+-  2->3 MsgApp Term:2 Log:2/13 Commit:13
+-> 1 receiving messages
+-  2->1 MsgApp Term:2 Log:2/13 Commit:13
+-> 3 receiving messages
+-  2->3 MsgApp Term:2 Log:2/13 Commit:13
+-> 1 handling Ready
+-  Ready MustSync=false:
+-  HardState Term:2 Vote:2 Commit:13
+-  CommittedEntries:
+-  2/13 EntryNormal ""
+-  Messages:
+-  1->2 MsgAppResp Term:2 Log:0/13
+-> 3 handling Ready
+-  Ready MustSync=false:
+-  HardState Term:2 Vote:2 Commit:13
+-  CommittedEntries:
+-  2/13 EntryNormal ""
+-  Messages:
+-  3->2 MsgAppResp Term:2 Log:0/13
+-> 2 receiving messages
+-  1->2 MsgAppResp Term:2 Log:0/13
+-  3->2 MsgAppResp Term:2 Log:0/13
+diff --git a/testdata/prevote_checkquorum.txt b/testdata/prevote_checkquorum.txt
+deleted file mode 100644
+index 6db6662..0000000
+--- a/testdata/prevote_checkquorum.txt
++++ /dev/null
+@@ -1,345 +0,0 @@
+-# Tests that PreVote+CheckQuorum prevents a node from obtaining prevotes if
+-# voters have heard from a leader recently. Also tests that a node is able to
+-# obtain prevotes if the voter hasn't heard from the leader in the past election
+-# timeout interval, or if a quorum of voters are precandidates.
+-
+-log-level none
+-----
+-ok
+-
+-add-nodes 3 voters=(1,2,3) index=10 prevote=true checkquorum=true
+-----
+-ok
+-
+-campaign 1
+-----
+-ok
+-
+-stabilize
+-----
+-ok
+-
+-log-level debug
+-----
+-ok
+-
+-# 2 should fail to campaign, leaving 1's leadership alone.
+-campaign 2
+-----
+-INFO 2 is starting a new election at term 1
+-INFO 2 became pre-candidate at term 1
+-INFO 2 [logterm: 1, index: 11] sent MsgPreVote request to 1 at term 1
+-INFO 2 [logterm: 1, index: 11] sent MsgPreVote request to 3 at term 1
+-
+-stabilize
+-----
+-> 2 handling Ready
+-  Ready MustSync=false:
+-  Lead:0 State:StatePreCandidate
+-  Messages:
+-  2->1 MsgPreVote Term:2 Log:1/11
+-  2->3 MsgPreVote Term:2 Log:1/11
+-  INFO 2 received MsgPreVoteResp from 2 at term 1
+-  INFO 2 has received 1 MsgPreVoteResp votes and 0 vote rejections
+-> 1 receiving messages
+-  2->1 MsgPreVote Term:2 Log:1/11
+-  INFO 1 [logterm: 1, index: 11, vote: 1] ignored MsgPreVote from 2 [logterm: 1, index: 11] at term 1: lease is not expired (remaining ticks: 3)
+-> 3 receiving messages
+-  2->3 MsgPreVote Term:2 Log:1/11
+-  INFO 3 [logterm: 1, index: 11, vote: 1] ignored MsgPreVote from 2 [logterm: 1, index: 11] at term 1: lease is not expired (remaining ticks: 3)
+-
+-# If 2 hasn't heard from the leader in the past election timeout, it should
+-# grant prevotes, allowing 3 to hold an election.
+-set-randomized-election-timeout 2 timeout=5
+-----
+-ok
+-
+-tick-election 2
+-----
+-ok
+-
+-campaign 3
+-----
+-INFO 3 is starting a new election at term 1
+-INFO 3 became pre-candidate at term 1
+-INFO 3 [logterm: 1, index: 11] sent MsgPreVote request to 1 at term 1
+-INFO 3 [logterm: 1, index: 11] sent MsgPreVote request to 2 at term 1
+-
+-process-ready 3
+-----
+-Ready MustSync=false:
+-Lead:0 State:StatePreCandidate
+-Messages:
+-3->1 MsgPreVote Term:2 Log:1/11
+-3->2 MsgPreVote Term:2 Log:1/11
+-INFO 3 received MsgPreVoteResp from 3 at term 1
+-INFO 3 has received 1 MsgPreVoteResp votes and 0 vote rejections
+-
+-deliver-msgs 2
+-----
+-3->2 MsgPreVote Term:2 Log:1/11
+-INFO 2 [logterm: 1, index: 11, vote: 1] cast MsgPreVote for 3 [logterm: 1, index: 11] at term 1
+-
+-process-ready 2
+-----
+-Ready MustSync=false:
+-Messages:
+-2->3 MsgPreVoteResp Term:2 Log:0/0
+-
+-stabilize
+-----
+-> 1 receiving messages
+-  3->1 MsgPreVote Term:2 Log:1/11
+-  INFO 1 [logterm: 1, index: 11, vote: 1] ignored MsgPreVote from 3 [logterm: 1, index: 11] at term 1: lease is not expired (remaining ticks: 3)
+-> 3 receiving messages
+-  2->3 MsgPreVoteResp Term:2 Log:0/0
+-  INFO 3 received MsgPreVoteResp from 2 at term 1
+-  INFO 3 has received 2 MsgPreVoteResp votes and 0 vote rejections
+-  INFO 3 became candidate at term 2
+-  INFO 3 [logterm: 1, index: 11] sent MsgVote request to 1 at term 2
+-  INFO 3 [logterm: 1, index: 11] sent MsgVote request to 2 at term 2
+-> 3 handling Ready
+-  Ready MustSync=true:
+-  Lead:0 State:StateCandidate
+-  HardState Term:2 Vote:3 Commit:11
+-  Messages:
+-  3->1 MsgVote Term:2 Log:1/11
+-  3->2 MsgVote Term:2 Log:1/11
+-  INFO 3 received MsgVoteResp from 3 at term 2
+-  INFO 3 has received 1 MsgVoteResp votes and 0 vote rejections
+-> 1 receiving messages
+-  3->1 MsgVote Term:2 Log:1/11
+-  INFO 1 [logterm: 1, index: 11, vote: 1] ignored MsgVote from 3 [logterm: 1, index: 11] at term 1: lease is not expired (remaining ticks: 3)
+-> 2 receiving messages
+-  3->2 MsgVote Term:2 Log:1/11
+-  INFO 2 [term: 1] received a MsgVote message with higher term from 3 [term: 2]
+-  INFO 2 became follower at term 2
+-  INFO 2 [logterm: 1, index: 11, vote: 0] cast MsgVote for 3 [logterm: 1, index: 11] at term 2
+-> 2 handling Ready
+-  Ready MustSync=true:
+-  Lead:0 State:StateFollower
+-  HardState Term:2 Vote:3 Commit:11
+-  Messages:
+-  2->3 MsgVoteResp Term:2 Log:0/0
+-> 3 receiving messages
+-  2->3 MsgVoteResp Term:2 Log:0/0
+-  INFO 3 received MsgVoteResp from 2 at term 2
+-  INFO 3 has received 2 MsgVoteResp votes and 0 vote rejections
+-  INFO 3 became leader at term 2
+-> 3 handling Ready
+-  Ready MustSync=true:
+-  Lead:3 State:StateLeader
+-  Entries:
+-  2/12 EntryNormal ""
+-  Messages:
+-  3->1 MsgApp Term:2 Log:1/11 Commit:11 Entries:[2/12 EntryNormal ""]
+-  3->2 MsgApp Term:2 Log:1/11 Commit:11 Entries:[2/12 EntryNormal ""]
+-> 1 receiving messages
+-  3->1 MsgApp Term:2 Log:1/11 Commit:11 Entries:[2/12 EntryNormal ""]
+-  INFO 1 [term: 1] received a MsgApp message with higher term from 3 [term: 2]
+-  INFO 1 became follower at term 2
+-> 2 receiving messages
+-  3->2 MsgApp Term:2 Log:1/11 Commit:11 Entries:[2/12 EntryNormal ""]
+-> 1 handling Ready
+-  Ready MustSync=true:
+-  Lead:3 State:StateFollower
+-  HardState Term:2 Commit:11
+-  Entries:
+-  2/12 EntryNormal ""
+-  Messages:
+-  1->3 MsgAppResp Term:2 Log:0/12
+-> 2 handling Ready
+-  Ready MustSync=true:
+-  Lead:3 State:StateFollower
+-  Entries:
+-  2/12 EntryNormal ""
+-  Messages:
+-  2->3 MsgAppResp Term:2 Log:0/12
+-> 3 receiving messages
+-  1->3 MsgAppResp Term:2 Log:0/12
+-  2->3 MsgAppResp Term:2 Log:0/12
+-> 3 handling Ready
+-  Ready MustSync=false:
+-  HardState Term:2 Vote:3 Commit:12
+-  CommittedEntries:
+-  2/12 EntryNormal ""
+-  Messages:
+-  3->1 MsgApp Term:2 Log:2/12 Commit:12
+-  3->2 MsgApp Term:2 Log:2/12 Commit:12
+-> 1 receiving messages
+-  3->1 MsgApp Term:2 Log:2/12 Commit:12
+-> 2 receiving messages
+-  3->2 MsgApp Term:2 Log:2/12 Commit:12
+-> 1 handling Ready
+-  Ready MustSync=false:
+-  HardState Term:2 Commit:12
+-  CommittedEntries:
+-  2/12 EntryNormal ""
+-  Messages:
+-  1->3 MsgAppResp Term:2 Log:0/12
+-> 2 handling Ready
+-  Ready MustSync=false:
+-  HardState Term:2 Vote:3 Commit:12
+-  CommittedEntries:
+-  2/12 EntryNormal ""
+-  Messages:
+-  2->3 MsgAppResp Term:2 Log:0/12
+-> 3 receiving messages
+-  1->3 MsgAppResp Term:2 Log:0/12
+-  2->3 MsgAppResp Term:2 Log:0/12
+-
+-# Node 3 is now the leader. Even though the leader is active, nodes 1 and 2 can
+-# still win a prevote and election if they both explicitly campaign, since the
+-# PreVote+CheckQuorum recent leader condition only applies to follower voters.
+-# This is beneficial, because it allows a quorum of nodes to replace a leader
+-# when they have strong reason to believe that it's dead, despite having heard
+-# from it recently.
+-#
+-# We first let 1 lose an election, as we'd otherwise get a tie.
+-campaign 1
+-----
+-INFO 1 is starting a new election at term 2
+-INFO 1 became pre-candidate at term 2
+-INFO 1 [logterm: 2, index: 12] sent MsgPreVote request to 2 at term 2
+-INFO 1 [logterm: 2, index: 12] sent MsgPreVote request to 3 at term 2
+-
+-stabilize
+-----
+-> 1 handling Ready
+-  Ready MustSync=false:
+-  Lead:0 State:StatePreCandidate
+-  Messages:
+-  1->2 MsgPreVote Term:3 Log:2/12
+-  1->3 MsgPreVote Term:3 Log:2/12
+-  INFO 1 received MsgPreVoteResp from 1 at term 2
+-  INFO 1 has received 1 MsgPreVoteResp votes and 0 vote rejections
+-> 2 receiving messages
+-  1->2 MsgPreVote Term:3 Log:2/12
+-  INFO 2 [logterm: 2, index: 12, vote: 3] ignored MsgPreVote from 1 [logterm: 2, index: 12] at term 2: lease is not expired (remaining ticks: 3)
+-> 3 receiving messages
+-  1->3 MsgPreVote Term:3 Log:2/12
+-  INFO 3 [logterm: 2, index: 12, vote: 3] ignored MsgPreVote from 1 [logterm: 2, index: 12] at term 2: lease is not expired (remaining ticks: 3)
+-
+-campaign 2
+-----
+-INFO 2 is starting a new election at term 2
+-INFO 2 became pre-candidate at term 2
+-INFO 2 [logterm: 2, index: 12] sent MsgPreVote request to 1 at term 2
+-INFO 2 [logterm: 2, index: 12] sent MsgPreVote request to 3 at term 2
+-
+-stabilize
+-----
+-> 2 handling Ready
+-  Ready MustSync=false:
+-  Lead:0 State:StatePreCandidate
+-  Messages:
+-  2->1 MsgPreVote Term:3 Log:2/12
+-  2->3 MsgPreVote Term:3 Log:2/12
+-  INFO 2 received MsgPreVoteResp from 2 at term 2
+-  INFO 2 has received 1 MsgPreVoteResp votes and 0 vote rejections
+-> 1 receiving messages
+-  2->1 MsgPreVote Term:3 Log:2/12
+-  INFO 1 [logterm: 2, index: 12, vote: 0] cast MsgPreVote for 2 [logterm: 2, index: 12] at term 2
+-> 3 receiving messages
+-  2->3 MsgPreVote Term:3 Log:2/12
+-  INFO 3 [logterm: 2, index: 12, vote: 3] ignored MsgPreVote from 2 [logterm: 2, index: 12] at term 2: lease is not expired (remaining ticks: 3)
+-> 1 handling Ready
+-  Ready MustSync=false:
+-  Messages:
+-  1->2 MsgPreVoteResp Term:3 Log:0/0
+-> 2 receiving messages
+-  1->2 MsgPreVoteResp Term:3 Log:0/0
+-  INFO 2 received MsgPreVoteResp from 1 at term 2
+-  INFO 2 has received 2 MsgPreVoteResp votes and 0 vote rejections
+-  INFO 2 became candidate at term 3
+-  INFO 2 [logterm: 2, index: 12] sent MsgVote request to 1 at term 3
+-  INFO 2 [logterm: 2, index: 12] sent MsgVote request to 3 at term 3
+-> 2 handling Ready
+-  Ready MustSync=true:
+-  Lead:0 State:StateCandidate
+-  HardState Term:3 Vote:2 Commit:12
+-  Messages:
+-  2->1 MsgVote Term:3 Log:2/12
+-  2->3 MsgVote Term:3 Log:2/12
+-  INFO 2 received MsgVoteResp from 2 at term 3
+-  INFO 2 has received 1 MsgVoteResp votes and 0 vote rejections
+-> 1 receiving messages
+-  2->1 MsgVote Term:3 Log:2/12
+-  INFO 1 [term: 2] received a MsgVote message with higher term from 2 [term: 3]
+-  INFO 1 became follower at term 3
+-  INFO 1 [logterm: 2, index: 12, vote: 0] cast MsgVote for 2 [logterm: 2, index: 12] at term 3
+-> 3 receiving messages
+-  2->3 MsgVote Term:3 Log:2/12
+-  INFO 3 [logterm: 2, index: 12, vote: 3] ignored MsgVote from 2 [logterm: 2, index: 12] at term 2: lease is not expired (remaining ticks: 3)
+-> 1 handling Ready
+-  Ready MustSync=true:
+-  Lead:0 State:StateFollower
+-  HardState Term:3 Vote:2 Commit:12
+-  Messages:
+-  1->2 MsgVoteResp Term:3 Log:0/0
+-> 2 receiving messages
+-  1->2 MsgVoteResp Term:3 Log:0/0
+-  INFO 2 received MsgVoteResp from 1 at term 3
+-  INFO 2 has received 2 MsgVoteResp votes and 0 vote rejections
+-  INFO 2 became leader at term 3
+-> 2 handling Ready
+-  Ready MustSync=true:
+-  Lead:2 State:StateLeader
+-  Entries:
+-  3/13 EntryNormal ""
+-  Messages:
+-  2->1 MsgApp Term:3 Log:2/12 Commit:12 Entries:[3/13 EntryNormal ""]
+-  2->3 MsgApp Term:3 Log:2/12 Commit:12 Entries:[3/13 EntryNormal ""]
+-> 1 receiving messages
+-  2->1 MsgApp Term:3 Log:2/12 Commit:12 Entries:[3/13 EntryNormal ""]
+-> 3 receiving messages
+-  2->3 MsgApp Term:3 Log:2/12 Commit:12 Entries:[3/13 EntryNormal ""]
+-  INFO 3 [term: 2] received a MsgApp message with higher term from 2 [term: 3]
+-  INFO 3 became follower at term 3
+-> 1 handling Ready
+-  Ready MustSync=true:
+-  Lead:2 State:StateFollower
+-  Entries:
+-  3/13 EntryNormal ""
+-  Messages:
+-  1->2 MsgAppResp Term:3 Log:0/13
+-> 3 handling Ready
+-  Ready MustSync=true:
+-  Lead:2 State:StateFollower
+-  HardState Term:3 Commit:12
+-  Entries:
+-  3/13 EntryNormal ""
+-  Messages:
+-  3->2 MsgAppResp Term:3 Log:0/13
+-> 2 receiving messages
+-  1->2 MsgAppResp Term:3 Log:0/13
+-  3->2 MsgAppResp Term:3 Log:0/13
+-> 2 handling Ready
+-  Ready MustSync=false:
+-  HardState Term:3 Vote:2 Commit:13
+-  CommittedEntries:
+-  3/13 EntryNormal ""
+-  Messages:
+-  2->1 MsgApp Term:3 Log:3/13 Commit:13
+-  2->3 MsgApp Term:3 Log:3/13 Commit:13
+-> 1 receiving messages
+-  2->1 MsgApp Term:3 Log:3/13 Commit:13
+-> 3 receiving messages
+-  2->3 MsgApp Term:3 Log:3/13 Commit:13
+-> 1 handling Ready
+-  Ready MustSync=false:
+-  HardState Term:3 Vote:2 Commit:13
+-  CommittedEntries:
+-  3/13 EntryNormal ""
+-  Messages:
+-  1->2 MsgAppResp Term:3 Log:0/13
+-> 3 handling Ready
+-  Ready MustSync=false:
+-  HardState Term:3 Commit:13
+-  CommittedEntries:
+-  3/13 EntryNormal ""
+-  Messages:
+-  3->2 MsgAppResp Term:3 Log:0/13
+-> 2 receiving messages
+-  1->2 MsgAppResp Term:3 Log:0/13
+-  3->2 MsgAppResp Term:3 Log:0/13
+diff --git a/rafttest/interaction_env_handler_report_snapshot.go b/rafttest/interaction_env_handler_report_snapshot.go
+new file mode 100644
+--- /dev/null
++++ b/rafttest/interaction_env_handler_report_snapshot.go
+@@ -0,0 +1,72 @@
++// Copyright 2023 The etcd Authors
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//	http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++package rafttest
++
++import (
++	"errors"
++	"strconv"
++	"testing"
++
++	"github.com/cockroachdb/datadriven"
++	"go.etcd.io/raft/v3"
++)
++
++// handleReportSnapshot handles the "report-snapshot" command.
++// It reports the status of a snapshot sent from one node to another.
++//
++// Example usage:
++//
++//	report-snapshot 1 3 ok
++//	report-snapshot 1 3 fail
++//
++// The first argument is the leader node index, the second is the target node index,
++// and the third is the status ("ok" for success, "fail" for failure).
++func (env *InteractionEnv) handleReportSnapshot(t *testing.T, d datadriven.TestData) error {
++	// Parse arguments manually to handle mixed numeric and string args
++	var nodeIdxs []int
++	var status raft.SnapshotStatus
++
++	for _, arg := range d.CmdArgs {
++		// Skip arguments with values (like key=value)
++		if len(arg.Vals) != 0 {
++			continue
++		}
++		switch arg.Key {
++		case "ok":
++			status = raft.SnapshotFinish
++		case "fail":
++			status = raft.SnapshotFailure
++		default:
++			// Try to parse as node index
++			n, err := strconv.Atoi(arg.Key)
++			if err != nil {
++				return errors.New("usage: report-snapshot <leader-idx> <target-idx> ok|fail")
++			}
++			nodeIdxs = append(nodeIdxs, n-1) // Convert to 0-indexed
++		}
++	}
++
++	if len(nodeIdxs) != 2 {
++		return errors.New("usage: report-snapshot <leader-idx> <target-idx> ok|fail")
++	}
++	if status == 0 {
++		return errors.New("usage: report-snapshot <leader-idx> <target-idx> ok|fail")
++	}
++
++	leaderIdx := nodeIdxs[0]
++	targetIdx := nodeIdxs[1]
++	targetID := env.Nodes[targetIdx].Config.ID
++	env.Nodes[leaderIdx].ReportSnapshot(targetID, status)
++	return nil
++}
+diff --git a/testdata/report_unreachable.txt b/testdata/report_unreachable.txt
+new file mode 100644
+--- /dev/null
++++ b/testdata/report_unreachable.txt
+@@ -0,0 +1,71 @@
++# TestReportUnreachable tests the ReportUnreachable code path.
++# When the application layer reports that a peer is unreachable,
++# the leader transitions that peer from StateReplicate to StateProbe.
++#
++# This test covers the ReportUnreachable action in the TLA+ spec
++# (etcdraft.tla lines 1760-1771).
++
++# Turn off output during setup.
++log-level none
++----
++ok
++
++# Start with three nodes.
++add-nodes 3 voters=(1,2,3) index=10
++----
++ok
++
++campaign 1
++----
++ok
++
++stabilize
++----
++ok
++
++log-level debug
++----
++ok
++
++# All followers should be in StateReplicate.
++status 1
++----
++1: StateReplicate match=11 next=12
++2: StateReplicate match=11 next=12
++3: StateReplicate match=11 next=12
++
++# Report node 3 as unreachable.
++# This should transition node 3 from StateReplicate to StateProbe.
++report-unreachable 1 3
++----
++DEBUG 1 failed to send message to 3 because it is unreachable [StateProbe match=11 next=12]
++
++# Verify node 3 is now in StateProbe.
++# Inflights should also be cleared.
++status 1
++----
++1: StateReplicate match=11 next=12
++2: StateReplicate match=11 next=12
++3: StateProbe match=11 next=12
++
++# Report node 2 as unreachable as well.
++report-unreachable 1 2
++----
++DEBUG 1 failed to send message to 2 because it is unreachable [StateProbe match=11 next=12]
++
++status 1
++----
++1: StateReplicate match=11 next=12
++2: StateProbe match=11 next=12
++3: StateProbe match=11 next=12
++
++# Reporting unreachable for a node already in StateProbe logs but is otherwise a no-op.
++report-unreachable 1 3
++----
++DEBUG 1 failed to send message to 3 because it is unreachable [StateProbe match=11 next=12]
++
++status 1
++----
++1: StateReplicate match=11 next=12
++2: StateProbe match=11 next=12
++3: StateProbe match=11 next=12
+diff --git a/testdata/snapshot_status_report.txt b/testdata/snapshot_status_report.txt
+new file mode 100644
+--- /dev/null
++++ b/testdata/snapshot_status_report.txt
+@@ -0,0 +1,121 @@
++# TestSnapshotStatusReport tests the HandleSnapshotStatus code path.
++# When a leader sends a snapshot to a follower, the follower enters StateSnapshot.
++# The application layer then reports back via ReportSnapshot whether the snapshot
++# was successfully sent/applied. This triggers HandleSnapshotStatus which
++# transitions the follower from StateSnapshot to StateProbe.
++#
++# This test covers the HandleSnapshotStatus action in the TLA+ spec (etcdraft.tla
++# lines 1737-1755), which was previously not covered by any trace.
++
++# Turn off output during setup.
++log-level none
++----
++ok
++
++# Start with two nodes, but config has a third.
++add-nodes 2 voters=(1,2,3) index=10
++----
++ok
++
++campaign 1
++----
++ok
++
++# Stabilize the cluster.
++stabilize
++----
++ok
++
++# Compact log on leader so node 3 will need a snapshot.
++compact 1 11
++----
++ok
++
++# Drop messages to node 3 (it doesn't exist yet).
++deliver-msgs drop=(3)
++----
++ok
++
++# Enable debug logging.
++log-level debug
++----
++ok
++
++# Check initial status: node 3 is in StateProbe, inactive.
++status 1
++----
++1: StateReplicate match=11 next=12
++2: StateReplicate match=11 next=12
++3: StateProbe match=0 next=11 paused inactive
++
++# Add node 3.
++add-nodes 1
++----
++INFO 3 switched to configuration voters=()
++INFO 3 became follower at term 0
++INFO newRaft 3 [peers: [], term: 0, commit: 0, applied: 0, lastindex: 0, lastterm: 0]
++
++# Trigger heartbeat from leader.
++tick-heartbeat 1
++----
++ok
++
++process-ready 1
++----
++Ready MustSync=false:
++Messages:
++1->2 MsgHeartbeat Term:1 Log:0/0 Commit:11
++1->3 MsgHeartbeat Term:1 Log:0/0
++
++# Node 3 receives heartbeat and responds.
++stabilize 3
++----
++> 3 receiving messages
++  1->3 MsgHeartbeat Term:1 Log:0/0
++  INFO 3 [term: 0] received a MsgHeartbeat message with higher term from 1 [term: 1]
++  INFO 3 became follower at term 1
++> 3 handling Ready
++  Ready MustSync=true:
++  Lead:1 State:StateFollower
++  HardState Term:1 Commit:0
++  Messages:
++  3->1 MsgHeartbeatResp Term:1 Log:0/0
++
++# Leader receives heartbeat response and sends snapshot.
++# Node 3 enters StateSnapshot.
++stabilize 1
++----
++> 1 receiving messages
++  3->1 MsgHeartbeatResp Term:1 Log:0/0
++  DEBUG 1 [firstindex: 12, commit: 11] sent snapshot[index: 11, term: 1] to 3 [StateProbe match=0 next=11]
++  DEBUG 1 paused sending replication messages to 3 [StateSnapshot match=0 next=12 paused pendingSnap=11]
++> 1 handling Ready
++  Ready MustSync=false:
++  Messages:
++  1->3 MsgSnap Term:1 Log:0/0
++    Snapshot: Index:11 Term:1 ConfState:Voters:[1 2 3] VotersOutgoing:[] Learners:[] LearnersNext:[] AutoLeave:false
++
++# Verify node 3 is in StateSnapshot.
++status 1
++----
++1: StateReplicate match=11 next=12
++2: StateReplicate match=11 next=12
++3: StateSnapshot match=0 next=12 paused pendingSnap=11
++
++# Now, instead of letting node 3 process the snapshot normally,
++# we simulate the application layer reporting snapshot status.
++# This exercises the HandleSnapshotStatus code path.
++
++# Report snapshot success (SnapshotFinish).
++# This should transition node 3 from StateSnapshot to StateProbe.
++report-snapshot 1 3 ok
++----
++DEBUG 1 snapshot succeeded, resumed sending replication messages to 3 [StateProbe match=0 next=12]
++
++# Verify node 3 is now in StateProbe (not StateSnapshot).
++# After successful snapshot, Next = max(Match+1, PendingSnapshot+1) = max(1, 12) = 12
++status 1
++----
++1: StateReplicate match=11 next=12
++2: StateReplicate match=11 next=12
++3: StateProbe match=0 next=12 paused
+diff --git a/testdata/snapshot_status_report_failure.txt b/testdata/snapshot_status_report_failure.txt
+new file mode 100644
+--- /dev/null
++++ b/testdata/snapshot_status_report_failure.txt
+@@ -0,0 +1,112 @@
++# TestSnapshotStatusReportFailure tests the HandleSnapshotStatus code path
++# when snapshot sending fails.
++#
++# When a snapshot fails to be sent/applied, the application reports
++# SnapshotFailure via ReportSnapshot. This triggers HandleSnapshotStatus
++# which transitions the follower from StateSnapshot to StateProbe with
++# Next = Match + 1 (since PendingSnapshot is cleared on failure).
++#
++# This test covers the failure branch of HandleSnapshotStatus in the TLA+ spec
++# (etcdraft.tla lines 1737-1755).
++
++# Turn off output during setup.
++log-level none
++----
++ok
++
++# Start with two nodes, config has a third.
++add-nodes 2 voters=(1,2,3) index=10
++----
++ok
++
++campaign 1
++----
++ok
++
++stabilize
++----
++ok
++
++# Compact log so node 3 will need a snapshot.
++compact 1 11
++----
++ok
++
++deliver-msgs drop=(3)
++----
++ok
++
++log-level debug
++----
++ok
++
++status 1
++----
++1: StateReplicate match=11 next=12
++2: StateReplicate match=11 next=12
++3: StateProbe match=0 next=11 paused inactive
++
++add-nodes 1
++----
++INFO 3 switched to configuration voters=()
++INFO 3 became follower at term 0
++INFO newRaft 3 [peers: [], term: 0, commit: 0, applied: 0, lastindex: 0, lastterm: 0]
++
++tick-heartbeat 1
++----
++ok
++
++process-ready 1
++----
++Ready MustSync=false:
++Messages:
++1->2 MsgHeartbeat Term:1 Log:0/0 Commit:11
++1->3 MsgHeartbeat Term:1 Log:0/0
++
++stabilize 3
++----
++> 3 receiving messages
++  1->3 MsgHeartbeat Term:1 Log:0/0
++  INFO 3 [term: 0] received a MsgHeartbeat message with higher term from 1 [term: 1]
++  INFO 3 became follower at term 1
++> 3 handling Ready
++  Ready MustSync=true:
++  Lead:1 State:StateFollower
++  HardState Term:1 Commit:0
++  Messages:
++  3->1 MsgHeartbeatResp Term:1 Log:0/0
++
++stabilize 1
++----
++> 1 receiving messages
++  3->1 MsgHeartbeatResp Term:1 Log:0/0
++  DEBUG 1 [firstindex: 12, commit: 11] sent snapshot[index: 11, term: 1] to 3 [StateProbe match=0 next=11]
++  DEBUG 1 paused sending replication messages to 3 [StateSnapshot match=0 next=12 paused pendingSnap=11]
++> 1 handling Ready
++  Ready MustSync=false:
++  Messages:
++  1->3 MsgSnap Term:1 Log:0/0
++    Snapshot: Index:11 Term:1 ConfState:Voters:[1 2 3] VotersOutgoing:[] Learners:[] LearnersNext:[] AutoLeave:false
++
++# Verify node 3 is in StateSnapshot with pendingSnap=11.
++status 1
++----
++1: StateReplicate match=11 next=12
++2: StateReplicate match=11 next=12
++3: StateSnapshot match=0 next=12 paused pendingSnap=11
++
++# Report snapshot FAILURE.
++# This should transition node 3 from StateSnapshot to StateProbe.
++# On failure, PendingSnapshot is cleared first, so Next = max(Match+1, 0+1) = 1
++report-snapshot 1 3 fail
++----
++DEBUG 1 snapshot failed, resumed sending replication messages to 3 [StateProbe match=0 next=1]
++
++# Verify node 3 is now in StateProbe.
++# After failed snapshot, Next = Match + 1 = 0 + 1 = 1
++# (PendingSnapshot is cleared to 0 before calculating newNext)
++status 1
++----
++1: StateReplicate match=11 next=12
++2: StateReplicate match=11 next=12
++3: StateProbe match=0 next=1 paused
