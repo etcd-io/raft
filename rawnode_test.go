@@ -606,13 +606,13 @@ func TestRawNodeStart(t *testing.T) {
 
 		_, err = storage.Entries(fi, fi, math.MaxUint64)
 		// TODO(tbg): match exact error
-		require.Error(t, err, "should not have been able to load first index")
+		require.Error(t, err, ErrCompacted)
 
 		li, err := storage.LastIndex()
 		require.NoError(t, err)
 
 		_, err = storage.Entries(li, li, math.MaxUint64)
-		require.Error(t, err, "should not have been able to load last index")
+		require.Error(t, err, ErrUnavailable)
 
 		hs, ics, err := storage.InitialState()
 		require.NoError(t, err)
