@@ -1,3 +1,12 @@
+[![Go Reference](https://pkg.go.dev/badge/go.etcd.io/raft)](https://pkg.go.dev/go.etcd.io/raft)
+[![Go Report Card](https://goreportcard.com/badge/github.com/etcd-io/raft)](https://goreportcard.com/report/github.com/etcd-io/raft)
+[![Build Status](https://github.com/etcd-io/raft/actions/workflows/test.yml/badge.svg)](https://github.com/etcd-io/raft/actions)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Release](https://img.shields.io/github/v/release/etcd-io/raft)](https://github.com/etcd-io/raft/releases)
+[![Issues](https://img.shields.io/github/issues/etcd-io/raft)](https://github.com/etcd-io/raft/issues)
+[![Pull Requests](https://img.shields.io/github/issues-pr/etcd-io/raft)](https://github.com/etcd-io/raft/pulls)
+
+
 # Raft library
 
 Raft is a protocol with which a cluster of nodes can maintain a replicated state machine.
