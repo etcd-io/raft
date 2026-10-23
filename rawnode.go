@@ -140,7 +140,6 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 	r := rn.raft
 
 	rd := Ready{
-		Entries:          r.raftLog.nextUnstableEnts(),
 		CommittedEntries: r.raftLog.nextCommittedEnts(rn.applyUnstableEntries()),
 		Messages:         r.msgs,
 	}
@@ -149,21 +148,25 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 		escapingSoftSt := softSt
 		rd.SoftState = &escapingSoftSt
 	}
-	if hardSt := r.hardState(); !isHardStateEqual(hardSt, rn.prevHardSt) {
-		rd.HardState = hardSt
-	}
-	if r.raftLog.hasNextUnstableSnapshot() {
-		rd.Snapshot = r.raftLog.nextUnstableSnapshot()
+	held := rn.storageAppendHeld()
+	if !held {
+		rd.Entries = r.raftLog.nextUnstableEnts()
+		if hardSt := r.hardState(); !isHardStateEqual(hardSt, rn.prevHardSt) {
+			rd.HardState = hardSt
+		}
+		if r.raftLog.hasNextUnstableSnapshot() {
+			rd.Snapshot = r.raftLog.nextUnstableSnapshot()
+		}
+		rd.MustSync = MustSync(r.hardState(), rn.prevHardSt, len(rd.Entries))
 	}
 	if len(r.readStates) != 0 {
 		rd.ReadStates = r.readStates
 	}
-	rd.MustSync = MustSync(r.hardState(), rn.prevHardSt, len(rd.Entries))
 
 	if rn.asyncStorageWrites {
 		// If async storage writes are enabled, enqueue messages to
 		// local storage threads, where applicable.
-		if needStorageAppendMsg(r, rd) {
+		if !held && needStorageAppendMsg(r, rd) {
 			m := newStorageAppendMsg(r, rd)
 			rd.Messages = append(rd.Messages, m)
 		}
@@ -426,8 +429,10 @@ func (rn *RawNode) acceptReady(rd Ready) {
 		}
 	}
 	rn.raft.msgs = nil
-	rn.raft.msgsAfterAppend = nil
-	rn.raft.raftLog.acceptUnstable()
+	if !rn.storageAppendHeld() {
+		rn.raft.msgsAfterAppend = nil
+		rn.raft.raftLog.acceptUnstable()
+	}
 	if len(rd.CommittedEntries) > 0 {
 		ents := rd.CommittedEntries
 		index := ents[len(ents)-1].GetIndex()
@@ -435,6 +440,17 @@ func (rn *RawNode) acceptReady(rd Ready) {
 	}
 
 	traceReady(rn.raft)
+}
+
+// storageAppendHeld returns whether nothing is to be handed out to the append
+// thread for now. With AsyncStorageWrites, a snapshot waits until the committed
+// entries handed out before it are applied, so that it is applied after them.
+// The entries after the snapshot, a HardState committing it and the messages
+// sent once they are stable wait with it. Without AsyncStorageWrites, the
+// snapshot's Ready comes after the previous Advance, so this never holds.
+func (rn *RawNode) storageAppendHeld() bool {
+	l := rn.raft.raftLog
+	return rn.asyncStorageWrites && l.hasNextUnstableSnapshot() && l.applying > l.applied
 }
 
 // applyUnstableEntries returns whether entries are allowed to be applied once
@@ -451,16 +467,18 @@ func (rn *RawNode) HasReady() bool {
 	if softSt := r.softState(); !softSt.equal(rn.prevSoftSt) {
 		return true
 	}
-	if hardSt := r.hardState(); !IsEmptyHardState(hardSt) && !isHardStateEqual(hardSt, rn.prevHardSt) {
+	if !rn.storageAppendHeld() {
+		if hardSt := r.hardState(); !IsEmptyHardState(hardSt) && !isHardStateEqual(hardSt, rn.prevHardSt) {
+			return true
+		}
+		if r.raftLog.hasNextUnstableSnapshot() || len(r.msgsAfterAppend) > 0 || r.raftLog.hasNextUnstableEnts() {
+			return true
+		}
+	}
+	if len(r.msgs) > 0 {
 		return true
 	}
-	if r.raftLog.hasNextUnstableSnapshot() {
-		return true
-	}
-	if len(r.msgs) > 0 || len(r.msgsAfterAppend) > 0 {
-		return true
-	}
-	if r.raftLog.hasNextUnstableEnts() || r.raftLog.hasNextCommittedEnts(rn.applyUnstableEntries()) {
+	if r.raftLog.hasNextCommittedEnts(rn.applyUnstableEntries()) {
 		return true
 	}
 	if len(r.readStates) != 0 {
