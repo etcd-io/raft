@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"slices"
 	"strings"
 	"testing"
 
@@ -2108,6 +2109,41 @@ func TestReadOnlyForNewLeader(t *testing.T) {
 	rs = sm.readStates[1]
 	require.Equal(t, windex, rs.Index)
 	require.Equal(t, wctx, rs.RequestCtx)
+}
+
+// TestReadOnlyForRemovedLeader ensures that the read index of a leader that
+// removed itself includes the entries the remaining voter has committed since.
+func TestReadOnlyForRemovedLeader(t *testing.T) {
+	nt := newNetwork(nil, nil)
+	nt.send(pb.Message{From: 2, To: 2, Type: pb.MsgHup})
+	a, b := nt.peers[1].(*raft), nt.peers[2].(*raft)
+
+	// Peer 2 removes itself (index 2), and both peers apply the removal once it
+	// commits. Peer 2 stays leader.
+	cc := pb.ConfChange{Type: pb.ConfChangeRemoveNode, NodeID: 2}
+	ccData, err := cc.Marshal()
+	require.NoError(t, err)
+	nt.send(pb.Message{From: 2, To: 2, Type: pb.MsgProp, Entries: []pb.Entry{{Type: pb.EntryConfChange, Data: ccData}}})
+	require.Equal(t, uint64(2), a.raftLog.committed)
+	require.Equal(t, uint64(2), b.raftLog.committed)
+	a.applyConfChange(cc.AsV2())
+	b.applyConfChange(cc.AsV2())
+
+	// Peer 1, now the only voter, becomes leader and commits y.
+	a.becomeCandidate()
+	a.becomeLeader()
+	nt.send(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Data: []byte("y")}}})
+	y := a.raftLog.lastIndex()
+	require.Equal(t, y, a.raftLog.committed)
+
+	// Ensure the read index of a read issued now at peer 2 includes y.
+	wctx := []byte("ctx")
+	nt.send(pb.Message{From: 2, To: 2, Type: pb.MsgReadIndex, Entries: []pb.Entry{{Data: wctx}}})
+	for _, rs := range b.readStates {
+		if slices.Equal(rs.RequestCtx, wctx) {
+			require.GreaterOrEqual(t, rs.Index, y, "read index")
+		}
+	}
 }
 
 func TestLeaderAppResp(t *testing.T) {
