@@ -899,13 +899,21 @@ func (r *raft) becomeFollower(term uint64, lead uint64) {
 	traceBecomeFollower(r)
 }
 
+func (r *raft) nextTerm() uint64 {
+  // Term = [epoch:48; rand:16]
+  var cepoch uint64 = (r.Term & 0xffff_ffff_ffff_0000) >> 16
+  var tepoch uint64 = (cepoch + 1) << 16
+  var trdm uint64   = uint64(globalRand.Intn(65536)) & 0xffff
+  return tepoch | trdm
+}
+
 func (r *raft) becomeCandidate() {
 	// TODO(xiangli) remove the panic when the raft implementation is stable
 	if r.state == StateLeader {
 		panic("invalid transition [leader -> candidate]")
 	}
 	r.step = stepCandidate
-	r.reset(r.Term + 1)
+	r.reset(r.nextTerm())
 	r.tick = r.tickElection
 	r.Vote = r.id
 	r.state = StateCandidate
@@ -1034,7 +1042,7 @@ func (r *raft) campaign(t CampaignType) {
 		r.becomePreCandidate()
 		voteMsg = pb.MsgPreVote
 		// PreVote RPCs are sent for the next term before we've incremented r.Term.
-		term = r.Term + 1
+		term = r.nextTerm()
 	} else {
 		r.becomeCandidate()
 		voteMsg = pb.MsgVote
