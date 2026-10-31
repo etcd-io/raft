@@ -193,9 +193,9 @@ LocalApplyThread and carry CommittedEntries. Messages to the same target must be
 reliably processed in order. Messages to different targets can be processed in
 any order.
 
-Each local storage message carries a slice of response messages that must
-delivered after the corresponding storage write has been completed. These
-responses may target the same node or may target other nodes.
+Local storage messages may carry messages to deliver after the associated
+storage operation has completed. These messages may target the same node or
+another node.
 
 With Asynchronous Storage Writes enabled, the total state machine handling loop
 will look something like this:
@@ -386,10 +386,10 @@ stale log entries:
 
 	'MsgStorageAppend' is a message from a node to its local append storage
 	thread to write entries, hard state, and/or a snapshot to stable storage.
-	The message will carry one or more responses, one of which will be a
-	'MsgStorageAppendResp' back to itself. The responses can also contain
-	'MsgAppResp', 'MsgVoteResp', and 'MsgPreVoteResp' messages. Used with
-	AsynchronousStorageWrites.
+	Its Responses field may contain messages to deliver after the write completes.
+	These may include a 'MsgVote' request, 'MsgAppResp', 'MsgVoteResp', or
+	'MsgPreVoteResp' message, and a 'MsgStorageAppendResp' when append stability
+	must be acknowledged. Used with AsynchronousStorageWrites.
 
 	'MsgStorageApply' is a message from a node to its local apply storage
 	thread to apply committed entries. The message will carry one response,

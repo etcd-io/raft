@@ -169,21 +169,23 @@ type Config struct {
 	// MsgStorageAppend carries Raft log entries to append, election votes /
 	// term changes / updated commit indexes to persist, and snapshots to apply.
 	// All writes performed in service of a MsgStorageAppend must be durable
-	// before response messages are delivered. However, if the MsgStorageAppend
-	// carries no response messages, durability is not required. The message
-	// assumes the role of the Entries, HardState, and Snapshot fields in Ready.
+	// before messages in its Responses field are delivered. These messages may
+	// include a MsgVote request as well as responses to Raft messages. Pre-vote
+	// requests (MsgPreVote) remain immediately available in Ready.Messages. If a
+	// MsgStorageAppend carries no responses, durability is not required. The
+	// message assumes the role of the Entries, HardState, and Snapshot fields in
+	// Ready.
 	//
 	// MsgStorageApply carries committed entries to apply. Writes performed in
 	// service of a MsgStorageApply need not be durable before response messages
 	// are delivered. The message assumes the role of the CommittedEntries field
 	// in Ready.
 	//
-	// Local messages each carry one or more response messages which should be
-	// delivered after the corresponding storage write has been completed. These
-	// responses may target the same node or may target other nodes. The storage
-	// threads are not responsible for understanding the response messages, only
-	// for delivering them to the correct target after performing the storage
-	// write.
+	// Local messages may carry messages to be delivered after the corresponding
+	// storage operation has completed. These messages may target the same node or
+	// another node. The storage threads are not responsible for understanding
+	// them, only for delivering each message to its target after performing the
+	// storage operation.
 	AsyncStorageWrites bool
 
 	// MaxSizePerMsg limits the max byte size of each append message. Smaller
@@ -374,7 +376,7 @@ type raft struct {
 	//
 	// Messages in this list may target other nodes or may target this node.
 	//
-	// Messages in this list have the type MsgAppResp, MsgVoteResp, or
+	// Messages in this list have the type MsgAppResp, MsgVote, MsgVoteResp, or
 	// MsgPreVoteResp. See the comment in raft.send for details.
 	msgsAfterAppend []*pb.Message
 
@@ -543,19 +545,20 @@ func (r *raft) send(m *pb.Message) {
 			m.Term = new(r.Term)
 		}
 	}
-	if m.GetType() == pb.MsgAppResp || m.GetType() == pb.MsgVoteResp || m.GetType() == pb.MsgPreVoteResp {
+	if m.GetType() == pb.MsgAppResp ||
+		m.GetType() == pb.MsgVote ||
+		m.GetType() == pb.MsgVoteResp ||
+		m.GetType() == pb.MsgPreVoteResp {
 		// If async storage writes are enabled, messages added to the msgs slice
 		// are allowed to be sent out before unstable state (e.g. log entry
 		// writes and election votes) have been durably synced to the local
 		// disk.
 		//
-		// For most message types, this is not an issue. However, response
-		// messages that relate to "voting" on either leader election or log
-		// appends require durability before they can be sent. It would be
-		// incorrect to publish a vote in an election before that vote has been
-		// synced to stable storage locally. Similarly, it would be incorrect to
-		// acknowledge a log append to the leader before that entry has been
-		// synced to stable storage locally.
+		// MsgVote requests and Msg{Pre,}VoteResp responses, as well as
+		// MsgAppResp append acknowledgements, require durability before they
+		// can be sent. A candidate's term and self-vote must be synced before it
+		// sends MsgVote, and a node must persist its real vote before responding.
+		// An append must be durable before it is acknowledged to the leader.
 		//
 		// Per the Raft thesis, section 3.8 Persisted state and server restarts:
 		//
@@ -568,9 +571,9 @@ func (r *raft) send(m *pb.Message) {
 		// > commitment; this prevents committed entries from being lost or
 		// > “uncommitted” when servers restart
 		//
-		// To enforce this durability requirement, these response messages are
-		// queued to be sent out as soon as the current collection of unstable
-		// state (the state that the response message was predicated upon) has
+		// To enforce this durability requirement, these messages are queued to be
+		// sent out as soon as the current collection of unstable
+		// state (the state that the message was predicated upon) has
 		// been durably persisted. This unstable state may have already been
 		// passed to a Ready struct whose persistence is in progress or may be
 		// waiting for the next Ready struct to begin being written to Storage.

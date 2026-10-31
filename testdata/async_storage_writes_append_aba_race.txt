@@ -88,15 +88,41 @@ Ready MustSync=true:
 Lead:0 State:StateCandidate
 HardState Term:2 Vote:3 Commit:11
 Messages:
+3->AppendThread MsgStorageAppend Term:2 Log:0/0 Commit:11 Vote:3 Responses:[
+  3->1 MsgVote Term:2 Log:1/11
+  3->2 MsgVote Term:2 Log:1/11
+  3->3 MsgVoteResp Term:2 Log:0/0
+  3->4 MsgVote Term:2 Log:1/11
+  3->5 MsgVote Term:2 Log:1/11
+  3->6 MsgVote Term:2 Log:1/11
+  3->7 MsgVote Term:2 Log:1/11
+]
+
+deliver-msgs 4 5 6
+----
+no messages
+
+process-ready 4 5 6
+----
+> 4 handling Ready
+  <empty Ready>
+> 5 handling Ready
+  <empty Ready>
+> 6 handling Ready
+  <empty Ready>
+
+process-append-thread 3
+----
+Processing:
+3->AppendThread MsgStorageAppend Term:2 Log:0/0 Commit:11 Vote:3
+Responses:
 3->1 MsgVote Term:2 Log:1/11
 3->2 MsgVote Term:2 Log:1/11
+3->3 MsgVoteResp Term:2 Log:0/0
 3->4 MsgVote Term:2 Log:1/11
 3->5 MsgVote Term:2 Log:1/11
 3->6 MsgVote Term:2 Log:1/11
 3->7 MsgVote Term:2 Log:1/11
-3->AppendThread MsgStorageAppend Term:2 Log:0/0 Commit:11 Vote:3 Responses:[
-  3->3 MsgVoteResp Term:2 Log:0/0
-]
 
 deliver-msgs 4 5 6
 ----
@@ -140,13 +166,8 @@ process-ready 4 5 6
     6->3 MsgVoteResp Term:2 Log:0/0
   ]
 
-process-append-thread 3 4 5 6
+process-append-thread 4 5 6
 ----
-> 3 processing append thread
-  Processing:
-  3->AppendThread MsgStorageAppend Term:2 Log:0/0 Commit:11 Vote:3
-  Responses:
-  3->3 MsgVoteResp Term:2 Log:0/0
 > 4 processing append thread
   Processing:
   4->AppendThread MsgStorageAppend Term:2 Log:0/0 Commit:11 Vote:3
@@ -252,15 +273,41 @@ Ready MustSync=true:
 Lead:0 State:StateCandidate
 HardState Term:3 Vote:4 Commit:11
 Messages:
+4->AppendThread MsgStorageAppend Term:3 Log:0/0 Commit:11 Vote:4 Responses:[
+  4->1 MsgVote Term:3 Log:1/11
+  4->2 MsgVote Term:3 Log:1/11
+  4->3 MsgVote Term:3 Log:1/11
+  4->4 MsgVoteResp Term:3 Log:0/0
+  4->5 MsgVote Term:3 Log:1/11
+  4->6 MsgVote Term:3 Log:1/11
+  4->7 MsgVote Term:3 Log:1/11
+]
+
+deliver-msgs 5 6 7
+----
+no messages
+
+process-ready 5 6 7
+----
+> 5 handling Ready
+  <empty Ready>
+> 6 handling Ready
+  <empty Ready>
+> 7 handling Ready
+  <empty Ready>
+
+process-append-thread 4
+----
+Processing:
+4->AppendThread MsgStorageAppend Term:3 Log:0/0 Commit:11 Vote:4
+Responses:
 4->1 MsgVote Term:3 Log:1/11
 4->2 MsgVote Term:3 Log:1/11
 4->3 MsgVote Term:3 Log:1/11
+4->4 MsgVoteResp Term:3 Log:0/0
 4->5 MsgVote Term:3 Log:1/11
 4->6 MsgVote Term:3 Log:1/11
 4->7 MsgVote Term:3 Log:1/11
-4->AppendThread MsgStorageAppend Term:3 Log:0/0 Commit:11 Vote:4 Responses:[
-  4->4 MsgVoteResp Term:3 Log:0/0
-]
 
 deliver-msgs 5 6 7
 ----
@@ -302,13 +349,8 @@ process-ready 5 6 7
     7->4 MsgVoteResp Term:3 Log:0/0
   ]
 
-process-append-thread 4 5 6 7
+process-append-thread 5 6 7
 ----
-> 4 processing append thread
-  Processing:
-  4->AppendThread MsgStorageAppend Term:3 Log:0/0 Commit:11 Vote:4
-  Responses:
-  4->4 MsgVoteResp Term:3 Log:0/0
 > 5 processing append thread
   Processing:
   5->AppendThread MsgStorageAppend Term:3 Log:0/0 Commit:11 Vote:4
