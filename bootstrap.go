@@ -41,6 +41,14 @@ func (rn *RawNode) Bootstrap(peers []Peer) error {
 	if lastIndex != 0 {
 		return errors.New("can't bootstrap a nonempty Storage")
 	}
+	hs, _, err := rn.raft.raftLog.storage.InitialState()
+	if err != nil {
+		return err
+	}
+	// A persisted term or vote makes the Storage nonempty even without entries.
+	if !IsEmptyHardState(hs) {
+		return errors.New("can't bootstrap a nonempty Storage")
+	}
 
 	// We've faked out initial entries above, but nothing has been
 	// persisted. Start with an empty HardState (thus the first Ready will
