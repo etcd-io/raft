@@ -106,6 +106,7 @@ func (c *Config) Clone() Config {
 	}
 	return Config{
 		Voters:       quorum.JointConfig{clone(c.Voters[0]), clone(c.Voters[1])},
+		AutoLeave:    c.AutoLeave,
 		Learners:     clone(c.Learners),
 		LearnersNext: clone(c.LearnersNext),
 	}
