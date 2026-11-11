@@ -1,6 +1,13 @@
 
 <hr>
 
+## v3.7.1(TBC)
+
+### raft
+- Fix [a leader that removed itself answers ReadIndex with a stale index](https://github.com/etcd-io/raft/pull/542)
+
+<hr>
+
 ## v3.7.0(2026-06-21)
 
 ### Changelog since v3.7.0-rc.1
