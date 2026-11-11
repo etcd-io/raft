@@ -16,8 +16,10 @@ package raft
 
 import (
 	"math"
+	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
@@ -274,4 +276,52 @@ func TestStorageApplySnapshot(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStorageInitialStateReturnsCopies(t *testing.T) {
+	s := NewMemoryStorage()
+	require.NoError(t, s.Append(index(1).terms(1, 1)))
+	require.NoError(t, s.SetHardState(&pb.HardState{Term: new(uint64(1)), Commit: new(uint64(1))}))
+	_, err := s.CreateSnapshot(1, &pb.ConfState{Voters: []uint64{1, 2}}, nil)
+	require.NoError(t, err)
+
+	hs, cs, err := s.InitialState()
+	require.NoError(t, err)
+	require.True(t, proto.Equal(&pb.HardState{Term: new(uint64(1)), Commit: new(uint64(1))}, hs))
+	require.True(t, proto.Equal(&pb.ConfState{Voters: []uint64{1, 2}, AutoLeave: new(false)}, cs))
+
+	// Modifying the returned state must not modify the state of the storage.
+	hs.Commit = new(uint64(2))
+	cs.Voters = append(cs.Voters, 3)
+	cs.AutoLeave = new(true)
+
+	hs, cs, err = s.InitialState()
+	require.NoError(t, err)
+	require.True(t, proto.Equal(&pb.HardState{Term: new(uint64(1)), Commit: new(uint64(1))}, hs))
+	require.True(t, proto.Equal(&pb.ConfState{Voters: []uint64{1, 2}, AutoLeave: new(false)}, cs))
+	snap, err := s.Snapshot()
+	require.NoError(t, err)
+	require.True(t, proto.Equal(&pb.ConfState{Voters: []uint64{1, 2}, AutoLeave: new(false)}, snap.GetMetadata().GetConfState()))
+}
+
+func TestStorageInitialStateConcurrentUpdates(t *testing.T) {
+	s := NewMemoryStorage()
+	require.NoError(t, s.Append(index(1).terms(1, 1, 1)))
+
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for i := uint64(1); i <= 3; i++ {
+			assert.NoError(t, s.SetHardState(&pb.HardState{Term: new(uint64(1)), Commit: new(i)}))
+			_, err := s.CreateSnapshot(i, &pb.ConfState{Voters: []uint64{1}}, nil)
+			assert.NoError(t, err)
+		}
+	})
+	wg.Go(func() {
+		for range 3 {
+			_, cs, err := s.InitialState()
+			assert.NoError(t, err)
+			assert.NotNil(t, cs)
+		}
+	})
+	wg.Wait()
 }

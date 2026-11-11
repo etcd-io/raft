@@ -127,10 +127,14 @@ func NewMemoryStorage() *MemoryStorage {
 
 // InitialState implements the Storage interface.
 func (ms *MemoryStorage) InitialState() (*pb.HardState, *pb.ConfState, error) {
+	ms.Lock()
+	defer ms.Unlock()
 	ms.callStats.initialState++
-	cs := ms.snapshot.GetMetadata().GetConfState()
-	cs = pb.EnsureConfState(cs)
-	return ms.hardState, cs, nil
+	// NB: return copies, so that neither the caller nor EnsureConfState can
+	// modify the state owned by MemoryStorage.
+	hs := proto.Clone(ms.hardState).(*pb.HardState)
+	cs := proto.Clone(ms.snapshot.GetMetadata().GetConfState()).(*pb.ConfState)
+	return hs, pb.EnsureConfState(cs), nil
 }
 
 // SetHardState saves the current HardState.
