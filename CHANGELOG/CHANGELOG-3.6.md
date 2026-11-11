@@ -2,6 +2,13 @@ Note that we start to track changes starting from v3.6.
 
 <hr>
 
+## v3.6.1(TBC)
+
+### raft
+- Fix [a leader that removed itself answers ReadIndex with a stale index](https://github.com/etcd-io/raft/pull/541)
+
+<hr>
+
 ## v3.6.0(2025-02-05)
 
 ### Changelog since v3.6.0-beta.0
