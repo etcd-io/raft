@@ -42,6 +42,38 @@ func TestDescribeEntry(t *testing.T) {
 	require.Equal(t, "1/2 EntryNormal HELLO\x00WORLD", DescribeEntry(entry, testFormatter))
 }
 
+func TestDescribeSnapshot(t *testing.T) {
+	snap := &pb.Snapshot{Metadata: &pb.SnapshotMetadata{
+		Index: new(uint64(5)),
+		Term:  new(uint64(2)),
+		ConfState: &pb.ConfState{
+			Voters:         []uint64{1, 2},
+			VotersOutgoing: []uint64{1, 3},
+			Learners:       []uint64{4},
+			LearnersNext:   []uint64{3},
+			AutoLeave:      new(true),
+		},
+	}}
+	require.Equal(t, "Index:5 Term:2 ConfState:Voters:[1 2] VotersOutgoing:[1 3] Learners:[4] LearnersNext:[3] AutoLeave:true",
+		DescribeSnapshot(snap))
+
+	// A nil Snapshot, Metadata or ConfState is described as an empty one.
+	const empty = "Index:0 Term:0 ConfState:Voters:[] VotersOutgoing:[] Learners:[] LearnersNext:[] AutoLeave:false"
+	require.Equal(t, empty, DescribeSnapshot(nil))
+	require.Equal(t, empty, DescribeSnapshot(&pb.Snapshot{}))
+	require.Equal(t, "Voters:[] VotersOutgoing:[] Learners:[] LearnersNext:[] AutoLeave:false", DescribeConfState(nil))
+
+	m := &pb.Message{
+		Type:     pb.MsgSnap.Enum(),
+		To:       new(uint64(2)),
+		From:     new(uint64(1)),
+		Term:     new(uint64(2)),
+		Snapshot: &pb.Snapshot{Metadata: &pb.SnapshotMetadata{Index: new(uint64(5)), Term: new(uint64(2))}},
+	}
+	require.Equal(t, "1->2 MsgSnap Term:2 Log:0/0\n  Snapshot: Index:5 Term:2 ConfState:Voters:[] VotersOutgoing:[] Learners:[] LearnersNext:[] AutoLeave:false",
+		DescribeMessage(m, nil))
+}
+
 func TestLimitSize(t *testing.T) {
 	ents := []*pb.Entry{{Index: new(uint64(4)), Term: new(uint64(4))}, {Index: new(uint64(5)), Term: new(uint64(5))}, {Index: new(uint64(6)), Term: new(uint64(6))}}
 	prefix := func(size int) []*pb.Entry {
