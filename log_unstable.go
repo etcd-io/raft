@@ -139,7 +139,7 @@ func (u *unstable) stableTo(id entryID) {
 	gt, ok := u.maybeTerm(id.index)
 	if !ok {
 		// Unstable entry missing. Ignore.
-		u.logger.Infof("entry at index %d missing from unstable log; ignoring", id.index)
+		u.logger.Debugf("entry at index %d missing from unstable log; ignoring", id.index)
 		return
 	}
 	if id.index < u.offset {
