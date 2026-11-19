@@ -334,6 +334,6 @@ func traceReceiveMessage(r *raft, m *raftpb.Message) {
 		return
 	}
 
-	time.Sleep(time.Millisecond) // sleep 1ms to reduce time shift impact accross node
+	time.Sleep(time.Millisecond) // sleep 1ms to reduce time shift impact across node
 	traceEvent(evt, r, m, nil)
 }

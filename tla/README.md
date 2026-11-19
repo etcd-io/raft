@@ -85,7 +85,7 @@ Validating all traces in a file may take a long time. You can specify `MAX_TRACE
 
 ## Known Issues
 1. **Partially persisted log**. 
-etcdraft assumes atomic persisiting of states in Read action. This, however, may not apply in real-world application. For example, etcd may persist a prefix log when it crashes in the middle of saving data to disks. 
+etcdraft assumes atomic persisting of states in Read action. This, however, may not apply in real-world application. For example, etcd may persist a prefix log when it crashes in the middle of saving data to disks. 
 We will introduce non-deterministic validation method in future to address this issue.
 
 2. **Long validation time**.
