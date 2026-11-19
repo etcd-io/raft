@@ -293,6 +293,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 			assert.Equal(t, ccdata, entries[1].GetData())
 
 			require.Equal(t, tc.exp, cs)
+			require.Equal(t, rawNode.raft.trk.Config, rawNode.Status().Config)
 
 			var maybePlusOne uint64
 			if autoLeave, ok := tc.cc.AsV2().EnterJoint(); ok && autoLeave {
@@ -335,6 +336,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 			// we require the joint quorum and we're only running one node.
 			cs = rawNode.ApplyConfChange(cc)
 			require.Equal(t, tc.exp2, cs)
+			require.Equal(t, rawNode.raft.trk.Config, rawNode.Status().Config)
 
 			rawNode.Advance(rd)
 		})
