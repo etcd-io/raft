@@ -217,9 +217,8 @@ func needStorageAppendRespMsg(r *raft, rd Ready) bool {
 
 // newStorageAppendMsg creates the message that should be sent to the local
 // append thread to instruct it to append log entries, write an updated hard
-// state, and apply a snapshot. The message also carries a set of responses
-// that should be delivered after the rest of the message is processed. Used
-// with AsyncStorageWrites.
+// state, and apply a snapshot. The message also carries messages to deliver
+// after the rest of the message is processed. Used with AsyncStorageWrites.
 func newStorageAppendMsg(r *raft, rd Ready) *pb.Message {
 	m := &pb.Message{
 		Type:    pb.MsgStorageAppend.Enum(),
@@ -242,9 +241,9 @@ func newStorageAppendMsg(r *raft, rd Ready) *pb.Message {
 	if !IsEmptySnap(rd.Snapshot) {
 		m.Snapshot = rd.Snapshot
 	}
-	// Attach all messages in msgsAfterAppend as responses to be delivered after
-	// the message is processed, along with a self-directed MsgStorageAppendResp
-	// to acknowledge the entry stability.
+	// Attach all messages in msgsAfterAppend to be delivered after the message
+	// is processed, along with a self-directed MsgStorageAppendResp to acknowledge
+	// the entry stability.
 	//
 	// NB: it is important for performance that MsgStorageAppendResp message be
 	// handled after self-directed MsgAppResp messages on the leader (which will
