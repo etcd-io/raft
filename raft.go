@@ -1594,12 +1594,7 @@ func stepLeader(r *raft, m *pb.Message) error {
 		}
 
 		r.readOnly.recvAck(m.GetFrom(), m.GetContext())
-		rss := r.readOnly.maybeAdvance(r.trk.Voters)
-		for _, rs := range rss {
-			if resp := r.responseToReadIndexReq(rs.req, rs.index); resp.GetTo() != None {
-				r.send(resp)
-			}
-		}
+		r.releaseConfirmedReads()
 	case pb.MsgSnapStatus:
 		if pr.State != tracker.StateSnapshot {
 			return nil
@@ -2022,8 +2017,26 @@ func (r *raft) switchToConfig(cfg tracker.Config, trk tracker.ProgressMap) *pb.C
 	if _, tOK := r.trk.Config.Voters.IDs()[r.leadTransferee]; !tOK && r.leadTransferee != 0 {
 		r.abortLeaderTransfer()
 	}
+	// Pending reads are confirmed by the acks of a quorum of the voters. The
+	// new configuration can have a quorum among the acks already received:
+	// for example, when it removes voters that never acked. Release these
+	// reads now. Otherwise they wait for the next heartbeat response, and if
+	// the leader is now the only voter, no heartbeat response ever comes.
+	if r.readOnly.option == ReadOnlySafe {
+		r.releaseConfirmedReads()
+	}
 
 	return cs
+}
+
+// releaseConfirmedReads responds to the pending read-only requests that the
+// acks received so far confirm in the current configuration.
+func (r *raft) releaseConfirmedReads() {
+	for _, rs := range r.readOnly.maybeAdvance(r.trk.Voters) {
+		if resp := r.responseToReadIndexReq(rs.req, rs.index); resp.GetTo() != None {
+			r.send(resp)
+		}
+	}
 }
 
 func (r *raft) loadState(state *pb.HardState) {

@@ -2295,6 +2295,67 @@ func TestReadOnlyForRemovedLeader(t *testing.T) {
 	}
 }
 
+// TestReadOnlySafeReleasedOnShrinkToSingleVoter ensures that a ReadOnlySafe
+// read that is pending when the leader becomes the only voter is answered. The
+// heartbeat response that would confirm it is lost, and no other voter is left
+// to send one.
+func TestReadOnlySafeReleasedOnShrinkToSingleVoter(t *testing.T) {
+	nt := newNetwork(nil, nil)
+	nt.send(&pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgHup.Enum()})
+	a := nt.peers[1].(*raft)
+	require.Equal(t, StateLeader, a.state)
+
+	// Peer 2 acks appends, but its heartbeat responses are lost.
+	nt.msgHook = func(m *pb.Message) bool { return m.GetType() != pb.MsgHeartbeatResp }
+	wctx := []byte("ctx")
+	nt.send(&pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgReadIndex.Enum(), Entries: []*pb.Entry{{Data: wctx}}})
+	require.Empty(t, a.readStates)
+	readIndex := a.raftLog.committed
+
+	// Peer 1 removes peer 2. The removal commits, and peer 1 applies it.
+	cc := &pb.ConfChange{Type: pb.ConfChangeRemoveNode.Enum(), NodeId: new(uint64(2))}
+	ccData, err := proto.Marshal(cc)
+	require.NoError(t, err)
+	nt.send(&pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgProp.Enum(), Entries: []*pb.Entry{{Type: pb.EntryConfChange.Enum(), Data: ccData}}})
+	require.Equal(t, a.raftLog.lastIndex(), a.raftLog.committed)
+	a.applyConfChange(cc.AsV2())
+	require.True(t, a.trk.IsSingleton())
+
+	// The pending read is answered at its original read index.
+	require.Len(t, a.readStates, 1)
+	require.Equal(t, wctx, a.readStates[0].RequestCtx)
+	require.Equal(t, readIndex, a.readStates[0].Index)
+	require.Empty(t, a.readOnly.unconfirmedReads)
+
+	// A later read is answered after the pending one, not before it.
+	nt.send(&pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgReadIndex.Enum(), Entries: []*pb.Entry{{Data: []byte("later")}}})
+	require.Len(t, a.readStates, 2)
+	require.Equal(t, []byte("later"), a.readStates[1].RequestCtx)
+}
+
+// TestReadOnlySafeReleasedWhenConfChangeMakesAcksAQuorum ensures that a
+// configuration change re-checks pending ReadOnlySafe reads. With voters
+// {1,2,3,4} the acks of 1 and 2 are not a quorum; after 4 is removed, they are.
+func TestReadOnlySafeReleasedWhenConfChangeMakesAcksAQuorum(t *testing.T) {
+	nt := newNetwork(nil, nil, nil, nil)
+	nt.send(&pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgHup.Enum()})
+	a := nt.peers[1].(*raft)
+	require.Equal(t, StateLeader, a.state)
+
+	// Only peer 2's heartbeat responses arrive.
+	nt.msgHook = func(m *pb.Message) bool {
+		return m.GetType() != pb.MsgHeartbeatResp || m.GetFrom() == 2
+	}
+	wctx := []byte("ctx")
+	nt.send(&pb.Message{From: new(uint64(1)), To: new(uint64(1)), Type: pb.MsgReadIndex.Enum(), Entries: []*pb.Entry{{Data: wctx}}})
+	require.Empty(t, a.readStates, "2 of 4 voters is not a quorum")
+
+	a.applyConfChange((&pb.ConfChange{Type: pb.ConfChangeRemoveNode.Enum(), NodeId: new(uint64(4))}).AsV2())
+	require.Len(t, a.readStates, 1, "2 of 3 voters is a quorum")
+	require.Equal(t, wctx, a.readStates[0].RequestCtx)
+	require.Empty(t, a.readOnly.unconfirmedReads)
+}
+
 func TestLeaderAppResp(t *testing.T) {
 	// initial progress: match = 0; next = 3
 	tests := []struct {
