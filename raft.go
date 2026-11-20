@@ -273,7 +273,8 @@ type Config struct {
 	// Users should *not* use this option unless they have a reliable mechanism
 	// (above raft) that serializes and verifies configuration changes. If an
 	// invalid configuration change enters the log and gets applied, a panic
-	// will result.
+	// will result. Elections also disregard uncommitted config changes, so a
+	// node that lost its commit index may campaign in a stale config.
 	//
 	// This option may be removed once false positives are no longer possible.
 	// See: https://github.com/etcd-io/raft/issues/80
@@ -993,13 +994,21 @@ func (r *raft) hup(t CampaignType) {
 var errBreak = errors.New("break")
 
 func (r *raft) hasUnappliedConfChanges() bool {
-	if r.raftLog.applied >= r.raftLog.committed { // in fact applied == committed
+	// A leader appends a config change only after applying all earlier ones
+	// (pendingConfIndex), so every config change in the log except the last
+	// is committed, even if this node's commit index (possibly lost in a
+	// crash) says otherwise. Scan to the end of the log for that reason.
+	lo, hi := r.raftLog.applied+1, r.raftLog.lastIndex()+1
+	if r.disableConfChangeValidation {
+		// The leader does not enforce the above, so only scan committed entries.
+		hi = r.raftLog.committed + 1
+	}
+	if lo >= hi {
 		return false
 	}
-	found := false
-	// Scan all unapplied committed entries to find a config change. Paginate the
-	// scan, to avoid a potentially unlimited memory spike.
-	lo, hi := r.raftLog.applied+1, r.raftLog.committed+1
+	var first uint64 // the first unapplied config change
+	count := 0
+	// Paginate the scan, to avoid a potentially unlimited memory spike.
 	// Reuse the maxApplyingEntsSize limit because it is used for similar purposes
 	// (limiting the read of unapplied committed entries) when raft sends entries
 	// via the Ready struct for application.
@@ -1009,15 +1018,19 @@ func (r *raft) hasUnappliedConfChanges() bool {
 	if err := r.raftLog.scan(lo, hi, pageSize, func(ents []*pb.Entry) error {
 		for i := range ents {
 			if ents[i].GetType() == pb.EntryConfChange || ents[i].GetType() == pb.EntryConfChangeV2 {
-				found = true
-				return errBreak
+				if count == 0 {
+					first = ents[i].GetIndex()
+				}
+				if count++; count > 1 {
+					return errBreak
+				}
 			}
 		}
 		return nil
 	}); err != nil && err != errBreak {
 		r.logger.Panicf("error scanning unapplied entries [%d, %d): %v", lo, hi, err)
 	}
-	return found
+	return count > 1 || count == 1 && first <= r.raftLog.committed
 }
 
 // campaign transitions the raft instance to candidate state. This must only be
