@@ -2910,6 +2910,39 @@ func TestNewLeaderPendingConfig(t *testing.T) {
 	}
 }
 
+// addNodeEntry returns an EntryConfChange that adds the given node.
+func addNodeEntry(t testing.TB, id uint64) *pb.Entry {
+	data, err := proto.Marshal(&pb.ConfChange{Type: pb.ConfChangeAddNode.Enum(), NodeId: new(id)})
+	require.NoError(t, err)
+	return &pb.Entry{Type: pb.EntryConfChange.Enum(), Data: data}
+}
+
+// TestCampaignWithUnappliedConfChangesAboveCommit ensures that a peer does not
+// campaign while its log holds two config changes beyond its commit index. A
+// leader appends a config change only after applying the previous one, so the
+// first of them is committed, and the peer's config may be too stale to elect
+// a leader safely.
+func TestCampaignWithUnappliedConfChangesAboveCommit(t *testing.T) {
+	// Peer 2 appended the additions of 4 (index 2) and 5 (index 3), but crashed
+	// before persisting a commit index beyond 1, so its config is still
+	// (1, 2, 3). Votes from (2, 3) need not intersect a quorum, e.g. (1, 4, 5),
+	// of the config after both additions.
+	s := newTestMemoryStorage(withPeers(1, 2, 3)) // config on disk: (1, 2, 3)
+	ents := []*pb.Entry{{}, addNodeEntry(t, 4), addNodeEntry(t, 5)}
+	for i, e := range ents {
+		e.Index, e.Term = new(uint64(i+1)), new(uint64(1)) // indexes 1-3, all term 1
+	}
+	hs := &pb.HardState{Term: new(uint64(1)), Vote: new(uint64(1)), Commit: new(uint64(1))}
+	require.NoError(t, s.Append(ents))     // entries persisted ...
+	require.NoError(t, s.SetHardState(hs)) // ... but commit is still 1
+	r := newTestRaft(2, 10, 1, s)          // restart
+
+	// Election timeout.
+	require.NoError(t, r.Step(&pb.Message{From: new(uint64(2)), To: new(uint64(2)), Type: pb.MsgHup.Enum()}))
+	require.Equal(t, StateFollower, r.state) // did not become (pre)candidate
+	require.Empty(t, r.readMessages())       // sent no vote requests
+}
+
 // TestAddNode tests that addNode could update nodes correctly.
 func TestAddNode(t *testing.T) {
 	r := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1)))
