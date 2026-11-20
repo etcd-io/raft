@@ -2943,6 +2943,40 @@ func TestCampaignWithUnappliedConfChangesAboveCommit(t *testing.T) {
 	require.Empty(t, r.readMessages())       // sent no vote requests
 }
 
+// TestCampaignWithUncommittedConfChanges ensures that a peer may campaign while
+// its log holds config changes beyond its commit index that need not be
+// committed: a single one, which its leader may have failed to commit, or any
+// number of them with DisableConfChangeValidation.
+func TestCampaignWithUncommittedConfChanges(t *testing.T) {
+	for _, tt := range []struct {
+		name              string
+		add               []uint64
+		disableValidation bool
+	}{
+		{name: "one", add: []uint64{4}},
+		{name: "two-validation-disabled", add: []uint64{4, 5}, disableValidation: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestMemoryStorage(withPeers(1, 2, 3))
+			ents := []*pb.Entry{{}}
+			for _, id := range tt.add {
+				ents = append(ents, addNodeEntry(t, id))
+			}
+			for i, e := range ents {
+				e.Index, e.Term = new(uint64(i+1)), new(uint64(1))
+			}
+			require.NoError(t, s.Append(ents))
+			require.NoError(t, s.SetHardState(&pb.HardState{Term: new(uint64(1)), Vote: new(uint64(1)), Commit: new(uint64(1))}))
+			cfg := newTestConfig(2, 10, 1, s)
+			cfg.DisableConfChangeValidation = tt.disableValidation
+			r := newRaft(cfg)
+
+			require.NoError(t, r.Step(&pb.Message{From: new(uint64(2)), To: new(uint64(2)), Type: pb.MsgHup.Enum()}))
+			require.Equal(t, StateCandidate, r.state)
+		})
+	}
+}
+
 // TestAddNode tests that addNode could update nodes correctly.
 func TestAddNode(t *testing.T) {
 	r := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1)))
