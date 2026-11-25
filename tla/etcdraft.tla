@@ -140,11 +140,17 @@ configVars == <<config, reconfigCount>>
 VARIABLE 
     durableState
 
+\* Ghost history of commit certificates: records [index, entry, commitTerm]
+\* capturing the term in which a leader committed each entry. Survives Ready
+\* and Restart; specification-only auxiliary state, not implementation storage.
+VARIABLE
+    commitCert
+
 \* End of per server variables.
 ----
 
 \* All variables; used for stuttering (asserting state hasn't changed).
-vars == <<messageVars, serverVars, candidateVars, leaderVars, logVars, configVars, durableState>>
+vars == <<messageVars, serverVars, candidateVars, leaderVars, logVars, configVars, durableState, commitCert>>
 
 
 ----
@@ -258,6 +264,11 @@ InitDurableState ==
         commitIndex |-> commitIndex[i],
         config |-> config[i]
     ]]
+InitCommitCert ==
+    commitCert = UNION {
+        { [index |-> k, entry |-> log[i][k], commitTerm |-> currentTerm[i]] : k \in 1..commitIndex[i] }
+        : i \in Server
+    }
 
 Init == /\ InitMessageVars
         /\ InitServerVars
@@ -266,6 +277,7 @@ Init == /\ InitMessageVars
         /\ InitLogVars
         /\ InitConfigVars
         /\ InitDurableState
+        /\ InitCommitCert
 
 ----
 \* Define state transitions
@@ -285,7 +297,7 @@ Restart(i) ==
     /\ votedFor' = [votedFor EXCEPT ![i] = durableState[i].votedFor]
     /\ log' = [log EXCEPT ![i] = SubSeq(@, 1, durableState[i].log)]
     /\ config' = [config EXCEPT ![i] = durableState[i].config]
-    /\ UNCHANGED <<messages, durableState, reconfigCount>>
+    /\ UNCHANGED <<commitCert, messages, durableState, reconfigCount>>
 
 \* Server i times out and starts a new election.
 \* @type: Int => Bool;
@@ -296,7 +308,7 @@ Timeout(i) == /\ state[i] \in {Follower, Candidate}
               /\ votedFor' = [votedFor EXCEPT ![i] = i]
               /\ votesResponded' = [votesResponded EXCEPT ![i] = {}]
               /\ votesGranted'   = [votesGranted EXCEPT ![i] = {}]
-              /\ UNCHANGED <<messageVars, leaderVars, logVars, configVars, durableState>>
+              /\ UNCHANGED <<commitCert, messageVars, leaderVars, logVars, configVars, durableState>>
 
 \* Candidate i sends j a RequestVote request.
 \* @type: (Int, Int) => Bool;
@@ -315,7 +327,7 @@ RequestVote(i, j) ==
                    mvoteGranted     |-> TRUE,
                    msource          |-> i,
                    mdest            |-> i])
-    /\ UNCHANGED <<messages, serverVars, candidateVars, leaderVars, logVars, configVars, durableState>>
+    /\ UNCHANGED <<commitCert, messages, serverVars, candidateVars, leaderVars, logVars, configVars, durableState>>
 
 \* Leader i sends j an AppendEntries request containing entries in [b,e) range.
 \* N.B. range is right open
@@ -346,7 +358,7 @@ AppendEntriesInRangeToPeer(subtype, i, j, range) ==
                     mcommitIndex   |-> commit,
                     msource        |-> i,
                     mdest          |-> j])
-          /\ UNCHANGED <<messages, serverVars, candidateVars, leaderVars, logVars, configVars, durableState>> 
+          /\ UNCHANGED <<commitCert, messages, serverVars, candidateVars, leaderVars, logVars, configVars, durableState>>
 
 \* etcd leader sends MsgAppResp to itself immediately after appending log entry 
 AppendEntriesToSelf(i) ==
@@ -358,7 +370,7 @@ AppendEntriesToSelf(i) ==
              mmatchIndex     |-> Len(log[i]),
              msource         |-> i,
              mdest           |-> i])
-    /\ UNCHANGED <<messages, serverVars, candidateVars, leaderVars, logVars, configVars, durableState>>
+    /\ UNCHANGED <<commitCert, messages, serverVars, candidateVars, leaderVars, logVars, configVars, durableState>>
 
 AppendEntries(i, j, range) ==
     AppendEntriesInRangeToPeer("app", i, j, range)
@@ -378,7 +390,7 @@ BecomeLeader(i) ==
     /\ state'      = [state EXCEPT ![i] = Leader]
     /\ matchIndex' = [matchIndex EXCEPT ![i] =
                          [j \in Server |-> IF j = i THEN Len(log[i]) ELSE 0]]
-    /\ UNCHANGED <<messageVars, currentTerm, votedFor, pendingConfChangeIndex, candidateVars, logVars, configVars, durableState>>
+    /\ UNCHANGED <<commitCert, messageVars, currentTerm, votedFor, pendingConfChangeIndex, candidateVars, logVars, configVars, durableState>>
     
 Replicate(i, v, t) == 
     /\ t \in {ValueEntry, ConfigEntry}
@@ -393,7 +405,7 @@ Replicate(i, v, t) ==
 \* @type: (Int, Int) => Bool;
 ClientRequest(i, v) ==
     /\ Replicate(i, [val |-> v], ValueEntry)
-    /\ UNCHANGED <<messageVars, serverVars, candidateVars, leaderVars, commitIndex, configVars, durableState>>
+    /\ UNCHANGED <<commitCert, messageVars, serverVars, candidateVars, leaderVars, commitIndex, configVars, durableState>>
 
 \* Leader i advances its commitIndex.
 \* This is done as a separate step from handling AppendEntries responses,
@@ -419,6 +431,9 @@ AdvanceCommitIndex(i) ==
                   commitIndex[i]
        IN
         /\ CommitTo(i, newCommitIndex)
+        /\ commitCert' = commitCert \cup
+             { [index |-> k, entry |-> log[i][k], commitTerm |-> currentTerm[i]] :
+                 k \in (commitIndex[i] + 1)..newCommitIndex }
     /\ UNCHANGED <<messageVars, serverVars, candidateVars, leaderVars, log, configVars, durableState>>
 
     
@@ -433,7 +448,7 @@ AddNewServer(i, j) ==
        ELSE 
             /\ Replicate(i, <<>>, ValueEntry)
             /\ UNCHANGED <<pendingConfChangeIndex>>
-    /\ UNCHANGED <<messageVars, serverVars, candidateVars, matchIndex, commitIndex, configVars, durableState>>
+    /\ UNCHANGED <<commitCert, messageVars, serverVars, candidateVars, matchIndex, commitIndex, configVars, durableState>>
 
 \* Leader i adds a leaner j to the cluster.
 AddLearner(i, j) ==
@@ -446,7 +461,7 @@ AddLearner(i, j) ==
        ELSE 
             /\ Replicate(i, <<>>, ValueEntry)
             /\ UNCHANGED <<pendingConfChangeIndex>>
-    /\ UNCHANGED <<messageVars, serverVars, candidateVars, matchIndex, commitIndex, configVars, durableState>>
+    /\ UNCHANGED <<commitCert, messageVars, serverVars, candidateVars, matchIndex, commitIndex, configVars, durableState>>
 
 \* Leader i removes a server j (possibly itself) from the cluster.
 DeleteServer(i, j) ==
@@ -459,7 +474,7 @@ DeleteServer(i, j) ==
        ELSE 
             /\ Replicate(i, <<>>, ValueEntry)
             /\ UNCHANGED <<pendingConfChangeIndex>>
-    /\ UNCHANGED <<messageVars, serverVars, candidateVars, matchIndex, commitIndex, configVars, durableState>>
+    /\ UNCHANGED <<commitCert, messageVars, serverVars, candidateVars, matchIndex, commitIndex, configVars, durableState>>
 
 ApplySimpleConfChange(i) ==
     /\ ~IsJointConfig(i)
@@ -472,12 +487,12 @@ ApplySimpleConfChange(i) ==
                 /\ reconfigCount' = reconfigCount + 1
                 /\ pendingConfChangeIndex' = [pendingConfChangeIndex EXCEPT ![i] = 0]
                ELSE UNCHANGED <<reconfigCount, pendingConfChangeIndex>>
-            /\ UNCHANGED <<messageVars, serverVars, candidateVars, matchIndex, logVars, durableState>>
+            /\ UNCHANGED <<commitCert, messageVars, serverVars, candidateVars, matchIndex, logVars, durableState>>
     
 Ready(i) ==
     /\ PersistState(i)
     /\ SendPendingMessages(i)
-    /\ UNCHANGED <<serverVars, leaderVars, candidateVars, logVars, configVars, logVars>>
+    /\ UNCHANGED <<commitCert, serverVars, leaderVars, candidateVars, logVars, configVars, logVars>>
 
 BecomeFollowerOfTerm(i, t) ==
     /\ currentTerm'    = [currentTerm EXCEPT ![i] = t]
@@ -490,7 +505,7 @@ BecomeFollowerOfTerm(i, t) ==
 StepDownToFollower(i) ==
     /\ state[i] \in {Leader, Candidate}
     /\ BecomeFollowerOfTerm(i, currentTerm[i])
-    /\ UNCHANGED <<messageVars, candidateVars, leaderVars, logVars, configVars, durableState>>
+    /\ UNCHANGED <<commitCert, messageVars, candidateVars, leaderVars, logVars, configVars, durableState>>
 
 ----
 \* Message handlers
@@ -515,7 +530,7 @@ HandleRequestVoteRequest(i, j, m) ==
                  msource      |-> i,
                  mdest        |-> j],
                  m)
-       /\ UNCHANGED <<state, currentTerm, candidateVars, leaderVars, logVars, configVars, durableState>>
+       /\ UNCHANGED <<commitCert, state, currentTerm, candidateVars, leaderVars, logVars, configVars, durableState>>
 
 \* Server i receives a RequestVote response from server j with
 \* m.mterm = currentTerm[i].
@@ -532,7 +547,7 @@ HandleRequestVoteResponse(i, j, m) ==
        \/ /\ ~m.mvoteGranted
           /\ UNCHANGED <<votesGranted>>
     /\ Discard(m)
-    /\ UNCHANGED <<pendingMessages, serverVars, votedFor, leaderVars, logVars, configVars, durableState>>
+    /\ UNCHANGED <<commitCert, pendingMessages, serverVars, votedFor, leaderVars, logVars, configVars, durableState>>
 
 \* @type: (Int, Int, AEREQT, Bool) => Bool;
 RejectAppendEntriesRequest(i, j, m, logOk) ==
@@ -625,7 +640,7 @@ HandleAppendEntriesRequest(i, j, m) ==
        /\ \/ RejectAppendEntriesRequest(i, j, m, logOk)
           \/ ReturnToFollowerState(i, m)
           \/ AcceptAppendEntriesRequest(i, j, logOk, m)
-       /\ UNCHANGED <<candidateVars, leaderVars, configVars, durableState>>
+       /\ UNCHANGED <<commitCert, candidateVars, leaderVars, configVars, durableState>>
 
 \* Server i receives an AppendEntries response from server j with
 \* m.mterm = currentTerm[i].
@@ -638,7 +653,7 @@ HandleAppendEntriesResponse(i, j, m) ==
        \/ /\ \lnot m.msuccess \* not successful
           /\ UNCHANGED <<leaderVars>>
     /\ Discard(m)
-    /\ UNCHANGED <<pendingMessages, serverVars, candidateVars, logVars, configVars, durableState>>
+    /\ UNCHANGED <<commitCert, pendingMessages, serverVars, candidateVars, logVars, configVars, durableState>>
 
 \* Any RPC with a newer term causes the recipient to advance its term first.
 \* @type: (Int, Int, MSG) => Bool;
@@ -646,14 +661,14 @@ UpdateTerm(i, j, m) ==
     /\ m.mterm > currentTerm[i]
     /\ BecomeFollowerOfTerm(i, m.mterm)
        \* messages is unchanged so m can be processed further.
-    /\ UNCHANGED <<messageVars, candidateVars, leaderVars, logVars, configVars, durableState>>
+    /\ UNCHANGED <<commitCert, messageVars, candidateVars, leaderVars, logVars, configVars, durableState>>
 
 \* Responses with stale terms are ignored.
 \* @type: (Int, Int, MSG) => Bool;
 DropStaleResponse(i, j, m) ==
     /\ m.mterm < currentTerm[i]
     /\ Discard(m)
-    /\ UNCHANGED <<pendingMessages, serverVars, candidateVars, leaderVars, logVars, configVars, durableState>>
+    /\ UNCHANGED <<commitCert, pendingMessages, serverVars, candidateVars, leaderVars, logVars, configVars, durableState>>
 
 \* Receive a message.
 ReceiveDirect(m) ==
@@ -689,7 +704,7 @@ NextAppendEntriesResponse == \E m \in DOMAIN messages : m.mtype = AppendEntriesR
 DuplicateMessage(m) ==
     /\ m \in DOMAIN messages
     /\ messages' = WithMessage(m, messages)
-    /\ UNCHANGED <<pendingMessages, serverVars, candidateVars, leaderVars, logVars, configVars, durableState>>
+    /\ UNCHANGED <<commitCert, pendingMessages, serverVars, candidateVars, leaderVars, logVars, configVars, durableState>>
 
 \* The network drops a message
 \* @type: MSG => Bool;
@@ -697,7 +712,7 @@ DropMessage(m) ==
     \* Do not drop loopback messages
     \* /\ m.msource /= m.mdest
     /\ Discard(m)
-    /\ UNCHANGED <<pendingMessages, serverVars, candidateVars, leaderVars, logVars, configVars, durableState>>
+    /\ UNCHANGED <<commitCert, pendingMessages, serverVars, candidateVars, leaderVars, logVars, configVars, durableState>>
 
 ----
 
@@ -854,19 +869,29 @@ MoreUpToDateCorrectInv ==
 
 \* If a log entry is committed in a given term, then that
 \* entry will be present in the logs of the leaders
-\* for all higher-numbered terms
+\* for all higher-numbered terms.
+\*
+\* Each commit certificate records the term in which a leader committed the
+\* entry (`commitTerm`), which may be strictly higher than `entry.term` when an
+\* older-term entry is committed indirectly via a current-term entry.
+\* Comparing against `commitTerm` rather than `entry.term` avoids false
+\* positives on stale leaders of intermediate terms.
 \* See: https://github.com/uwplse/verdi-raft/blob/master/raft/LeaderCompletenessInterface.v
-LeaderCompletenessInv == 
-    \A i \in Server :
-        LET committed == Committed(i) IN
-        \A idx \in 1..Len(committed) :
-            LET entry == log[i][idx] IN 
-            \* if the entry is committed 
-            \A l \in CurrentLeaders :
-                \* all leaders with higher-number terms
-                currentTerm[l] > entry.term =>
-                \* have the entry at the same log position
-                log[l][idx] = entry
+CertLeaderCompleteness ==
+    \A c \in commitCert : \A l \in CurrentLeaders :
+        currentTerm[l] > c.commitTerm =>
+            /\ c.index \in DOMAIN log[l]
+            /\ log[l][c.index] = c.entry
+
+\* Every locally committed entry on every server is backed by a commit certificate.
+CertBridge ==
+    \A i \in Server : \A idx \in 1..commitIndex[i] :
+        /\ idx \in DOMAIN log[i]
+        /\ \E c \in commitCert : c.index = idx /\ c.entry = log[i][idx]
+
+LeaderCompletenessInv ==
+    /\ CertLeaderCompleteness
+    /\ CertBridge
 
 \* Any entry committed by leader shall be persisted already
 CommittedIsDurableInv ==
