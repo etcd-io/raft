@@ -1,0 +1,289 @@
+# Indirect-commit scenario exercising LeaderCompletenessInv (issue #549).
+#
+# Scenario (3-node cluster, voters={1,2,3}, bootstrap index=2, term=0):
+#   1. Term 1: node 1 wins election with node 2, becomes leader, and appends its
+#      automatic no-op entry at index 3 (term 1). Its MsgApp messages are
+#      dropped, so only node 1 holds entry 3 (term 1), uncommitted (commit=2).
+#   2. Term 2: node 2 campaigns, wins election with node 3, becomes leader, and
+#      appends its automatic no-op entry at index 3 (term 2). Its MsgApp
+#      messages are dropped while its MsgVote(term=2) to node 1 stays queued.
+#      Node 2 remains isolated as a stale leader at term 2 with log[2][3].term=2.
+#   3. Term 3: node 1 receives node 2's MsgVote(term=2), steps down to follower
+#      at term 2, and rejects the vote (log 1/3 > 1/2). Node 1 campaigns at
+#      term 3, wins with node 3 (dropping MsgVote to node 2), appends its
+#      automatic no-op entry at index 4 (term 3), replicates [1/3, 3/4] to
+#      node 3, and commits index 4 in term 3.
+#
+# Result: entry 3 (term 1) is indirectly committed in term 3 on nodes 1 and 3,
+# while node 2 is still leader of term 2 > 1 with log[2][3].term = 2.
+# Raft Leader Completeness holds because commitTerm = 3 >= 2.
+
+log-level info
+----
+ok
+
+add-nodes 3 voters=(1,2,3) index=2
+----
+INFO 1 switched to configuration voters=(1 2 3)
+INFO 1 became follower at term 0
+INFO newRaft 1 [peers: [1,2,3], term: 0, commit: 2, applied: 2, lastindex: 2, lastterm: 1]
+INFO 2 switched to configuration voters=(1 2 3)
+INFO 2 became follower at term 0
+INFO newRaft 2 [peers: [1,2,3], term: 0, commit: 2, applied: 2, lastindex: 2, lastterm: 1]
+INFO 3 switched to configuration voters=(1 2 3)
+INFO 3 became follower at term 0
+INFO newRaft 3 [peers: [1,2,3], term: 0, commit: 2, applied: 2, lastindex: 2, lastterm: 1]
+
+# Term 1: node 1 becomes leader and appends entry 3 (term 1), kept local.
+campaign 1
+----
+INFO 1 is starting a new election at term 0
+INFO 1 became candidate at term 1
+INFO 1 [logterm: 1, index: 2] sent MsgVote request to 2 at term 1
+INFO 1 [logterm: 1, index: 2] sent MsgVote request to 3 at term 1
+
+process-ready 1
+----
+Ready MustSync=true:
+Lead:0 State:StateCandidate
+HardState Term:1 Vote:1 Commit:2
+Messages:
+1->2 MsgVote Term:1 Log:1/2
+1->3 MsgVote Term:1 Log:1/2
+INFO 1 received MsgVoteResp from 1 at term 1
+INFO 1 has received 1 MsgVoteResp votes and 0 vote rejections
+
+deliver-msgs 2 drop=3
+----
+1->2 MsgVote Term:1 Log:1/2
+INFO 2 [term: 0] received a MsgVote message with higher term from 1 [term: 1]
+INFO 2 became follower at term 1
+INFO 2 [logterm: 1, index: 2, vote: 0] cast MsgVote for 1 [logterm: 1, index: 2] at term 1
+dropped: 1->3 MsgVote Term:1 Log:1/2
+
+process-ready 2
+----
+Ready MustSync=true:
+HardState Term:1 Vote:1 Commit:2
+Messages:
+2->1 MsgVoteResp Term:1 Log:0/0
+
+deliver-msgs 1
+----
+2->1 MsgVoteResp Term:1 Log:0/0
+INFO 1 received MsgVoteResp from 2 at term 1
+INFO 1 has received 2 MsgVoteResp votes and 0 vote rejections
+INFO 1 became leader at term 1
+
+process-ready 1
+----
+Ready MustSync=true:
+Lead:1 State:StateLeader
+Entries:
+1/3 EntryNormal ""
+Messages:
+1->2 MsgApp Term:1 Log:1/2 Commit:2 Entries:[1/3 EntryNormal ""]
+1->3 MsgApp Term:1 Log:1/2 Commit:2 Entries:[1/3 EntryNormal ""]
+
+deliver-msgs drop=(2,3)
+----
+dropped: 1->2 MsgApp Term:1 Log:1/2 Commit:2 Entries:[1/3 EntryNormal ""]
+dropped: 1->3 MsgApp Term:1 Log:1/2 Commit:2 Entries:[1/3 EntryNormal ""]
+
+# Term 2: node 2 becomes leader with node 3 and appends entry 3 (term 2).
+# Keep node 2's MsgVote(term=2) to node 1 in flight so node 1 can learn term 2.
+campaign 2
+----
+INFO 2 is starting a new election at term 1
+INFO 2 became candidate at term 2
+INFO 2 [logterm: 1, index: 2] sent MsgVote request to 1 at term 2
+INFO 2 [logterm: 1, index: 2] sent MsgVote request to 3 at term 2
+
+process-ready 2
+----
+Ready MustSync=true:
+Lead:0 State:StateCandidate
+HardState Term:2 Vote:2 Commit:2
+Messages:
+2->1 MsgVote Term:2 Log:1/2
+2->3 MsgVote Term:2 Log:1/2
+INFO 2 received MsgVoteResp from 2 at term 2
+INFO 2 has received 1 MsgVoteResp votes and 0 vote rejections
+
+deliver-msgs 3
+----
+2->3 MsgVote Term:2 Log:1/2
+INFO 3 [term: 0] received a MsgVote message with higher term from 2 [term: 2]
+INFO 3 became follower at term 2
+INFO 3 [logterm: 1, index: 2, vote: 0] cast MsgVote for 2 [logterm: 1, index: 2] at term 2
+
+process-ready 3
+----
+Ready MustSync=true:
+HardState Term:2 Vote:2 Commit:2
+Messages:
+3->2 MsgVoteResp Term:2 Log:0/0
+
+deliver-msgs 2
+----
+3->2 MsgVoteResp Term:2 Log:0/0
+INFO 2 received MsgVoteResp from 3 at term 2
+INFO 2 has received 2 MsgVoteResp votes and 0 vote rejections
+INFO 2 became leader at term 2
+
+process-ready 2
+----
+Ready MustSync=true:
+Lead:2 State:StateLeader
+Entries:
+2/3 EntryNormal ""
+Messages:
+2->1 MsgApp Term:2 Log:1/2 Commit:2 Entries:[2/3 EntryNormal ""]
+2->3 MsgApp Term:2 Log:1/2 Commit:2 Entries:[2/3 EntryNormal ""]
+
+deliver-msgs type=MsgApp drop=(1,3)
+----
+dropped: 2->1 MsgApp Term:2 Log:1/2 Commit:2 Entries:[2/3 EntryNormal ""]
+dropped: 2->3 MsgApp Term:2 Log:1/2 Commit:2 Entries:[2/3 EntryNormal ""]
+
+# Term 3: node 1 learns term 2 from node 2's MsgVote (rejecting it), then wins
+# term 3 with node 3 and indirectly commits entry 3 (term 1) via entry 4 (term 3).
+deliver-msgs 1
+----
+2->1 MsgVote Term:2 Log:1/2
+INFO 1 [term: 1] received a MsgVote message with higher term from 2 [term: 2]
+INFO 1 became follower at term 2
+INFO 1 [logterm: 1, index: 3, vote: 0] rejected MsgVote from 2 [logterm: 1, index: 2] at term 2
+
+process-ready 1
+----
+Ready MustSync=true:
+Lead:0 State:StateFollower
+HardState Term:2 Commit:2
+Messages:
+1->2 MsgVoteResp Term:2 Log:0/0 Rejected (Hint: 0)
+
+deliver-msgs drop=2
+----
+dropped: 1->2 MsgVoteResp Term:2 Log:0/0 Rejected (Hint: 0)
+
+campaign 1
+----
+INFO 1 is starting a new election at term 2
+INFO 1 became candidate at term 3
+INFO 1 [logterm: 1, index: 3] sent MsgVote request to 2 at term 3
+INFO 1 [logterm: 1, index: 3] sent MsgVote request to 3 at term 3
+
+process-ready 1
+----
+Ready MustSync=true:
+Lead:0 State:StateCandidate
+HardState Term:3 Vote:1 Commit:2
+Messages:
+1->2 MsgVote Term:3 Log:1/3
+1->3 MsgVote Term:3 Log:1/3
+INFO 1 received MsgVoteResp from 1 at term 3
+INFO 1 has received 1 MsgVoteResp votes and 0 vote rejections
+
+deliver-msgs 3 drop=2
+----
+1->3 MsgVote Term:3 Log:1/3
+INFO 3 [term: 2] received a MsgVote message with higher term from 1 [term: 3]
+INFO 3 became follower at term 3
+INFO 3 [logterm: 1, index: 2, vote: 0] cast MsgVote for 1 [logterm: 1, index: 3] at term 3
+dropped: 1->2 MsgVote Term:3 Log:1/3
+
+process-ready 3
+----
+Ready MustSync=true:
+HardState Term:3 Vote:1 Commit:2
+Messages:
+3->1 MsgVoteResp Term:3 Log:0/0
+
+deliver-msgs 1
+----
+3->1 MsgVoteResp Term:3 Log:0/0
+INFO 1 received MsgVoteResp from 3 at term 3
+INFO 1 has received 2 MsgVoteResp votes and 0 vote rejections
+INFO 1 became leader at term 3
+
+stabilize 1 3
+----
+> 1 handling Ready
+  Ready MustSync=true:
+  Lead:1 State:StateLeader
+  Entries:
+  3/4 EntryNormal ""
+  Messages:
+  1->2 MsgApp Term:3 Log:1/3 Commit:2 Entries:[3/4 EntryNormal ""]
+  1->3 MsgApp Term:3 Log:1/3 Commit:2 Entries:[3/4 EntryNormal ""]
+> 3 receiving messages
+  1->3 MsgApp Term:3 Log:1/3 Commit:2 Entries:[3/4 EntryNormal ""]
+> 3 handling Ready
+  Ready MustSync=false:
+  Lead:1 State:StateFollower
+  Messages:
+  3->1 MsgAppResp Term:3 Log:1/3 Rejected (Hint: 2)
+> 1 receiving messages
+  3->1 MsgAppResp Term:3 Log:1/3 Rejected (Hint: 2)
+> 1 handling Ready
+  Ready MustSync=false:
+  Messages:
+  1->3 MsgApp Term:3 Log:1/2 Commit:2 Entries:[
+    1/3 EntryNormal ""
+    3/4 EntryNormal ""
+  ]
+> 3 receiving messages
+  1->3 MsgApp Term:3 Log:1/2 Commit:2 Entries:[
+    1/3 EntryNormal ""
+    3/4 EntryNormal ""
+  ]
+> 3 handling Ready
+  Ready MustSync=true:
+  Entries:
+  1/3 EntryNormal ""
+  3/4 EntryNormal ""
+  Messages:
+  3->1 MsgAppResp Term:3 Log:0/4
+> 1 receiving messages
+  3->1 MsgAppResp Term:3 Log:0/4
+> 1 handling Ready
+  Ready MustSync=false:
+  HardState Term:3 Vote:1 Commit:4
+  CommittedEntries:
+  1/3 EntryNormal ""
+  3/4 EntryNormal ""
+  Messages:
+  1->3 MsgApp Term:3 Log:3/4 Commit:4
+> 3 receiving messages
+  1->3 MsgApp Term:3 Log:3/4 Commit:4
+> 3 handling Ready
+  Ready MustSync=false:
+  HardState Term:3 Vote:1 Commit:4
+  CommittedEntries:
+  1/3 EntryNormal ""
+  3/4 EntryNormal ""
+  Messages:
+  3->1 MsgAppResp Term:3 Log:0/4
+> 1 receiving messages
+  3->1 MsgAppResp Term:3 Log:0/4
+
+raft-state
+----
+1: StateLeader (Voter) Term:3 Lead:1
+2: StateLeader (Voter) Term:2 Lead:2
+3: StateFollower (Voter) Term:3 Lead:1
+
+raft-log 1
+----
+1/3 EntryNormal ""
+3/4 EntryNormal ""
+
+raft-log 2
+----
+2/3 EntryNormal ""
+
+raft-log 3
+----
+1/3 EntryNormal ""
+3/4 EntryNormal ""
