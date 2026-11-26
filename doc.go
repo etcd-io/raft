@@ -191,10 +191,13 @@ messages, which target a LocalAppendThread and carry Entries, HardState, and a
 Snapshot. The second flavor is entry application messages, which target a
 LocalApplyThread and carry CommittedEntries. Messages to the same target must be
 reliably processed in order. Messages to different targets can be processed in
-any order.
+any order, with one exception: a Snapshot must not be applied to the state
+machine until the CommittedEntries of every earlier entry application message
+have been applied to it. The Snapshot already includes those entries and later
+ones, so applying it first would apply them again, out of order.
 
 Each local storage message carries a slice of response messages that must
-delivered after the corresponding storage write has been completed. These
+be delivered after the corresponding storage write has been completed. These
 responses may target the same node or may target other nodes.
 
 With Asynchronous Storage Writes enabled, the total state machine handling loop
@@ -230,6 +233,10 @@ application to the local state machine (apply). Those will look something like:
 	    select {
 	    case m := <-toAppend:
 	      saveToStorage(m.State, m.GetEntries(), m.GetSnapshot())
+	      if !raft.IsEmptySnap(m.GetSnapshot()) {
+	        waitForApplyThread() // until earlier CommittedEntries are applied
+	        processSnapshot(m.GetSnapshot())
+	      }
 	      send(m.GetResponses())
 	    case <-s.done:
 	      return
