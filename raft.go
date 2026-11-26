@@ -164,7 +164,8 @@ type Config struct {
 	// and a LocalApplyThread, respectively. Messages to the same target must be
 	// reliably processed in order. In other words, they can't be dropped (like
 	// messages over the network) and those targeted at the same thread can't be
-	// reordered. Messages to different targets can be processed in any order.
+	// reordered. Messages to different targets can be processed in any order,
+	// with one exception for applying snapshots, described below.
 	//
 	// MsgStorageAppend carries Raft log entries to append, election votes /
 	// term changes / updated commit indexes to persist, and snapshots to apply.
@@ -172,6 +173,13 @@ type Config struct {
 	// before response messages are delivered. However, if the MsgStorageAppend
 	// carries no response messages, durability is not required. The message
 	// assumes the role of the Entries, HardState, and Snapshot fields in Ready.
+	//
+	// A snapshot must not be applied to the state machine until the committed
+	// entries of every earlier MsgStorageApply have been applied to it. A
+	// MsgStorageAppend can carry a snapshot while the entries of an earlier
+	// MsgStorageApply are still being applied. The snapshot already includes
+	// those entries and later ones, so applying it first would apply them
+	// again, out of order.
 	//
 	// MsgStorageApply carries committed entries to apply. Writes performed in
 	// service of a MsgStorageApply need not be durable before response messages
