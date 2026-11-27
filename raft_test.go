@@ -1177,6 +1177,35 @@ func TestHandleMsgApp(t *testing.T) {
 	}
 }
 
+// TestHandleMsgAppNonContiguousEntries ensures that a MsgApp whose entries do
+// not directly follow the previous entry is ignored, and in particular does not
+// commit local entries that the message did not carry.
+func TestHandleMsgAppNonContiguousEntries(t *testing.T) {
+	local := index(1).terms(1, 1, 1, 1, 1, 2, 2, 2, 2, 2)
+	for _, tt := range []struct {
+		name    string
+		entries []*pb.Entry
+	}{
+		{"repeated", []*pb.Entry{local[4], local[4], local[4], local[4], local[4]}},
+		{"gap", []*pb.Entry{local[5], local[7], local[8], local[9], local[9]}},
+		{"backwards", []*pb.Entry{local[4]}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			storage := newTestMemoryStorage(withPeers(1, 2))
+			require.NoError(t, storage.Append(local))
+			sm := newTestRaft(1, 10, 1, storage)
+			sm.becomeFollower(3, 2)
+			sm.raftLog.commitTo(5)
+
+			require.NoError(t, sm.Step(&pb.Message{From: new(uint64(2)), To: new(uint64(1)), Type: pb.MsgApp.Enum(),
+				Term: new(uint64(3)), LogTerm: new(uint64(1)), Index: new(uint64(5)), Commit: new(uint64(10)), Entries: tt.entries}))
+			assert.Equal(t, uint64(5), sm.raftLog.committed)
+			assert.Equal(t, uint64(10), sm.raftLog.lastIndex())
+			assert.Empty(t, sm.readMessages())
+		})
+	}
+}
+
 // TestHandleHeartbeat ensures that the follower commits to the commit in the message.
 func TestHandleHeartbeat(t *testing.T) {
 	commit := uint64(2)

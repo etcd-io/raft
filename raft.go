@@ -1784,6 +1784,15 @@ func (r *raft) handleAppendEntries(m *pb.Message) {
 	// TODO(pav-kv): construct logSlice up the stack next to receiving the
 	// message, and validate it before taking any action (e.g. bumping term).
 	a := logSliceFromMsgApp(m)
+	// The entries must directly follow a.prev. Otherwise maybeAppend could
+	// commit indices that the message did not carry.
+	for i, e := range a.entries {
+		if want := a.prev.index + 1 + uint64(i); e.GetIndex() != want {
+			r.logger.Warningf("%x ignored MsgApp from %x with non-contiguous entries: entry %d has index %d, want %d",
+				r.id, m.GetFrom(), i, e.GetIndex(), want)
+			return
+		}
+	}
 
 	if a.prev.index < r.raftLog.committed {
 		r.send(&pb.Message{To: m.From, Type: pb.MsgAppResp.Enum(), Index: new(r.raftLog.committed)})
