@@ -2260,6 +2260,34 @@ func TestReadOnlyDuplicateRequest(t *testing.T) {
 	}
 }
 
+// TestReadOnlyMalformedHeartbeatRespContext ensures that a heartbeat response
+// whose context is not a valid read-only context neither panics the leader nor
+// confirms a pending read.
+func TestReadOnlyMalformedHeartbeatRespContext(t *testing.T) {
+	r := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1, 2)))
+	r.becomeCandidate()
+	r.becomeLeader()
+	r.raftLog.commitTo(r.raftLog.lastIndex())
+
+	require.NoError(t, r.Step(&pb.Message{From: new(uint64(2)), Type: pb.MsgReadIndex.Enum(),
+		Entries: []*pb.Entry{{Data: []byte("ctx")}}}))
+	msgs := r.readMessages()
+	require.Len(t, msgs, 1)
+	require.Equal(t, pb.MsgHeartbeat, msgs[0].GetType())
+	ctx := msgs[0].GetContext()
+	require.Len(t, ctx, 8)
+
+	for _, bad := range [][]byte{{1}, ctx[:7], append(slices.Clone(ctx), 0)} {
+		require.NotPanics(t, func() {
+			require.NoError(t, r.Step(&pb.Message{From: new(uint64(2)), Type: pb.MsgHeartbeatResp.Enum(), Context: bad}))
+		})
+		assert.Len(t, r.readOnly.unconfirmedReads, 1)
+	}
+
+	require.NoError(t, r.Step(&pb.Message{From: new(uint64(2)), Type: pb.MsgHeartbeatResp.Enum(), Context: ctx}))
+	assert.Empty(t, r.readOnly.unconfirmedReads)
+}
+
 // TestReadOnlyForRemovedLeader ensures that the read index of a leader that
 // removed itself includes the entries the remaining voter has committed since.
 func TestReadOnlyForRemovedLeader(t *testing.T) {
