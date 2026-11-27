@@ -62,8 +62,10 @@ func (ro *readOnly) addRequest(commitIndex uint64, req *pb.Message) {
 }
 
 // recvAck notifies the `readOnly` of an acknowledgment of a heartbeat response.
+// A context that is not exactly 8 bytes long is not one produced by
+// heartbeatCtx and is ignored.
 func (ro *readOnly) recvAck(from uint64, ctx []byte) {
-	if len(ctx) != 0 {
+	if len(ctx) == 8 {
 		ro.acks[from] = max(ro.acks[from], binary.LittleEndian.Uint64(ctx))
 	}
 }
